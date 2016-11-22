@@ -1,0 +1,584 @@
+#include "affinity_check.hpp"
+
+// this is needed to enable the GNU extensions, e.g., pthread_foo_np
+#ifndef _GNU_SOURCE
+  #define _GNU_SOURCE
+#endif
+
+#include <pthread.h>
+
+#include <sys/types.h>   // for pid_t
+#include <unistd.h>      // syscall
+#include <sys/syscall.h> // SYS_gettid
+
+
+#include <set>       // set
+#include <algorithm> // set_difference
+#include <iostream>  // endl
+
+// use OpenMP
+// TODO: Make this more generic without depending on Kokkos
+// Can C++11 support everything?  (No,still uses sched_getAffinity)
+#include <omp.h>
+
+#include <chrono>
+#include <ctime>
+
+#include <fstream>
+
+#include "mpi_local_ranks.hpp"
+
+
+
+namespace PerfUtils {
+
+// whether to use GNU Pthread to get affinity
+// if undef, use linux syscall
+#define USE_PTHREAD_AFFINITY
+
+// local function
+
+std::string get_process_affinity_csv_banner ();
+std::string get_process_affinity_csv_string (const cpu_map_type& a, MPI_Comm& nodeComm);
+void vector_gatherv (const std::vector<int>& local_vec, std::vector<int>& global_vec, MPI_Comm& nodeComm);
+
+// this uses a **LINUX** sycall, and will likely not work on no Linux OSes
+void gather_affinity_linux_syscall (cpu_map_type& cpu_map)
+{
+  cpu_map.clear ();
+
+  omp_lock_t map_lock;
+  omp_init_lock(&map_lock);
+
+  // still enter a parallel region. This makes an implicit assumption
+  // that the underlying thread model will support gettid()
+  #pragma omp parallel
+  {
+    // get the logical thread ID
+    int tid = omp_get_thread_num ();
+
+    // for this thread, query its cpuset
+    cpu_set_t my_cpuset;
+    CPU_ZERO(&my_cpuset);
+
+    // this requries the posix thread API
+    pid_t thread = syscall(SYS_gettid);
+
+    int s = sched_getaffinity (thread, sizeof(cpu_set_t), &my_cpuset);
+
+    if (s != 0)
+      do { errno = s; perror("sched_getaffinity"); exit(EXIT_FAILURE); } while (0);
+
+    // for each entry in the CPUset, see which execution units this thread is allowed
+    // to execute on.
+    for (int j = 0; j < CPU_SETSIZE; j++)
+    {
+      if (CPU_ISSET(j, &my_cpuset))
+      {
+        // if a thread is allowed, add this cpu-id to the map under
+        // this logical thread-id. This is *not* one to one, as threads may
+        // be bound at the core or socket level
+        // the cpu map is also shared, so use a lock to modify it.
+        omp_set_lock(&map_lock);
+          cpu_map.insert( std::make_pair(tid,j) );
+        omp_unset_lock(&map_lock);
+      }
+    }
+  }
+
+  omp_destroy_lock(&map_lock);
+}
+
+// This uses a GNU extension to pthreads, again not portable ... ugh
+void gather_affinity_pthread (cpu_map_type& cpu_map)
+{
+  cpu_map.clear ();
+
+  omp_lock_t map_lock;
+  omp_init_lock(&map_lock);
+
+  // open a parallel region, this will activate whatever threads have been created
+  // This assumes kokkos has been initialized, if not this call will spawn
+  // and bind threads.
+  #pragma omp parallel
+  {
+    // get the logical thread ID
+    int tid = omp_get_thread_num ();
+
+    // for this thread, query its cpuset
+    cpu_set_t my_cpuset;
+    CPU_ZERO(&my_cpuset);
+
+    // this requries the posix thread API
+    pthread_t thread = pthread_self ();
+    int s = pthread_getaffinity_np(thread, sizeof(cpu_set_t), &my_cpuset);
+
+    if (s != 0)
+      do { errno = s; perror("pthread_getaffinity"); exit(EXIT_FAILURE); } while (0);
+
+    // for each entry in the CPUset, see which execution units this thread is allowed
+    // to execute on.
+    for (int j = 0; j < CPU_SETSIZE; j++)
+    {
+      if (CPU_ISSET(j, &my_cpuset))
+      {
+        // if a thread is allowed, add this cpu-id to the map under
+        // this logical thread-id. This is *not* one to one, as threads may
+        // be bound at the core or socket level
+        // the cpu map is also shared, so use a lock to modify it.
+        omp_set_lock(&map_lock);
+          cpu_map.insert( std::make_pair(tid,j) );
+        omp_unset_lock(&map_lock);
+      }
+    }
+  }
+
+  omp_destroy_lock(&map_lock);
+}
+
+/*! \brief Compare two process affinity maps
+ *
+ * A cpu map is a multiset, with threads potentially mapped to the same hardware.
+ * E.g., if threads are bound to cores and hardware threads are enabled, then
+ * the logical threads mapping to each hyper thread will both be mapped to the same
+ * physical execution units. If threads are bound to hardware threads, then these
+ */
+bool compare_affinity (const cpu_map_type& a, const cpu_map_type& b)
+{
+  if (a.size () != b.size ())
+    return (false);
+
+  using std::set;
+  using std::set_difference;
+  typedef set<cpu_map_type::value_type> cpu_set_type;
+
+  // there are multiple ways to test that the sets are equal
+  // This way simply finds elements that are in set1 but not in set2
+  // Then, the elements that are in set2 but not in set1.
+  // Another test would be to ensure that the cardinality of the intersection
+  // is the same as the cardinality of each set (e.g., they are all the same)
+  cpu_map_type result;
+  cpu_set_type s1 (a.cbegin(), a.cend());
+  cpu_set_type s2 (b.cbegin(), b.cend());
+
+  set_difference (s1.begin(), s1.end(),
+                  s2.begin(), s2.end(),
+                  std::inserter (result, result.end()));
+
+  set_difference (s2.begin(), s2.end(),
+                  s1.begin(), s1.end(),
+                  std::inserter (result, result.end()));
+
+
+  return result.empty ();
+}
+
+void print_affinity (std::stringstream& oss, const cpu_map_type& a)
+{
+  auto iter = a.cbegin ();
+  int tid = -1;
+  int tid_count = 0;
+  for(; iter != a.end (); iter++)
+  {
+    if (tid != iter->first)
+    {
+      if (tid_count > 0)
+        oss << "}" << std::endl;
+
+      oss << iter->first << " bound to {";
+      tid_count = 0;
+    }
+
+    if (tid_count > 0)
+      oss << ",";
+
+    oss << iter->second;
+
+    tid = iter->first;
+    tid_count++;
+  }
+
+  if (tid > 0)
+  {
+    oss << "}" << std::endl;
+  }
+}
+
+//// convert the map into a list of cpu_ids
+//// record the indices where different thread's affinities begin.
+//void cpu_map_to_vector (const cpu_map_type& cpu_map,
+//                        std::vector<int>& displacements,
+//                        std::vector<int>& tids,
+//                        std::vector<int>& affinities)
+//{
+//  int prior_tid = -1;
+//  // maps have a guaranteed ordering
+//  for (const auto& kv : cpu_map) {
+//    const auto tid = kv.first;
+//    const auto cpu_id = kv.second;
+//
+//    // if this is a new tid, then store its displacement in the affinity vector
+//    if (tid != prior_tid)
+//    {
+//      const int displacement = affinities.size ();
+//      displacements.push_back (displacement);
+//      tids.push_back (tid);
+//      prior_tid = tid;
+//    }
+//
+//    affinities.push_back (cpu_id);
+//  }
+//}
+//
+//// convert the map into a list of cpu_ids
+//// record the indices where different thread's affinities begin.
+//void gather_nodal_affinties (const cpu_map_type& cpu_map,
+//                                   node_affinity_type& node_map,
+//                                   MPI_Comm& nodeComm)
+//{
+//  std::vector<int> local_displacements;
+//  std::vector<int> local_tids;
+//  std::vector<int> local_affinities;
+//
+//  std::vector<int> node_displacements;
+//  std::vector<int> node_tids;
+//  std::vector<int> node_affinities;
+//
+//  cpu_map_to_vector (cpu_map,
+//                     local_displacements,
+//                     local_tids,
+//                     local_affinities);
+//
+//  vector_gatherv (local_displacements, node_displacements, nodeComm);
+//  vector_gatherv (local_tids, node_tids, nodeComm);
+//  vector_gatherv (local_affinities, node_affinities, nodeComm);
+//
+//
+//
+//}
+//
+//void vector_gatherv (const std::vector<int>& local_vec, std::vector<int>& global_vec, MPI_Comm& nodeComm)
+//{
+//  int commSize;
+//  MPI_Comm_size (nodeComm, &commSize);
+//
+//  std::vector<int> vec_sizes;
+//  vec_sizes.reserve (commSize);
+//  vec_sizes.resize (commSize);
+//  std::vector<int> vec_displ;
+//  vec_displ.reserve (commSize);
+//  vec_displ.resize (commSize);
+//
+//  int vec_size = local_vec.size ();
+//  int global_size = 0;
+//
+//  // gather the sizes from our neighbors
+//  MPI_Gather(
+//    &vec_size,
+//    1,
+//    MPI_INT,
+//    &vec_sizes[0],
+//    1,
+//    MPI_INT,
+//    0,
+//    MPI_COMM_WORLD);
+//
+//  for (int i=0; i < vec_sizes.size (); ++i)
+//  {
+//    vec_displ[i] = global_size;
+//    global_size += vec_sizes[i];
+//  }
+//
+//  global_vec.reserve (global_size);
+//  global_vec.resize (global_size);
+//
+//  // gather the data
+//  MPI_Gatherv(
+//    &local_vec[0],
+//    vec_size,
+//    MPI_INT,
+//    &global_vec[0],
+//    &vec_sizes[0],
+//    &vec_displ[0],
+//    MPI_INT,
+//    0,
+//    MPI_COMM_WORLD
+//  );
+//}
+//void analyze_node_affinities (cpu_map_type& local_cpu_map,
+//                              std::vector<cpu_map_type>& node_cpu_map,
+//                              MPI_Comm& nodeComm)
+//{
+//
+//  // convert the map into a vector and record the offsets for each thread's entries
+//  std::vector<int> displacements;
+//  std::vector<int> affinities;
+//  cpu_map_to_vector (local_cpu_map, displacements, affinities);
+//
+//  // gather this information at a node level
+//  int nodeRank;
+//  MPI_Comm_size (nodeComm, &nodeRank);
+//  int nodeSize;
+//  MPI_Comm_size (nodeComm, &nodeSize);
+//
+//
+//  int myLengths[2];
+//  myLengths[0] = displacements.size ();
+//  myLengths[2] = affinities.size ();
+//
+//  std::vector<int> node_displ_aff_lengths;
+//  node_displ_aff_lengths.reserve (nodeSize*2);
+//  node_displ_aff_lengths.resize (nodeSize*2);
+//
+//  MPI_Gather(
+//    myLengths,
+//    2,
+//    MPI_INT,
+//    &node_displ_aff_lengths[0],
+//    2,
+//    MPI_INT,
+//    0,
+//    MPI_COMM_WORLD);
+//
+//  std::vector<int> node_displacements;
+//  std::vector<int> node_affinities;
+//
+//  int total_node_displ_size = 0;
+//  int total_node_affinity_size = 0;
+//
+//  for (int i=0; i < node_displ_aff_lengths.size (); ++i)
+//  {
+//    char_displacements[i] = total_chars;
+//    total_chars += string_sizes[i];
+//  }
+//
+//  std::vector<int> node_displacements;
+//  std::vector<int> node_affinities;
+//}
+// get the local affinity information
+void write_affinity_csv (const std::string filename)
+{
+  using oss_t = std::ostringstream;
+
+  // obtain a node communicator
+  MPI_Comm nodeComm;
+  get_node_mpi_comm (&nodeComm);
+
+  // first collect the affinity information
+  cpu_map_type cpu_map;
+
+  // there is not a clear portable way to do this.
+  // Option 1, uses a GNU extension to pthreads
+  // option 2, makes a linux system call
+  #ifdef USE_PTHREAD_AFFINITY
+    gather_affinity_pthread (cpu_map);
+  #else
+    gather_affinity_linux_syscall (cpu_map);
+  #endif
+
+  // each process gets their affinity as a string
+  const std::string process_affintiy_str = get_process_affinity_csv_string (cpu_map, nodeComm);
+
+  // on rank 0, gather all strings and write the file
+  int myRank;
+  MPI_Comm_rank (MPI_COMM_WORLD, &myRank);
+  int mySize;
+  MPI_Comm_size (MPI_COMM_WORLD, &mySize);
+
+  // share the length of each string with rank 0
+  std::vector<int> string_sizes (mySize);
+  string_sizes.reserve (mySize);
+  string_sizes.resize (mySize);
+  std::vector<int> char_displacements (mySize);
+  char_displacements.reserve (mySize);
+  char_displacements.resize (mySize);
+
+  const char * my_c_str = process_affintiy_str.c_str ();
+  // we do not need to send the null terminator, but we should append
+  // it to the gathered large string
+  int my_str_length = std::char_traits<char>::length (my_c_str);
+
+  MPI_Gather(
+    &my_str_length,
+    1,
+    MPI_INT,
+    &string_sizes[0],
+    1,
+    MPI_INT,
+    0,
+    MPI_COMM_WORLD);
+
+  int total_chars = 0;
+  for (int i=0; i < string_sizes.size (); ++i)
+  {
+    char_displacements[i] = total_chars;
+    total_chars += string_sizes[i];
+  }
+
+  // allocate storage
+  std::vector<char> collected_strings (total_chars+1);
+  collected_strings.reserve (total_chars+1);
+  collected_strings.resize (total_chars+1);
+  collected_strings[total_chars] = '\0'; // add the terminator
+
+  MPI_Gather(
+    &my_str_length,
+    1,
+    MPI_INT,
+    &string_sizes[0],
+    1,
+    MPI_INT,
+    0,
+    MPI_COMM_WORLD);
+
+  MPI_Gatherv(
+    my_c_str,
+    my_str_length,
+    MPI_CHAR,
+    &collected_strings[0],
+    &string_sizes[0],
+    &char_displacements[0],
+    MPI_CHAR,
+    0,
+    MPI_COMM_WORLD
+  );
+
+  if (myRank == 0) {
+    using std::ofstream;
+
+    ofstream csv_file;
+    csv_file.open (filename);
+
+    std::string all_data (&collected_strings[0]);
+    csv_file << get_process_affinity_csv_banner ()
+             << std::endl
+             << all_data;
+    csv_file.close();
+  }
+
+}
+
+std::string get_process_affinity_csv_banner ()
+{
+  return "MPI_comm_rank, MPI_Comm_size, local_size, local_rank, hostname, Timestamp, thread_id, affinity set";
+}
+
+// get the local affinity information
+std::string get_process_affinity_csv_string (const cpu_map_type& a, MPI_Comm& nodeComm)
+{
+  using oss_t = std::ostringstream;
+
+  // output data as
+  // MPI_comm_rank, MPI_Comm_size, local_size, Local_rank, hostname, Timestamp, thread_id, affinity set
+  int myRank;
+  int mySize;
+  MPI_Comm_rank (MPI_COMM_WORLD, &myRank);
+  MPI_Comm_size (MPI_COMM_WORLD, &mySize);
+  const int local_rank = get_local_rank (nodeComm);
+  const int local_procs = get_local_size (nodeComm);
+  const std::string hostname = getHostname ();
+  const std::string timestamp = getCurrentTimeString ();
+
+  oss_t oss;
+
+  auto iter = a.cbegin ();
+  int tid = -1;
+  int tid_count = 0;
+  for(; iter != a.end (); iter++)
+  {
+    if (tid != iter->first)
+    {
+      if (tid_count > 0)
+        oss << std::endl;
+
+      tid = iter->first;
+
+      // start a new row
+      oss   << myRank
+          << ","
+            << mySize
+          << ","
+            << local_procs
+          << ","
+            << local_rank
+          << ","
+            << "\""
+            << hostname
+            << "\""
+          << ","
+            << "\""
+            << timestamp
+            << "\""
+          << ","
+            << tid
+          << ",";
+
+      tid_count = 0;
+    }
+
+    // use something to separate cpu_sets (something that is not a CSV separator)
+    if (tid_count > 0)
+      oss << "|";
+
+    oss << iter->second;
+
+    tid_count++;
+  }
+
+  if (tid > 0)
+  {
+    oss << std::endl;
+  }
+
+  return oss.str ();
+}
+
+// C++11's standard output lacks precision finer than a second.
+// This method from stackexchange seems to be the least convoluted
+// http://stackoverflow.com/questions/12835577/how-to-convert-stdchronotime-point-to-calendar-datetime-string-with-fraction
+//
+std::string getCurrentTimeString ()
+{
+  using clock = std::chrono::system_clock;
+  using time_point = clock::time_point;
+  using oss_t = std::ostringstream;
+
+  time_point current = std::chrono::system_clock::now();
+
+  // Convert std::chrono::system_clock::time_point to std::time_t
+  time_t tt = clock::to_time_t(current);
+  // Convert std::time_t to std::tm (popular extension)
+  std::tm tm = std::tm{0};
+  gmtime_r(&tt, &tm);
+
+  oss_t oss;
+
+  // Output month
+  oss << tm.tm_mon + 1 << '-';
+  // Output day
+  oss << tm.tm_mday << '-';
+  // Output year
+  oss << tm.tm_year+1900 << ' ';
+  // Output hour
+  if (tm.tm_hour <= 9)
+    oss << '0';
+  oss << tm.tm_hour << ':';
+  // Output minute
+  if (tm.tm_min <= 9)
+    oss << '0';
+  oss << tm.tm_min << ':';
+  // Output seconds with fraction
+  //   This is the heart of the question/answer.
+  //   First create a double-based second
+  std::chrono::duration<double> sec = current -
+                                 clock::from_time_t(tt) +
+                                 std::chrono::seconds(tm.tm_sec);
+  //   Then print out that double using whatever format you prefer.
+  if (sec.count() < 10)
+     oss << '0';
+  oss << std::fixed << sec.count();
+
+  return oss.str ();
+}
+
+} // end namespace PerfUtils
