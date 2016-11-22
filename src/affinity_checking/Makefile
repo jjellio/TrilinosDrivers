@@ -5,11 +5,13 @@ SRC = affinity_check.cpp \
 
 OBJ:= $(SRC:.cpp=.o)
 
+CXXFLAGS=-fopenmp -std=c++11 -O3 -I. -Wall -pedantic
+
 %.o: %.cpp $(SRC)
-	mpicxx -fopenmp -std=c++11 -O3 -I. -c -o $@ $<
+	mpicxx $(CXXFLAGS) -c -o $@ $<
 
 driver: $(OBJ)
-	mpicxx -fopenmp -std=c++11 -o $@ $^
+	mpicxx $(CXXFLAGS) -o $@ $^
 
 
 clean:

@@ -358,8 +358,6 @@ void print_affinity (std::stringstream& oss, const cpu_map_type& a)
 // get the local affinity information
 void write_affinity_csv (const std::string filename)
 {
-  using oss_t = std::ostringstream;
-
   // obtain a node communicator
   MPI_Comm nodeComm;
   get_node_mpi_comm (&nodeComm);
@@ -409,7 +407,7 @@ void write_affinity_csv (const std::string filename)
     MPI_COMM_WORLD);
 
   int total_chars = 0;
-  for (int i=0; i < string_sizes.size (); ++i)
+  for (size_t i=0; i < string_sizes.size (); ++i)
   {
     char_displacements[i] = total_chars;
     total_chars += string_sizes[i];
