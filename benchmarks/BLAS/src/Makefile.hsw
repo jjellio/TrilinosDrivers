@@ -1,0 +1,75 @@
+ARCH_NAME=hsw
+
+GNU_CXXFLAGS = -std=c++11 -O3 -mtune=native -march=native -fopenmp -g -Wall -DFORTRAN_NEEDS_UNDERSCORE -DHAVE_MPI
+INTEL_CXXFLAGS = -std=c++11 -xCORE-AVX2 -O3 -qopenmp -g -Wall -DFORTRAN_NEEDS_UNDERSCORE -DHAVE_MPI
+INTEL_GNU_CXXFLAGS= -std=c++11 -xCORE-AVX2 -O3 -fopenmp -g -Wall -DFORTRAN_NEEDS_UNDERSCORE -DHAVE_MPI
+CRAY_CXXFLAGS = -hstd=c++11 -O3 -homp -g -DFORTRAN_NEEDS_UNDERSCORE -DHAVE_MPI
+
+OPENBLAS_OBJS = BlasTests.openblas.o
+MKL_INTEL_OBJS = BlasTests.mkl_intel.o
+LIBSCI_INTEL_OBJS = BlasTests.libsci_intel.o
+LIBSCI_CRAY_OBJS = BlasTests.libsci_cray.o
+
+SRCS = BlasTests.cpp
+
+OPENBLAS_LIBS = ${HOME}/src/OpenBLAS/libopenblas.a -fopenmp
+
+# order: mkl_intel_lp64;mkl_intel_thread;mkl_core;iomp5;pthread
+MKL_INTEL_LIBS = $(MKLROOT)/lib/intel64/libmkl_intel_lp64.a $(MKLROOT)/lib/intel64/libmkl_intel_thread.a $(MKLROOT)/lib/intel64/libmkl_core.a -liomp5 -lpthread -lm -ldl -qopenmp
+MKL_GNU_LIBS = $(MKLROOT)/lib/intel64/libmkl_intel_lp64.a $(MKLROOT)/lib/intel64/libmkl_gnu_thread.a $(MKLROOT)/lib/intel64/libmkl_core.a -lgomp -lpthread -lm -ldl -fopenmp
+
+
+openblas_TARGET = BlasTests.openblas_$(ARCH_NAME)
+mkl_intel_TARGET = BlasTests.mkl_intel_$(ARCH_NAME)
+mkl_gnu_TARGET = BlasTests.mkl_gnu_$(ARCH_NAME)
+libsci_intel_TARGET = BlasTests.libsci_intel_$(ARCH_NAME)
+libsci_cray_TARGET = BlasTests.libsci_cray_$(ARCH_NAME)
+
+
+$(openblas_TARGET) : $(OPENBLAS_OBJS)
+	CC -mkl $(GNU_CXXFLAGS) -o $(openblas_TARGET) $(OPENBLAS_OBJS) $(OPENBLAS_LIBS)
+
+$(OPENBLAS_OBJS): $(SRCS)
+	CC -mkl -c $(GNU_CXXFLAGS) $(SRCS) -o $(OPENBLAS_OBJS)
+
+$(mkl_intel_TARGET) : $(MKL_INTEL_OBJS)
+	CC -mkl  $(INTEL_CXXFLAGS) -o $(mkl_intel_TARGET) $(MKL_INTEL_OBJS) $(MKL_INTEL_LIBS)
+
+$(MKL_INTEL_OBJS): $(SRCS)
+	CC -DMKL_LIB -mkl -c $(INTEL_CXXFLAGS) $(SRCS) -o $(MKL_INTEL_OBJS)
+
+$(mkl_gnu_TARGET) : $(MKL_GNU_OBJS)
+	CC -mkl -o $(mkl_gnu_TARGET) $(MKL_GNU_OBJS) $(MKL_GNU_LIBS)
+
+$(MKL_GNU_OBJS): $(SRCS)
+	CC -DMKL_LIB -mkl -c $(INTEL_GNU_CXXFLAGS) $(SRCS) -o $(MKL_GNU_OBJS)
+
+
+$(LIBSCI_INTEL_OBJS): $(SRCS)
+	CC -DLIBSCI_LIB -DLIBSCI_VERSION=\"${LIBSCI_VERSION}\" -c $(INTEL_CXXFLAGS) $(SRCS) -o $(LIBSCI_INTEL_OBJS)
+
+
+$(libsci_intel_TARGET) : $(LIBSCI_INTEL_OBJS)
+	CC -qopenmp -o $(libsci_intel_TARGET) $(LIBSCI_INTEL_OBJS)
+
+$(LIBSCI_CRAY_OBJS): $(SRCS)
+	CC -DLIBSCI_LIB -DLIBSCI_VERSION=\"${LIBSCI_VERSION}\" -c $(CRAY_CXXFLAGS) $(SRCS) -o $(LIBSCI_CRAY_OBJS)
+
+
+$(libsci_cray_TARGET) : $(LIBSCI_CRAY_OBJS)
+	CC -homp -o $(libsci_cray_TARGET) $(LIBSCI_CRAY_OBJS)
+
+
+mkl_gnu: $(mkl_gnu_TARGET)
+
+mkl: $(mkl_intel_TARGET)
+
+openblas: $(openblas_TARGET)
+
+libsci: $(libsci_intel_TARGET)
+
+libsci_cray: $(libsci_cray_TARGET)
+
+
+clean:
+	rm -f *.o $(openblas_TARGET) $(mkl_intel_TARGET) $(mkl_gnu_TARGET) $(libsci_intel_TARGET) $(libsci_cray_TARGET) 
