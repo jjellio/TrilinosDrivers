@@ -1,4 +1,10 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
+
+'''
+  This script is designed for Python2.7
+  On some systems, this entails using a provided 2.7 install,
+  and creating a virtual environment that has the required modules.
+'''
 
 import pandas as pd
 import numpy as np
@@ -34,8 +40,9 @@ mpl.rc('font', **font)
 pd.set_option('expand_frame_repr', False)
 
 
-def get_df(prefix='tmp-data', blaslib='mkl', threading='intel', arch='hsw', HT=1):
-  fname = 'BlasTests.{}_{}_{}-HT_{}_details.csv'.format(blaslib, threading, arch, HT)
+def get_df(prefix='tmp-data', blaslib='mkl', threading='intel', arch='hsw', HT=1,
+           nameMask='BlasTests.{}_{}_{}-HT_{}_details.csv'):
+  fname = nameMask.format(blaslib, threading, arch, HT)
   if prefix != '':
     fname = '{}/{}'.format(prefix, fname)
 
@@ -49,7 +56,7 @@ def get_df(prefix='tmp-data', blaslib='mkl', threading='intel', arch='hsw', HT=1
   df.loc[:, 'arch'] = arch
 
   df.loc[df['Label'] == 'A^t x X + 0*Y', 'Label'] = 'InnerProduct'
-  df.loc[df['Label'] == 'neg A x X + 1*Y', 'Label'] = 'Squash'
+  df.loc[df['Label'] == 'neg A x X + 1*Y', 'Label'] = 'Update'
   set_df_index(df)
   return (df)
 
@@ -68,6 +75,13 @@ def main():
   unified_df = pd.concat([unified_df, get_df(HT=2)])
   unified_df = pd.concat([unified_df, get_df(HT=3)])
   unified_df = pd.concat([unified_df, get_df(HT=4)])
+
+  nameMask = 'ortho_bench.{}_{}_{}-HT_{}_details.csv'
+  trilinos_df = pd.DataFrame()
+  trilinos_df = pd.concat([trilinos_df, get_df(HT=1, nameMask=nameMask)])
+  trilinos_df = pd.concat([trilinos_df, get_df(HT=2, nameMask=nameMask)])
+  trilinos_df = pd.concat([trilinos_df, get_df(HT=3, nameMask=nameMask)])
+  trilinos_df = pd.concat([trilinos_df, get_df(HT=4, nameMask=nameMask)])
 
   # we have lots to plot
   # Label, n, wait policy, and places identify unique sets of NPs to compare
@@ -91,15 +105,15 @@ def main():
                                                                                                                 place,
                                                                                                                 n)
           comparison_df = unified_df.query(query)
+          trilinos_comp_df = trilinos_df.query(query)
 
-          generateComparison(comparison_df, min1, max1)
+          generateComparison(comparison_df, min1, max1, trilinos_comp_df)
 
 # function for setting the colors of the box plots pairs
 def setBoxColors(bp, numPlots):
   from matplotlib.pyplot import setp
 
   for x in range(0, numPlots):
-    print x
     setp(bp['boxes'][x], color=COLORS[x])
     setp(bp['caps'][x*2], color=COLORS[x])
     setp(bp['caps'][x*2+1], color=COLORS[x])
@@ -109,7 +123,7 @@ def setBoxColors(bp, numPlots):
     setp(bp['medians'][x], color=COLORS[x])
 
 
-def generateComparison (df,gmin,gmax):
+def generateComparison (df,gmin,gmax, trilinos_comp_df):
   label  = df['Label'][0]
   policy = df['OMP_WAIT_POLICY'][0]
   place  = df['OMP_PLACES'][0]
@@ -162,8 +176,10 @@ def generateComparison (df,gmin,gmax):
                (gmin, gmax), color='gray', linestyle='dotted')
     position_idx += (numHTs+0.5)
 
+  # create custom xticks and labels
   plt.xticks(xtick_locs, xtick_labels)
   plt.xlim([xtick_locs[0]-(numHTs-1), position_idx])
+  # add padding above and below the max/min values
   dy = np.abs(gmax-gmin)/70
   plt.ylim([gmin-dy, gmax+dy])
   plt.title('{}\nArch={},Blas={},Threads={}\nWait={}, Places={}, NumVectors={}'.format(label,
@@ -187,6 +203,8 @@ def generateComparison (df,gmin,gmax):
   for h in handles:
     h.set_visible(False)
 
+  ax.get_yaxis().get_major_formatter().set_useOffset(False)
+  #ax.get_yaxis().get_major_formatter().set_scientific(False)
   plt.subplots_adjust(top=0.85)
   plt.tight_layout()
   plt.show()
