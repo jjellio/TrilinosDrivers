@@ -20,26 +20,25 @@ int main (int argc, char** argv)
 
   PerfUtils::gather_affinity_pthread (aff);
 
-  PerfUtils::print_affinity (oss, aff);
-  std::cout << oss.str () << std::endl;
+//  PerfUtils::print_affinity (oss, aff);
+//  std::cout << oss.str () << std::endl;
+//
+//  std::vector<int> local_displacements;
+//  std::vector<int> local_tids;
+//  std::vector<int> local_affinities;
+//
+//  PerfUtils::cpu_map_to_vector(aff, local_displacements, local_tids, local_affinities);
+//
+//  process_affinity_map_t aff2;
+//  PerfUtils::vector_to_cpu_map(aff2, local_displacements, local_tids, local_affinities);
+//
+//  oss.str ("");
+//  PerfUtils::print_affinity (oss, aff2);
+//  std::cout << oss.str () << std::endl;
 
-  std::vector<int> local_displacements;
-  std::vector<int> local_tids;
-  std::vector<int> local_affinities;
+  PerfUtils::analyze_node_affinities (aff);
 
-  PerfUtils::cpu_map_to_vector(aff, local_displacements, local_tids, local_affinities);
-
-  process_affinity_map_t aff2;
-  PerfUtils::vector_to_cpu_map(aff2, local_displacements, local_tids, local_affinities);
-
-  oss.str ("");
-  PerfUtils::print_affinity (oss, aff2);
-  std::cout << oss.str () << std::endl;
-
-  if (PerfUtils::analyze_node_affinities (aff) )
-    std::cout << "AFF OK" << std::endl;
-
-  write_affinity_csv ("test.csv");
+  write_affinity_csv ("affinity_details.csv");
 
   MPI_Finalize();
 }

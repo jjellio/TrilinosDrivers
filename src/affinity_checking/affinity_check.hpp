@@ -47,6 +47,8 @@ bool compare_affinity (const cpu_map_type& a, const cpu_map_type& b);
 
 void print_affinity (std::stringstream& oss, const cpu_map_type& a);
 
+// collective! gather each local rank's affinity and test that
+// there is no overlap. returns true if affinity is exclusive
 bool analyze_node_affinities (cpu_map_type& local_cpu_map);
 
 std::string getCurrentTimeString ();
