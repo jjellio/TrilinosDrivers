@@ -136,6 +136,29 @@ void gather_affinity_pthread (cpu_map_type& cpu_map)
   omp_destroy_lock(&map_lock);
 }
 
+bool check_exclusive_affinity (const cpu_map_type& a, const cpu_map_type& b)
+{
+
+  using std::set;
+  using std::set_intersection;
+  typedef set<cpu_map_type::value_type> cpu_set_type;
+
+  cpu_map_type result;
+  cpu_set_type s1 (a.cbegin(), a.cend());
+  cpu_set_type s2 (b.cbegin(), b.cend());
+
+  set_intersection (s1.begin(), s1.end(),
+                    s2.begin(), s2.end(),
+                    std::inserter (result, result.end()));
+
+  set_intersection (s2.begin(), s2.end(),
+                    s1.begin(), s1.end(),
+                    std::inserter (result, result.end()));
+
+  return (result.empty ());
+
+}
+
 /*! \brief Compare two process affinity maps
  *
  * A cpu map is a multiset, with threads potentially mapped to the same hardware.
@@ -204,31 +227,123 @@ void print_affinity (std::stringstream& oss, const cpu_map_type& a)
   }
 }
 
-//// convert the map into a list of cpu_ids
-//// record the indices where different thread's affinities begin.
-//void cpu_map_to_vector (const cpu_map_type& cpu_map,
-//                        std::vector<int>& displacements,
-//                        std::vector<int>& tids,
-//                        std::vector<int>& affinities)
-//{
-//  int prior_tid = -1;
-//  // maps have a guaranteed ordering
-//  for (const auto& kv : cpu_map) {
-//    const auto tid = kv.first;
-//    const auto cpu_id = kv.second;
-//
-//    // if this is a new tid, then store its displacement in the affinity vector
-//    if (tid != prior_tid)
-//    {
-//      const int displacement = affinities.size ();
-//      displacements.push_back (displacement);
-//      tids.push_back (tid);
-//      prior_tid = tid;
-//    }
-//
-//    affinities.push_back (cpu_id);
-//  }
-//}
+
+bool analyze_node_affinities (cpu_map_type& local_cpu_map)
+{
+  bool good_affinity = true;
+  // obtain a node communicator
+  MPI_Comm nodeComm;
+  get_node_mpi_comm (&nodeComm);
+
+  int nodeCommSize;
+  int nodeRank;
+  MPI_Comm_size(nodeComm, &nodeCommSize);
+  MPI_Comm_rank(nodeComm, &nodeRank);
+
+  std::vector<int> local_displacements;
+  std::vector<int> local_tids;
+  std::vector<int> local_affinities;
+
+
+  cpu_map_to_vector (local_cpu_map,
+                     local_displacements,
+                     local_tids,
+                     local_affinities);
+
+  // we expect all processes to have the same type of bindings.
+  // e.g., all should have the same size affinity maps
+  std::vector<int> remote_displacements(local_displacements.size(), -1);
+  std::vector<int> remote_tids(local_tids.size(), -1);
+  std::vector<int> remote_affinities(local_affinities.size(), -1);
+
+  // this is noisy on a node, but all communication is local
+  for(int remoteRank=0; remoteRank < nodeCommSize; ++remoteRank)
+  {
+    if (remoteRank == nodeRank)
+    {
+      // we are the sender
+      MPI_Bcast(&local_displacements[0], local_displacements.size(), MPI_INT, nodeRank, nodeComm);
+      MPI_Bcast(&local_tids[0]         , local_tids.size()         , MPI_INT, nodeRank, nodeComm);
+      MPI_Bcast(&local_affinities[0]   , local_affinities.size()   , MPI_INT, nodeRank, nodeComm);
+    }
+    else
+    {
+      // we are the receiver
+      MPI_Bcast(&remote_displacements[0], remote_displacements.size(), MPI_INT, remoteRank, nodeComm);
+      MPI_Bcast(&remote_tids[0]         , remote_tids.size()         , MPI_INT, remoteRank, nodeComm);
+      MPI_Bcast(&remote_affinities[0]   , remote_affinities.size()   , MPI_INT, remoteRank, nodeComm);
+      cpu_map_type remote_cpu_map;
+      vector_to_cpu_map (remote_cpu_map, remote_displacements, remote_tids, remote_affinities);
+      if (! check_exclusive_affinity (local_cpu_map, remote_cpu_map) )
+      {
+        std::stringstream ss;
+        int rank;
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+        ss << "Rank: " << rank << ", Local Rank: " << nodeRank << ". Bad affinity detected"
+            << std::endl
+            << "Local Affinity: " << std::endl;
+        print_affinity(ss, local_cpu_map);
+        ss << "Remote Affinity: (localRank = " << remoteRank << "):" << std::endl;
+        print_affinity(ss, remote_cpu_map);
+        std::cerr << ss.str ();
+
+        good_affinity = false;
+      }
+    }
+  }
+
+  return(good_affinity);
+}
+
+
+// convert the map into a list of cpu_ids
+// record the indices where different thread's affinities begin.
+void cpu_map_to_vector (const cpu_map_type& cpu_map,
+                        std::vector<int>& displacements,
+                        std::vector<int>& tids,
+                        std::vector<int>& affinities)
+{
+  int prior_tid = -1;
+  // maps have a guaranteed ordering
+  for (const auto& kv : cpu_map) {
+    const auto tid = kv.first;
+    const auto cpu_id = kv.second;
+
+    // if this is a new tid, then store its displacement in the affinity vector
+    if (tid != prior_tid)
+    {
+      const int displacement = affinities.size ();
+      if (displacement > 0)
+        displacements.push_back (displacement);
+      tids.push_back (tid);
+      prior_tid = tid;
+    }
+
+    affinities.push_back (cpu_id);
+  }
+}
+
+// convert the map into a list of cpu_ids
+// record the indices where different thread's affinities begin.
+void vector_to_cpu_map (cpu_map_type& cpu_map,
+                        const std::vector<int>& displacements,
+                        const std::vector<int>& tids,
+                        const std::vector<int>& affinities)
+{
+  cpu_map.clear ();
+  int didx = 0;
+  for(int idx=0; idx < affinities.size(); ++idx)
+  {
+    if (idx == displacements[didx])
+      ++didx;
+
+    int tid = tids[didx];
+
+    cpu_map.insert( std::make_pair(tid, affinities[idx]) );
+
+  }
+}
+
 //
 //// convert the map into a list of cpu_ids
 //// record the indices where different thread's affinities begin.
@@ -256,7 +371,7 @@ void print_affinity (std::stringstream& oss, const cpu_map_type& a)
 //
 //
 //}
-//
+
 //void vector_gatherv (const std::vector<int>& local_vec, std::vector<int>& global_vec, MPI_Comm& nodeComm)
 //{
 //  int commSize;
@@ -305,6 +420,7 @@ void print_affinity (std::stringstream& oss, const cpu_map_type& a)
 //    MPI_COMM_WORLD
 //  );
 //}
+
 //void analyze_node_affinities (cpu_map_type& local_cpu_map,
 //                              std::vector<cpu_map_type>& node_cpu_map,
 //                              MPI_Comm& nodeComm)
@@ -355,6 +471,7 @@ void print_affinity (std::stringstream& oss, const cpu_map_type& a)
 //  std::vector<int> node_displacements;
 //  std::vector<int> node_affinities;
 //}
+
 // get the local affinity information
 void write_affinity_csv (const std::string filename)
 {

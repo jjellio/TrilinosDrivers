@@ -4,6 +4,7 @@
 #include <map> // multimap
 #include <string>
 #include <sstream>  // ostringstream
+#include <vector>
 
 namespace PerfUtils {
 
@@ -46,9 +47,20 @@ bool compare_affinity (const cpu_map_type& a, const cpu_map_type& b);
 
 void print_affinity (std::stringstream& oss, const cpu_map_type& a);
 
+bool analyze_node_affinities (cpu_map_type& local_cpu_map);
+
 std::string getCurrentTimeString ();
 
 void write_affinity_csv (const std::string filename);
+
+void cpu_map_to_vector (const cpu_map_type&,
+                        std::vector<int>&,
+                        std::vector<int>&,
+                        std::vector<int>&);
+void vector_to_cpu_map (cpu_map_type&,
+                        const std::vector<int>&,
+                        const std::vector<int>&,
+                        const std::vector<int>&);
 
 } // end namespace PerfUtils
 
