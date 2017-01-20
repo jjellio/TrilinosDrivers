@@ -41,7 +41,8 @@ pd.set_option('expand_frame_repr', False)
 
 
 def get_df(prefix='tmp-data', blaslib='mkl', threading='intel', arch='hsw', HT=1,
-           nameMask='BlasTests.{}_{}_{}-HT_{}_details.csv'):
+           nameMask='BlasTests.{}_{}_{}-HT_{}_details.csv',
+           add_index=True):
   fname = nameMask.format(blaslib, threading, arch, HT)
   if prefix != '':
     fname = '{}/{}'.format(prefix, fname)
@@ -57,7 +58,10 @@ def get_df(prefix='tmp-data', blaslib='mkl', threading='intel', arch='hsw', HT=1
 
   df.loc[df['Label'] == 'A^t x X + 0*Y', 'Label'] = 'InnerProduct'
   df.loc[df['Label'] == 'neg A x X + 1*Y', 'Label'] = 'Update'
-  set_df_index(df)
+  df.loc[df['Label'] == 'innerProduct', 'Label'] = 'InnerProduct'
+  if add_index:
+    set_df_index(df)
+
   return (df)
 
 
@@ -69,6 +73,32 @@ def set_df_index(df):
   df.set_index(keys=['Label', 'OMP_WAIT_POLICY', 'OMP_PLACES', 'n', 'np'], drop=False, inplace=True)
 
 
+def aggregate_trilinos_df (trilinos_df, include_network=False):
+
+  # for this plotter, we focus on kernel performance not networking
+  network_df = trilinos_df[trilinos_df['detail_label'] == 'Tpetra::Multiply::internal_reduce']
+
+  gemm_df = trilinos_df[trilinos_df['detail_label'] == 'Tpetra::Multiply::gemm_device']
+  pre_gemm_df = trilinos_df[trilinos_df['detail_label'] == 'Tpetra::Multiply::pre_gemm']
+  post_gemm_df = trilinos_df[trilinos_df['detail_label'] == 'Tpetra::Multiply::post_gemm']
+  #
+  print gemm_df['time (ns)'].describe()
+  print pre_gemm_df['time (ns)'].describe()
+  print post_gemm_df['time (ns)'].describe()
+  print network_df['time (ns)'].describe()
+
+  if include_network:
+    foo = gemm_df['time (ns)'].values + pre_gemm_df['time (ns)'].values + post_gemm_df['time (ns)'].values + network_df['time (ns)'].values
+  else:
+    foo = gemm_df['time (ns)'].values + pre_gemm_df['time (ns)'].values + post_gemm_df['time (ns)'].values
+
+
+  print (len(foo))
+  print gemm_df['time (ns)'].count ()
+  gemm_df['time (ns)'] = foo
+
+  return gemm_df
+
 def main():
   unified_df = pd.DataFrame()
   unified_df = pd.concat([unified_df, get_df(HT=1)])
@@ -78,10 +108,10 @@ def main():
 
   nameMask = 'ortho_bench.{}_{}_{}-HT_{}_details.csv'
   trilinos_df = pd.DataFrame()
-  trilinos_df = pd.concat([trilinos_df, get_df(HT=1, nameMask=nameMask)])
-  trilinos_df = pd.concat([trilinos_df, get_df(HT=2, nameMask=nameMask)])
-  trilinos_df = pd.concat([trilinos_df, get_df(HT=3, nameMask=nameMask)])
-  trilinos_df = pd.concat([trilinos_df, get_df(HT=4, nameMask=nameMask)])
+  trilinos_df = pd.concat([trilinos_df, get_df(HT=1, nameMask=nameMask, add_index=False)])
+  trilinos_df = pd.concat([trilinos_df, get_df(HT=2, nameMask=nameMask, add_index=False)])
+  trilinos_df = pd.concat([trilinos_df, get_df(HT=3, nameMask=nameMask, add_index=False)])
+  trilinos_df = pd.concat([trilinos_df, get_df(HT=4, nameMask=nameMask, add_index=False)])
 
   # we have lots to plot
   # Label, n, wait policy, and places identify unique sets of NPs to compare
@@ -90,13 +120,22 @@ def main():
   unique_places = unified_df['OMP_PLACES'].unique()
   unique_n = unified_df['n'].unique()
 
+  # unified_df = unified_df[unified_df['np'] != 1]
+  # trilinos_df = trilinos_df[trilinos_df['np'] != 1]
+  trilinos_df = aggregate_trilinos_df(trilinos_df, include_network=True)
+
   for n in unique_n:
     if n == 1:
       continue
     for label in unique_labels:
       min_max_query = '(Label == \'{}\') & (n == {}) & (np != 1)'.format(label,n)
-      min1 = unified_df.query(min_max_query).loc[:, 'time (ns)'].min()
-      max1 = unified_df.query(min_max_query).loc[:, 'time (ns)'].max()
+      tmp = unified_df.query(min_max_query)
+      min1 = tmp.loc[:, 'time (ns)'].min()
+      max1 = tmp.loc[:, 'time (ns)'].max()
+
+      tmp = trilinos_df.query(min_max_query)
+      min1 = min(min1, tmp.loc[:, 'time (ns)'].min())
+      max1 = max(max1, tmp.loc[:, 'time (ns)'].max())
 
       for policy in unique_policy:
         for place in unique_places:
@@ -110,17 +149,22 @@ def main():
           generateComparison(comparison_df, min1, max1, trilinos_comp_df)
 
 # function for setting the colors of the box plots pairs
-def setBoxColors(bp, numPlots):
+def setBoxColors(bp, numPlots, trilinos=False):
   from matplotlib.pyplot import setp
 
   for x in range(0, numPlots):
-    setp(bp['boxes'][x], color=COLORS[x])
-    setp(bp['caps'][x*2], color=COLORS[x])
-    setp(bp['caps'][x*2+1], color=COLORS[x])
-    setp(bp['whiskers'][x*2], color=COLORS[x])
-    setp(bp['whiskers'][x*2+1], color=COLORS[x])
-    setp(bp['fliers'][x], color=COLORS[x])
-    setp(bp['medians'][x], color=COLORS[x])
+    if trilinos:
+      my_color = 'magenta'
+    else:
+      my_color = COLORS[x]
+
+    setp(bp['boxes'][x], color=my_color)
+    setp(bp['caps'][x*2], color=my_color)
+    setp(bp['caps'][x*2+1], color=my_color)
+    setp(bp['whiskers'][x*2], color=my_color)
+    setp(bp['whiskers'][x*2+1], color=my_color)
+    setp(bp['fliers'][x], color=my_color, markeredgecolor=my_color)
+    setp(bp['medians'][x], color=my_color)
 
 
 def generateComparison (df,gmin,gmax, trilinos_comp_df):
@@ -140,6 +184,7 @@ def generateComparison (df,gmin,gmax, trilinos_comp_df):
     gmin *= 1.e-3
     gmax *= 1.e-3
     df.loc[:, 'time (ns)'] *= 1.e-3
+    trilinos_comp_df.loc[:, 'time (ns)'] *= 1.e-3
     ylabel = 'Time in microseconds'
   else:
     ylabel = 'Time in nanoseconds'
@@ -155,18 +200,25 @@ def generateComparison (df,gmin,gmax, trilinos_comp_df):
   xtick_locs = []
   xtick_labels = []
 
+  tpl_outlier_props = dict(marker='o', markersize=8, linestyle='none')
+  trilinos_outlier_props = dict(marker='x', markersize=8, linestyle='none')
+
   for procs in numProcs:
     box_pair = []
+    trilinos_box_pair = []
     box_locs = []
     thread_counts = []
     for HT in myHTs:
       box_pair.append( df[(df['HT'] == HT) & (df['np'] == procs)]['time (ns)'].tolist() )
+      trilinos_box_pair.append( trilinos_comp_df[(trilinos_comp_df['HT'] == HT) & (trilinos_comp_df['np'] == procs)]['time (ns)'].tolist() )
       box_locs.append(position_idx+HT-1)
       thread_counts.append(df[(df['HT'] == HT) & (df['np'] == procs)]['OMP_NUM_THREADS'].unique()[0])
 
     # create a pair of boxplots [position_idx, position_idx+numHTs-1]
-    bp = plt.boxplot(box_pair, positions=box_locs, widths=0.75)
+    bp = plt.boxplot(box_pair, positions=box_locs, widths=0.75, flierprops=tpl_outlier_props)
     setBoxColors(bp, numHTs)
+    bp_tril = plt.boxplot(trilinos_box_pair, positions=box_locs, widths=0.75, flierprops=trilinos_outlier_props)
+    setBoxColors(bp_tril, numHTs, trilinos=True)
     xtick_locs.append(position_idx + (numHTs-1)/2.0)
     tmp_str = '  /  '.join(str(x) for x in thread_counts)
     xtick_labels.append('({})\n{}'.format(tmp_str,procs))
