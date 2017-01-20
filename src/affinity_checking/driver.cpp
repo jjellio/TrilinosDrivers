@@ -24,4 +24,6 @@ int main (int argc, char** argv)
   std::cout << oss.str () << std::endl;
 
   write_affinity_csv ("test.csv");
+
+  MPI_Finalize();
 }
