@@ -1,0 +1,38 @@
+Driver for an affinity work in progress function.
+
+This directory contains two features. The first, is a 'node
+communicator' which allows you to identify mpi processes that share the
+same hardware. The second feature are simple functions are collecting
+the cpu bindings of each thread. The driver.cpp file demonstrates the
+highlevel api, which gathers the affinity to rank 0 and writes this information to
+a file. The code is not very 'smart'. It currently has each process dump
+its binding information into a CSV string, and then these C-strings are
+communicated via MPI to rank 0, which writes the large string to a file.
+
+Future work is to let one process per node (a physical machine), analyze
+the affinity information from neighbor processes and warn about
+oversubscription or poor bindings. The function is safe to call multiple
+times. Note, it is not designed to be performant. The code is also
+OpenMP specific at this point, but a c++11 thread implementation would
+not be too hard.
+
+The affinity gathering functions are also not promised to be portable.
+The pthread interface is a GNU extension, and the alternative method is
+a linux System Call.
+
+You may need to fiddle with the Makefile, it is not smart. It expect
+mpicxx to be available, and it expects OpenMP to be available via
+-fopenmp,
+
+Example usage (using OpenMPI:)
+
+mpirun -x OMP_DISPLAY_ENV=verbose -x OMP_PLACES=cores \
+       -x OMP_NUM_THREADS=14 --map-by ppr:2:numa:pe=7 \
+       --output-filename aff_test \
+      ./driver
+
+This will write 'test.csv' The affinity information in aff_test.1.0,
+should look similar to the OMP_DISPLAY_ENV information. Change
+OMP_PLACES to OMP_PLACES=threads, and you should see a 1 to 1 mapping of
+threads to processing elements (no overlaps).
+
