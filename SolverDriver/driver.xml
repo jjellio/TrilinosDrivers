@@ -1,0 +1,33 @@
+<ParameterList name="Driver">
+  <ParameterList name="run">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="4" />
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="gmres"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/gmres-fast-20.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="MueLu"/>
+    <Parameter name="PreconditionerParams"      type="string"   value="gold/MueLu-no-repartition.xml"/>
+    <Parameter name="PreconditionerFactory"     type="string"   value="MueLu"/>
+  </ParameterList>
+
+  <ParameterList name="run1">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="10" />
+
+    <Parameter name="Vary Solver Parameter"     type="string"   value="Num Blocks" />
+    <Parameter name="Vary Solver Parameter Min" type="int"      value="10" />
+    <Parameter name="Vary Solver Parameter Inc" type="int"      value="2" />
+    <Parameter name="Vary Solver Parameter Max" type="int"      value="50" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="gmres"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/gmres-fast-20.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+
+</ParameterList>
+
