@@ -131,6 +131,8 @@ class SolverDriverDetails
   typedef Belos::SolverManager<SC,MultiVector,BelosOperatorT>   BelosSolverManager;
   typedef Belos::SolverFactory<SC,MultiVector,BelosOperatorT>   BelosSolverFactory;
 
+  typedef PerfUtils::cpu_map_type cpu_map_type;
+
   #if defined (HAVE_MUELU_AMGX) and defined (HAVE_MUELU_TPETRA)
     typedef MueLu::AMGXOperator<SC,LO,GO,NO> amgx_op_type;
   #endif
@@ -147,11 +149,14 @@ public:
     orig_B_           (Teuchos::null),
     orig_map_         (Teuchos::null),
     comm_             (Teuchos::null),
+    nodeComm_         (Teuchos::null),
+    nodeLocalComm_    (Teuchos::null),
     pOut_             (Teuchos::null),
     driverPL_         (Teuchos::null),
     galeriPL_         (Teuchos::null),
     xpetraParams_     (xpetraParams),
-    configPL_         (Teuchos::null)
+    configPL_         (Teuchos::null),
+    my_cpu_map_       (Teuchos::null)
     {
       using CLP = Teuchos::CommandLineProcessor;
       using Teuchos::GlobalMPISession;
@@ -174,6 +179,13 @@ public:
       checkConvergence_ = false;              clp.setOption("checkConvergence", "nocheckConvergence",
                                                 &checkConvergence_,
                                                 "Report if the solver converged.");
+      cores_per_proc_=-1;                  clp.setOption("cores_per_proc", &cores_per_proc_,
+                                                "How many physical cores are allocated to this process (required). "
+                                                "For Serial, this should be 1.");
+      threads_per_core_=-1;                clp.setOption("threads_per_core", &threads_per_core_,
+                                                "How many hardware threads are allowed per core (required). "
+                                                "For Serial, this could be one or 2. E.g., does this process exclusively own the core,"
+                                                "or does it share the core with another process. E.g., 4 MPI procs per KNL core.");
 
       std::string reportSolversAndExit = "";
       clp.setOption("reportSolversAndExit", &reportSolversAndExit,
@@ -188,6 +200,8 @@ public:
       }
 
       comm_ = Teuchos::DefaultComm<int>::getComm();
+      nodeLocalComm_ = PerfUtils::getNodeLocalComm(comm_);
+      nodeComm_      = PerfUtils::getNodeComm(comm_, nodeLocalComm_);
 
       // Instead of checking each time for rank, create a rank 0 stream
       pOut_ = fancyOStream(rcpFromRef(cout));
@@ -199,6 +213,11 @@ public:
       if (reportSolversAndExit == "Belos") {
         reportBelosSolvers();
         exit(EXIT_SUCCESS);
+      }
+
+      if (cores_per_proc_ == -1 || threads_per_core_ == -1) {
+        out << "ERROR, --core_per_proc= and --threads_per_core= *must* be set." << endl;
+        exit(EXIT_FAILURE);
       }
 
       timerReportParams_ = parameterList();
@@ -246,7 +265,11 @@ public:
 
       configPL_->print(out);
 
+      // construct the file tokens used for output
+      setFileTokens ();
+
       Teuchos::TimeMonitor::summarize(out, false, true, true, Teuchos::ECounterSetOp::Union);
+
     }
 
   virtual ~SolverDriverDetails () {}
@@ -259,6 +282,8 @@ private:
   Teuchos::RCP<const MultiVector> orig_B_;
   Teuchos::RCP<const Map>         orig_map_;
   Teuchos::RCP<const Teuchos::Comm<int> > comm_;
+  Teuchos::RCP<const Teuchos::Comm<int> > nodeComm_;
+  Teuchos::RCP<const Teuchos::Comm<int> > nodeLocalComm_;
   Teuchos::RCP<Teuchos::FancyOStream> pOut_;
   Teuchos::RCP<Teuchos::ParameterList> driverPL_;
   Teuchos::RCP<Teuchos::ParameterList> galeriPL_;
@@ -267,7 +292,14 @@ private:
   Teuchos::RCP<Teuchos::ParameterList> timerReportParams_;
   bool useSmartSolverLabels_;
   bool checkConvergence_;
+  int cores_per_proc_;
+  int threads_per_core_;
 
+  std::string decompFileToken_;;
+  std::string problemFileToken_;
+  std::string numThreadsFileToken_;
+
+  Teuchos::RCP<const cpu_map_type> my_cpu_map_;
   // This is odd, but in c++11, you can define these this way
   // and it silences the ISO warning.
   // static constexpr const <- this matters
@@ -316,10 +348,8 @@ private:
     {
       ParameterList& mpiPL = configPL.sublist("MPI", false, "Parallel partitioning information");
 
-      auto localComm = PerfUtils::getNodeLocalComm(comm_);
-      auto localComm2 = PerfUtils::getNodeLocalComm_mpi3(comm_);
-      const int nodeCommSize = localComm->getSize();
-      const int nodeCommRank = localComm->getRank();
+      const int nodeCommSize = nodeLocalComm_->getSize();
+      const int nodeCommRank = nodeLocalComm_->getRank();
 
       //const bool rc = PerfUtils::compareComm(localComm, localComm2);
 
@@ -386,7 +416,7 @@ private:
 
     out << "========================================================"
         << endl;
-    out << "Constructing Linear System"
+    out << "Gathering Affinity and Process Mapping Information"
         << endl;
     OSTab tab (out);
 
@@ -394,9 +424,47 @@ private:
     Teuchos::TimeMonitor linearSystemCreationTimer ( *tm );
 
     const std::string filename = AFFINITY_MAP_CSV_STR;
-    PerfUtils::writeAffinityCSV(filename, comm_, pOut_);
-    *pOut_ << "Wrote Affinities: " << filename << endl;
 
+    auto localComm2 = PerfUtils::getNodeLocalComm_mpi3(comm_);
+    my_cpu_map_    = PerfUtils::gather_affinity_pthread();
+
+    const int nodeCommSize = nodeLocalComm_->getSize();
+    const int nodeCommRank = nodeLocalComm_->getRank();
+
+    const bool comms_congruent = PerfUtils::compareComm(nodeLocalComm_, localComm2);
+    out << "MPI-3 and MPI-2 implementation of local node communicators are congruent: "
+        << (comms_congruent ? "OK" : "ERROR!!!")
+        << endl;
+
+    PerfUtils::writeAffinityCSV(filename, comm_, pOut_, nodeLocalComm_);
+    out << "Wrote Affinities: " << filename << endl;
+
+    // describe the environment as best we can
+    {
+      out << "========================================================"
+          << endl
+          << "Parallel Environment appears to be:"
+          << endl;
+
+      Teuchos::OSTab tab (out);
+
+      out << "MPI Global Comm Size: "
+          << comm_->getSize()
+          << endl
+          << "Number of Physical Nodes: "
+          << nodeComm_->getSize ()
+          << endl
+          << "Processes per Node: "
+          << nodeLocalComm_->getSize ()
+          << endl
+          << "Thread mapping on rank 0: "
+          << endl;
+      std::stringstream oss;
+      PerfUtils::print_affinity (oss, *my_cpu_map_);
+      out << oss.str ();
+    }
+
+    comm_->barrier();
   }
 
   void createLinearSystem(
@@ -584,16 +652,28 @@ private:
 
   }
 
-GO getMatrixDim (const GO n)
+  void setFileTokens ()
+  {
+    setProblemFileToken();
+    setDecompFileToken();
+    setNumThreadsFileToken();
+  }
+GO getGaleriProblemDim (const GO n)
 {
-  if (n == std::numeric_limits< std::make_unsigned<GO> >::max() || n == -1) {
+  typedef typename std::make_unsigned<GO>::type GO_unsigned;
+  // check if n is the unsigned max, or if n = -1, both mean this value was not used
+  if (n == std::numeric_limits<GO_unsigned>::max() || n == -1) {
     return (1);
   } else {
     return (n);
   }
 }
 
-std::string getProblemFileToken ()
+std::string getProblemFileToken () {
+  return (problemFileToken_);
+}
+
+void setProblemFileToken ()
 {
   using std::string;
   std::stringstream ss;
@@ -608,25 +688,52 @@ std::string getProblemFileToken ()
   ss << galeriPL_->get<string>("matrixType")
      << "-BS-" << orig_A_->GetFixedBlockSize ()
      << "-"
-     << getMatrixDim(nx) << "x"
-     << getMatrixDim(ny) << "x"
-     << getMatrixDim(nz);
+     << getGaleriProblemDim(nx) << "x"
+     << getGaleriProblemDim(ny) << "x"
+     << getGaleriProblemDim(nz);
 
-  return (ss.str());
+  problemFileToken_ = ss.str();
 }
 
+std::string getDecompFileToken () {
+  return (decompFileToken_);
+}
+
+// num_nodes x procs_per_node x cores_per_proc x thread_per_core
+void setDecompFileToken () {
+  std::stringstream ss;
+
+  ss << "decomp-"
+     << nodeComm_->getSize ()
+     << "x"
+     << nodeLocalComm_->getSize ()
+     << "x"
+     << cores_per_proc_
+     << "x"
+     << threads_per_core_;
+
+  decompFileToken_ = ss.str();
+}
+
+
 std::string getNumThreadsFileToken () {
+  return (numThreadsFileToken_);
+}
+
+void setNumThreadsFileToken () {
   std::stringstream ss;
 
   const std::string node_name = Node::name();
 
   if (node_name == "OpenMP/Wrapper") {
-    ss << "OpenMP-threads-"
-      #ifdef KOKKOS_HAVE_OPENMP
-       << omp_get_max_threads ()
+    ss << "OpenMP-threads-";
+
+      #ifdef HAVE_MUELU_OPENMP
+      ss << omp_get_max_threads ();
       #else
-       << "1"
+      ss << "asdasd";
       #endif
+      *pOut_ << ss.str ();
   }
   else if (node_name == "Serial/Wrapper") {
     ss << "Serial";
@@ -641,7 +748,7 @@ std::string getNumThreadsFileToken () {
   ss << "_np-" << comm_->getSize ();
 
 
-  return (ss.str());
+  numThreadsFileToken_ = ss.str();
 }
 
 std::string getTimeStepFileToken (const int numsteps) {
@@ -649,6 +756,7 @@ std::string getTimeStepFileToken (const int numsteps) {
   ss << "numsteps-" << numsteps;
   return (ss.str());
 }
+
 void performRun(Teuchos::ParameterList& runParamList, const int runID)
 {
 
@@ -698,15 +806,32 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
   // Timer IO file tokens
   const string solverFileToken   = runParamList.get<string>("solverFileToken");
   const string precFileToken     = runParamList.get<string>("precFileToken");
-  const string matrixFileToken   = getProblemFileToken ();
-  const string numStepsFileToken = getTimeStepFileToken (pseudoTimesteps);
+  const string problemFileToken   = getProblemFileToken ();
+  const string numStepsFileToken  = getTimeStepFileToken (pseudoTimesteps);
   const string execSpaceFileToken = getNumThreadsFileToken ();
   const string decompFileToken    = getDecompFileToken ();
+
+  std::ostringstream oss;
+  oss << problemFileToken   << "_"
+      << solverFileToken    << "_"
+      << precFileToken      << "_"
+      << numStepsFileToken  << "_"
+      << execSpaceFileToken << "_"
+      << decompFileToken    << ".yaml";
+
+  const std::string fileName = oss.str ();
 
   const bool havePrec   = (precName != "None");
   const bool haveSolver = (solverName != "None");
   std::string solver_smart_label;
 
+
+  out << std::string(80,'-')
+      << endl
+      << "------  " << fileName
+      << endl
+      << std::string(80,'-')
+      << endl;
 
   // massage the solver label
   if (solverFactoryName == "Belos" && useSmartSolverLabels_) {
@@ -1056,74 +1181,48 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
     }
   }
 
+  writeTimersForFunAndProfit (fileName);
+}
+
+
+void writeTimersForFunAndProfit (const std::string& filename)
+{
+  using Teuchos::TimeMonitor;
+  using Teuchos::FancyOStream;
+
+  FancyOStream& out = *pOut_;
+
+  const std::string filter = "";
+
+  std::ios_base::fmtflags ff(out.flags());
+
+  // screen output
+  out << std::fixed;
+  timerReportParams_->set("Report format", "Table");
+  TimeMonitor::report(comm_.ptr(), out, filter, timerReportParams_);
+
+  std::ostream* os = pOut_.get ();
+  std::ofstream fptr;
+  // only one worker writes a file
+  if (comm_->getRank() == 0)
   {
-    const std::string filter = "";
 
-    std::ios_base::fmtflags ff(out.flags());
-
-    // screen output
-    out << std::fixed;
-    timerReportParams_->set("Report format", "Table");
-    TimeMonitor::report(comm_.ptr(), out, filter, timerReportParams_);
-
-    // "Table" or "YAML"
-//    out << std::scientific;
-//    timerReportParams_->set("Report format", "YAML");
-//    TimeMonitor::report(comm_.ptr(), out, filter, timerReportParams_);
-
-
-    out << std::setiosflags(ff);
+    fptr.open(filename, std::ofstream::out);
+    os = &fptr;
   }
 
+  // "Table" or "YAML"
+  out << std::scientific;
+  timerReportParams_->set("Report format", "YAML");
+  TimeMonitor::report(comm_.ptr(), *os, filter, timerReportParams_);
 
-  //TimeMonitor::report(comm_.ptr(), out);
+  out << std::setiosflags(ff);
+  // close the file
+  if (comm_->getRank() == 0)
+  {
+    fptr.close ();
+  }
 }
-//
-//void writeTimerToYaml ()
-//{
-//  // jjellio 09 Jan 2017
-//  //   YAML output for easier parsing.
-//  // Filename is chosen based on parameters and the number
-//  // of threads and processes chosen. This is currently
-//  // intended to provided information relevant to OpenMP
-//  // threaded solves.
-//  // TODO add GPU/Pthread/Qthread/Serial support
-//  std::ostream* os = out.get ();
-//  std::ofstream fptr;
-//  // only one worker writes a file
-//  if (myRank == 0)
-//  {
-//    int num_threads = 0;
-//
-//    #ifdef KOKKOS_HAVE_OPENMP
-//      num_threads = omp_get_max_threads ();
-//    #endif
-//
-//    std::stringstream filename;
-//    filename
-//       << "poisson_" << nx << "x" << ny << "x" << nz
-//       << "_solver-" << solverName;
-//
-//    if (restartLengthStudy)
-//      filename << "-" << initial_restartLength << "-" << maxNumIters;
-//    else
-//      filename << "-" << maxNumIters;
-//
-//    filename
-//       << "_numsteps-" << num_steps
-//       << "_threads-" << num_threads
-//       << "_np-" << comm->getSize()
-//       << ".yaml";
-//
-//    fptr.open(filename.str (), std::ofstream::out);
-//    os = &fptr;
-//  }
-//
-//  RCP<ParameterList> yaml_config = parameterList ();
-//  yaml_config->set("Report format", "YAML");
-//
-//  Teuchos::TimeMonitor::report (comm.ptr (), *os, yaml_config);
-//}
 
 
   Teuchos::RCP<const Teuchos::ParameterList>
@@ -1298,24 +1397,32 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
   std::string getBasename(const std::string& path, const std::string ext="")
   {
     std::string name;
+    using std::cout;
+    using std::string;
+    using std::endl;
 
     // use the XML filename as the solverFileToken
-    const int extlen = ext.length (); // = len(".xml")
     #ifdef _WIN32
-      const char sep = '\\';
+      const string sep = "\\";
     #else
-      const char sep = '/';
+      const string sep = "/";
     #endif
+
     size_t i = path.rfind(sep, path.length());
+    size_t j = path.rfind(ext, path.length());
+
+    // get the location *before* the ext if it exists
+    j = (j == std::string::npos || j<1) ? 0 : j-1;
+
     if (i == std::string::npos) {
       // no path
-      int count =  int(path.length()) - extlen;
+      int count =  j+1;
       if (count > 0)
         name = path.substr(0, count);
 
     }
     else {
-      int count =  int(path.length()) - int(i) - extlen;
+      int count =  int(j)- int(i);
       if (count > 0)
         name = path.substr(i+1, count);
     }

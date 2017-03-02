@@ -92,19 +92,19 @@ compareComm (const Teuchos::RCP<const teuchos_comm_type> comm1,
   // CONGRUENT means they are different objects but contain the same processes
   switch (result) {
     case MPI_IDENT :
-      std::cout << "IDENTICAL" << std::endl;
+      //std::cout << "IDENTICAL" << std::endl;
       return (true);
     case MPI_CONGRUENT:
-      std::cout << "CONGRUENT" << std::endl;
+      //std::cout << "CONGRUENT" << std::endl;
       return (true);
     case MPI_SIMILAR:
-      std::cout << "SIMILAR" << std::endl;
+      //std::cout << "SIMILAR" << std::endl;
       return (false);
     case MPI_UNEQUAL:
-      std::cout << "UNEQUAL" << std::endl;
+      //std::cout << "UNEQUAL" << std::endl;
       return (false);
     default:
-      std::cout << "ERROR" << std::endl;
+      //std::cout << "ERROR" << std::endl;
       return (false);
   }
 
@@ -147,10 +147,19 @@ getNodeComm (
     nodeLocalcomm = getNodeLocalComm (comm);
   }
 
+
+  Teuchos::Array<int> self (1, nodeLocalcomm->getRank());
+  auto commSelf = comm->createSubcommunicator  ( self.view(0, 1) );
+
   const int myColor = nodeLocalcomm->getRank () == 0 ? 0 : -1;
   const int myKey   = comm->getRank ();
 
   RCP<teuchos_comm_type> nodeComm = comm->split (myColor, myKey);
+
+  if (myColor == -1) {
+    nodeComm = commSelf;
+  }
+
   return (nodeComm);
 }
 

@@ -292,6 +292,8 @@ int main(int argc, char* argv[]) {
     // =========================================================================
     // MPI initialization using Teuchos
     // =========================================================================
+    // do this so argc/argv will have kokkos items removed
+    Kokkos::initialize(argc, argv);
     GlobalMPISession mpiSession(&argc, &argv, NULL);
 
 

@@ -1,6 +1,58 @@
 <ParameterList name="Driver">
   <ParameterList name="run">
-    <Parameter name="Pseudo Timesteps"          type="int"      value="4" />
+    <Parameter name="Pseudo Timesteps"          type="int"      value="2" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/gmres-fast-20.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+
+  <ParameterList name="run1">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="2" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/gmres-fast-20.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+
+
+  <ParameterList name="run2">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="2" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="CG"/>
+    <Parameter name="SolverParams"              type="string"   value="solver-zero"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+
+  <ParameterList name="run3">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="2" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="BiCGStab"/>
+    <Parameter name="SolverParams"              type="string"   value="solver-zero"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+
+
+  <ParameterList name="run4">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="false" />
     <!-- Define the solver to be used -->
     <Parameter name="Solver"                    type="string"   value="gmres"/>
     <Parameter name="SolverParams"              type="string"   value="gold/gmres-fast-20.xml"/>
@@ -12,22 +64,79 @@
     <Parameter name="PreconditionerFactory"     type="string"   value="MueLu"/>
   </ParameterList>
 
-  <ParameterList name="run1">
-    <Parameter name="Pseudo Timesteps"          type="int"      value="10" />
-
-    <Parameter name="Vary Solver Parameter"     type="string"   value="Num Blocks" />
-    <Parameter name="Vary Solver Parameter Min" type="int"      value="10" />
-    <Parameter name="Vary Solver Parameter Inc" type="int"      value="2" />
-    <Parameter name="Vary Solver Parameter Max" type="int"      value="50" />
-
+  <ParameterList name="run5">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
     <!-- Define the solver to be used -->
     <Parameter name="Solver"                    type="string"   value="gmres"/>
     <Parameter name="SolverParams"              type="string"   value="gold/gmres-fast-20.xml"/>
     <Parameter name="SolverFactory"             type="string"   value="Belos"/>
 
     <!-- Add a preconditioner to the solver -->
-    <Parameter name="Preconditioner"            type="string"   value="None"/>
+    <Parameter name="Preconditioner"            type="string"   value="MueLu"/>
+    <Parameter name="PreconditionerParams"      type="string"   value="gold/MueLu-no-repartition.xml"/>
+    <Parameter name="PreconditionerFactory"     type="string"   value="MueLu"/>
   </ParameterList>
 
+
+  <ParameterList name="run6">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="20" />
+	<Parameter name="Construction Only"         type="bool"     value="true" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="None"/>
+    <Parameter name="SolverParams"              type="string"   value="muelu-construction-solver"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="MueLu"/>
+    <Parameter name="PreconditionerParams"      type="string"   value="gold/MueLu-repartition.xml"/>
+    <Parameter name="PreconditionerFactory"     type="string"   value="MueLu"/>
+  </ParameterList>
+
+
+  <ParameterList name="muelu-construction-solver">
+    <Parameter name="Maximum Iterations"    type="int"  value="0" />
+    <Parameter name="Convergence Tolerance" type="double"  value="0.0" />
+    <Parameter name="Verbosity"             type="int"  value="0" />
+<!--
+  <Parameter name="Output Frequency"  type="int"  value="10" />
+  <Parameter name="Output Style"      type="int"  value="1" />
+  <Parameter name="Verbosity"         type="int"  value="33" />
+-->
+
+  </ParameterList>
+
+  <ParameterList name="solver-zero">
+    <Parameter name="Maximum Iterations"    type="int"  value="200" />
+    <Parameter name="Convergence Tolerance" type="double"  value="0.0" />
+    <Parameter name="Verbosity"             type="int"  value="0" />
+<!--
+  <Parameter name="Output Frequency"  type="int"  value="10" />
+  <Parameter name="Output Style"      type="int"  value="1" />
+  <Parameter name="Verbosity"         type="int"  value="33" />
+-->
+
+  </ParameterList>
+
+<ParameterList name="GMRESsingle">
+  <Parameter name="Block Size"            type="int"  value="1" />
+  <Parameter name="Maximum Iterations"    type="int"  value="1" />
+  <Parameter name="Num Blocks"            type="int"  value="1" />
+  <Parameter name="Maximum Restarts"      type="int"  value="1" />
+  <Parameter name="Convergence Tolerance" type="double"  value="0.0" />
+
+  <Parameter name="Orthogonalization"     type="string"  value="ICGS" />
+  <ParameterList name="ICGS">  
+    <Parameter name="maxNumOrthogPasses"  type="int"  value="1" />
+  </ParameterList>
+    <Parameter name="Verbosity"             type="int"  value="0" />
+<!--
+  <Parameter name="Output Frequency"  type="int"  value="10" />
+  <Parameter name="Output Style"      type="int"  value="1" />
+  <Parameter name="Verbosity"         type="int"  value="33" />
+-->
+
+</ParameterList>
 </ParameterList>
 

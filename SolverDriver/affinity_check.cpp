@@ -89,6 +89,19 @@ void gather_affinity_linux_syscall (cpu_map_type& cpu_map)
   omp_destroy_lock(&map_lock);
 }
 
+Teuchos::RCP<const cpu_map_type> gather_affinity_pthread ()
+{
+  using Teuchos::RCP;
+  using Teuchos::rcp;
+  using std::endl;
+
+  RCP<cpu_map_type> this_cpu_map = rcp (new cpu_map_type());
+  //gather_affinity_linux_syscall (*this_cpu_map);
+  gather_affinity_pthread(*this_cpu_map);;
+
+  return (this_cpu_map);
+}
+
 // This uses a GNU extension to pthreads, again not portable ... ugh
 void gather_affinity_pthread (cpu_map_type& cpu_map)
 {
@@ -223,7 +236,7 @@ void print_affinity (std::stringstream& oss, const cpu_map_type& a)
     tid_count++;
   }
 
-  if (tid > 0)
+  if (tid >= 0)
   {
     oss << "}" << std::endl;
   }
@@ -372,7 +385,8 @@ std::string getProcessAffinitCSV_str (
 // get the local affinity information
 void writeAffinityCSV (const std::string filename,
                        const Teuchos::RCP<const teuchos_comm_type>& globalComm,
-                         Teuchos::RCP<Teuchos::FancyOStream>& pOut)
+                       Teuchos::RCP<Teuchos::FancyOStream>& pOut,
+                       Teuchos::RCP<const teuchos_comm_type>& localNodeComm)
 {
   using Teuchos::RCP;
   using Teuchos::Comm;
@@ -383,7 +397,8 @@ void writeAffinityCSV (const std::string filename,
   FancyOStream& out = *pOut;
 
   // get a communicator for processes on this node
-  RCP<const teuchos_comm_type> localNodeComm = getNodeLocalComm(globalComm);
+  if (localNodeComm.is_null())
+    localNodeComm = getNodeLocalComm(globalComm);
 
   const int localCommSize = localNodeComm->getSize ();
   const int localRank = localNodeComm->getRank ();

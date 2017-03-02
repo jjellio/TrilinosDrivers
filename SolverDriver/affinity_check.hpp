@@ -18,7 +18,8 @@ typedef Teuchos::Comm<int> teuchos_comm_type;
 
 void writeAffinityCSV (const std::string filename,
                        const Teuchos::RCP<const teuchos_comm_type>& globalComm,
-                       Teuchos::RCP<Teuchos::FancyOStream>& pOut);
+                       Teuchos::RCP<Teuchos::FancyOStream>& pOut,
+                       Teuchos::RCP<const teuchos_comm_type>& localNodeComm);
 
 //void gather_affinity (std::vector<int>& cpus)
 //{
@@ -40,6 +41,7 @@ void writeAffinityCSV (const std::string filename,
 //  std::sort (cpus.begin (), cpus.end ());
 //}
 
+Teuchos::RCP<const cpu_map_type> gather_affinity_pthread ();
 
 void gather_affinity_pthread (cpu_map_type& cpu_map);
 
@@ -53,6 +55,7 @@ void gather_affinity_pthread (cpu_map_type& cpu_map);
 bool compare_affinity (const cpu_map_type& a, const cpu_map_type& b);
 
 void print_affinity (std::stringstream& oss, const cpu_map_type& a);
+//void print_affinity (Teuchos::FancyOStream& oss, const cpu_map_type& a);
 
 // collective! gather each local rank's affinity and test that
 // there is no overlap. returns true if affinity is exclusive

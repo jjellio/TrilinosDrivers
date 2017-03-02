@@ -9,8 +9,10 @@
   <ParameterList name="ICGS">  
     <Parameter name="maxNumOrthogPasses"  type="int"  value="1" />
   </ParameterList>
-
+    <Parameter name="Verbosity"             type="int"  value="0" />
+<!--
   <Parameter name="Output Frequency"  type="int"  value="10" />
   <Parameter name="Output Style"      type="int"  value="1" />
   <Parameter name="Verbosity"         type="int"  value="33" />
+-->
 </ParameterList>
