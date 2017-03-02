@@ -93,6 +93,18 @@
 
 #include "SolverDriverDetails.hpp"
 
+#include <Teuchos_YamlParser_decl.hpp>
+namespace Teuchos {
+
+TEUCHOSPARAMETERLIST_LIB_DLL_EXPORT
+RCP<ParameterList> getParametersFromYamlString(const std::string &yamlStr)
+{
+  Teuchos::RCP<Teuchos::ParameterList> params = YAMLParameterList::parseYamlText(yamlStr);
+  return (params);
+}
+
+}
+
 template<class Node>
 int
 runDriver(const std::string& SC_type, const std::string& LO_type, const std::string& GO_type,

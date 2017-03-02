@@ -43,40 +43,41 @@
 //
 // @HEADER
 
-#include <cstdio>
-#include <cstdlib>
-#include <iomanip>
-#include <string>
-#include <iostream>
-#include <unistd.h>
-#include <sstream>
-#include <exception>
+#include <omp.h>
 
-#include <typeinfo>
+#include <BelosOperatorT.hpp>
+#include <BelosSolverManager.hpp>
+#include <BelosTypes.hpp>
+#include <BelosXpetraAdapterOperator.hpp>
+#include <Galeri_Problem.hpp>
+#include <MueLu_Exceptions.hpp>
+#include <MueLu_Hierarchy_decl.hpp>
+#include <MueLu_UtilitiesBase_decl.hpp>
 
-#include <Teuchos_XMLParameterListHelpers.hpp>
-#include <Teuchos_YamlParameterListCoreHelpers.hpp>
-#include <Teuchos_StandardCatchMacros.hpp>
-#include <Teuchos_Comm.hpp>
-#include <Teuchos_RCP.hpp>
-#include <Teuchos_FancyOStream.hpp>
-#include <Teuchos_TimeMonitor.hpp>
-#include <Teuchos_TypeNameTraits.hpp>
+#include <Teuchos_ArrayRCPDecl.hpp>
+#include <Teuchos_BLAS_types.hpp>
+#include <Teuchos_CommandLineProcessor.hpp>
+#include <Teuchos_DefaultComm.hpp>
+#include <Teuchos_ENull.hpp>
+#include <Teuchos_ParameterEntry.hpp>
+#include <Teuchos_ParameterList.hpp>
+#include <Teuchos_PerformanceMonitorBase.hpp>
+#include <Teuchos_TestForException.hpp>
+#include <Teuchos_Time.hpp>
+#include <Teuchos_VerbosityLevel.hpp>
+#include <Xpetra_CrsMatrixWrap.hpp>
+#include <Xpetra_Map.hpp>
+#include <Xpetra_MapFactory.hpp>
+#include <Xpetra_Matrix.hpp>
+#include <Xpetra_MatrixFactory.hpp>
+#include <Xpetra_MultiVector.hpp>
+#include <Xpetra_Parameters.hpp>
+#include <Xpetra_Vector.hpp>
+#include <Xpetra_VectorFactory.hpp>
+#include <algorithm>
+#include <stdexcept>
+#include <utility>
 
-// Xpetra
-#include <Xpetra_MultiVectorFactory.hpp>
-#include <Xpetra_ImportFactory.hpp>
-#include <Xpetra_IO.hpp>
-
-// Galeri
-#include <Galeri_XpetraParameters.hpp>
-#include <Galeri_XpetraProblemFactory.hpp>
-#include <Galeri_XpetraUtils.hpp>
-#include <Galeri_XpetraMaps.hpp>
-
-#include <MueLu.hpp>
-
-#include <MueLu_BaseClass.hpp>
 #ifdef HAVE_MUELU_EXPLICIT_INSTANTIATION
 #include <MueLu_ExplicitInstantiation.hpp>
 #endif
@@ -98,6 +99,9 @@
 #include <MueLu_CreateXpetraPreconditioner.hpp>
 #include <Trilinos_version.h>
 #include "mpi_local_ranks.hpp"
+#include "affinity_check.hpp"
+
+
 
 template<class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
 class SolverDriverDetails
@@ -164,7 +168,16 @@ public:
       GaleriParams galeriParameters(clp, nx, ny, nz, "Laplace3D"); // manage parameters of the test case
 
       std::string xmlFileName = "driver.xml"; clp.setOption("xml", &xmlFileName, "read parameters from a file");
-      useSmartSolverLabels_ = true;           clp.setOption("smartLabels", "nosmartLabels", &useSmartSolverLabels_, "set solver labels to match the solver name");
+      useSmartSolverLabels_ = true;           clp.setOption("smartLabels", "nosmartLabels",
+                                                &useSmartSolverLabels_,
+                                                "set solver labels to match the solver name");
+      checkConvergence_ = false;              clp.setOption("checkConvergence", "nocheckConvergence",
+                                                &checkConvergence_,
+                                                "Report if the solver converged.");
+
+      std::string reportSolversAndExit = "";
+      clp.setOption("reportSolversAndExit", &reportSolversAndExit,
+                    "report the solvers supported by the SolverFactory and exit (SolverFactory=Belos|MueLu)");
 
       clp.recogniseAllOptions(true);
       switch (clp.parse(argc, argv)) {
@@ -173,7 +186,27 @@ public:
         case CLP::PARSE_UNRECOGNIZED_OPTION: exit(EXIT_FAILURE);
         case CLP::PARSE_SUCCESSFUL:          break;
       }
+
       comm_ = Teuchos::DefaultComm<int>::getComm();
+
+      // Instead of checking each time for rank, create a rank 0 stream
+      pOut_ = fancyOStream(rcpFromRef(cout));
+      // Instead of checking each time for rank, create a rank 0 stream
+      pOut_->setOutputToRootOnly(0);
+      FancyOStream& out = *pOut_;
+
+      // this needs to be here, because we don't know the template types in main ()
+      if (reportSolversAndExit == "Belos") {
+        reportBelosSolvers();
+        exit(EXIT_SUCCESS);
+      }
+
+      timerReportParams_ = parameterList();
+      timerReportParams_->set("YAML style",                "compact");         // "spacious" or "compact"
+      timerReportParams_->set("How to merge timer sets",   "Union");
+      timerReportParams_->set("alwaysWriteLocal",          false);
+      timerReportParams_->set("writeGlobalStats",          true);
+      timerReportParams_->set("writeZeroTimers",           true);
 
 
       driverPL_ = parameterList ();
@@ -184,11 +217,6 @@ public:
       // [for instance, if we changed matrix type from 2D to 3D we need to update nz]
       galeriPL_ = parameterList(galeriParameters.GetParameterList());
 
-      // Instead of checking each time for rank, create a rank 0 stream
-      pOut_ = fancyOStream(rcpFromRef(cout));
-      // Instead of checking each time for rank, create a rank 0 stream
-      pOut_->setOutputToRootOnly(0);
-      FancyOStream& out = *pOut_;
 
       #ifdef HAVE_MUELU_OPENMP
       {
@@ -211,6 +239,11 @@ public:
       // =========================================================================
       createLinearSystem(*xpetraParams_, *galeriPL_);
 
+      // =========================================================================
+      // Thread Affinity construction
+      // =========================================================================
+      gatherAffinityInfo ();
+
       configPL_->print(out);
 
       Teuchos::TimeMonitor::summarize(out, false, true, true, Teuchos::ECounterSetOp::Union);
@@ -231,7 +264,9 @@ private:
   Teuchos::RCP<Teuchos::ParameterList> galeriPL_;
   Teuchos::RCP<Xpetra::Parameters> xpetraParams_;
   Teuchos::RCP<Teuchos::ParameterList> configPL_;
+  Teuchos::RCP<Teuchos::ParameterList> timerReportParams_;
   bool useSmartSolverLabels_;
+  bool checkConvergence_;
 
   // This is odd, but in c++11, you can define these this way
   // and it silences the ISO warning.
@@ -252,9 +287,15 @@ private:
 
   static constexpr const char* PL_KEY_PREC_CONFIG        = "PreconditionerParams";
 
+  // driver controls
   static constexpr const char* PL_KEY_TIMESTEP           = "Pseudo Timesteps";
 
+  static constexpr const char* PL_KEY_COPY_R0            = "Set Initial Residual";
+
   static constexpr const char* PL_KEY_BELOS_TIMER_LABEL  = "Timer Label";
+
+  static constexpr const char* PL_KEY_CONSTRUCTION_ONLY  = "Construction Only";
+
 
   static constexpr const char* TM_LABEL_GLOBAL       = "0 - Total Time";
   static constexpr const char* TM_LABEL_COPY         = "1 - Reseting Linear System";
@@ -262,6 +303,9 @@ private:
   static constexpr const char* TM_LABEL_PREC_SETUP   = "3 - Constructing Preconditioner";
   static constexpr const char* TM_LABEL_SOLVER_SETUP = "4 - Constructing Solver";
   static constexpr const char* TM_LABEL_SOLVE        = "5 - Solve";
+
+
+  static constexpr const char* AFFINITY_MAP_CSV_STR  = "affinity.csv";
 
   const Teuchos::EVerbosityLevel DESCRIBE_VERB_LEVEL = Teuchos::EVerbosityLevel::VERB_MEDIUM;
 
@@ -271,11 +315,13 @@ private:
     // gather information about MPI
     {
       ParameterList& mpiPL = configPL.sublist("MPI", false, "Parallel partitioning information");
-      MPI_Comm nodeComm;
-      PerfUtils::getNodeComm(&nodeComm);
-      int nodeCommSize, nodeRank;
-      MPI_Comm_size(nodeComm, &nodeCommSize);
-      MPI_Comm_rank(nodeComm, &nodeRank);
+
+      auto localComm = PerfUtils::getNodeLocalComm(comm_);
+      auto localComm2 = PerfUtils::getNodeLocalComm_mpi3(comm_);
+      const int nodeCommSize = localComm->getSize();
+      const int nodeCommRank = localComm->getRank();
+
+      //const bool rc = PerfUtils::compareComm(localComm, localComm2);
 
       mpiPL.set("Comm Size", comm_->getSize());
       mpiPL.set("Node Comm Size", nodeCommSize);
@@ -321,6 +367,38 @@ private:
     }
 
   }
+
+  void gatherAffinityInfo ()
+  {
+    using Teuchos::RCP;
+    using Teuchos::rcp;
+    using Teuchos::ArrayRCP;
+    using Teuchos::TimeMonitor;
+    using Teuchos::Time;
+    using Teuchos::FancyOStream;
+    using Teuchos::OSTab;
+    using Teuchos::ParameterList;
+    using std::string;
+    using std::endl;
+
+
+    FancyOStream& out = *pOut_;
+
+    out << "========================================================"
+        << endl;
+    out << "Constructing Linear System"
+        << endl;
+    OSTab tab (out);
+
+    RCP<Time> tm =  TimeMonitor::getNewTimer("Driver: 2 - Gather Thread Affinity");
+    Teuchos::TimeMonitor linearSystemCreationTimer ( *tm );
+
+    const std::string filename = AFFINITY_MAP_CSV_STR;
+    PerfUtils::writeAffinityCSV(filename, comm_, pOut_);
+    *pOut_ << "Wrote Affinities: " << filename << endl;
+
+  }
+
   void createLinearSystem(
       const Xpetra::Parameters& xpetraParameters,
       Teuchos::ParameterList& matrixPL)
@@ -479,15 +557,13 @@ private:
     orig_B_           = B;
     orig_map_         = map;
 
-    // update the configPL with descriptions
+//    // update the configPL with descriptions
 //    ParameterList& descriptPL = configPL_->sublist("Type Descriptions");
 //    {
 //      std::stringstream ss;
 //      ss << orig_A_;
 //      std::string data = ss.str();
-//      RCP<ParameterList> matPL = Teuchos::parameterList ();
-//      //= Teuchos::getParametersFromYamlString(data);
-//      Teuchos::updateParametersFromYamlString(data, matPL.ptr(), true);
+//      RCP<ParameterList> matPL = Teuchos::getParametersFromYamlString(data);
 //
 //      descriptPL.set(matPL->name(), *matPL);
 //    }
@@ -508,6 +584,71 @@ private:
 
   }
 
+GO getMatrixDim (const GO n)
+{
+  if (n == std::numeric_limits< std::make_unsigned<GO> >::max() || n == -1) {
+    return (1);
+  } else {
+    return (n);
+  }
+}
+
+std::string getProblemFileToken ()
+{
+  using std::string;
+  std::stringstream ss;
+
+  // galeri assumes these are signed... e.g., -1 is assigned!
+  const GO nx = galeriPL_->get<GO>("nx");
+  const GO ny = galeriPL_->get<GO>("ny");
+  const GO nz = galeriPL_->get<GO>("nz");
+
+  // Laplace3D-bs-1-XxYxZ
+  //
+  ss << galeriPL_->get<string>("matrixType")
+     << "-BS-" << orig_A_->GetFixedBlockSize ()
+     << "-"
+     << getMatrixDim(nx) << "x"
+     << getMatrixDim(ny) << "x"
+     << getMatrixDim(nz);
+
+  return (ss.str());
+}
+
+std::string getNumThreadsFileToken () {
+  std::stringstream ss;
+
+  const std::string node_name = Node::name();
+
+  if (node_name == "OpenMP/Wrapper") {
+    ss << "OpenMP-threads-"
+      #ifdef KOKKOS_HAVE_OPENMP
+       << omp_get_max_threads ()
+      #else
+       << "1"
+      #endif
+  }
+  else if (node_name == "Serial/Wrapper") {
+    ss << "Serial";
+  }
+  else if (node_name == "Cuda/Wrapper") {
+    ss << "Cuda";
+  }
+  else {
+    *pOut_ << "node_name = " << node_name << ", us unknown" << std::endl;
+  }
+
+  ss << "_np-" << comm_->getSize ();
+
+
+  return (ss.str());
+}
+
+std::string getTimeStepFileToken (const int numsteps) {
+  std::stringstream ss;
+  ss << "numsteps-" << numsteps;
+  return (ss.str());
+}
 void performRun(Teuchos::ParameterList& runParamList, const int runID)
 {
 
@@ -551,8 +692,20 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
   const string solverName        = runParamList.get<string>(PL_KEY_SOLVER_NAME);
   const string solverFactoryName = runParamList.get<string>(PL_KEY_SOLVER_FACTORY);
   const int    pseudoTimesteps   = runParamList.get<int>(PL_KEY_TIMESTEP);
+  const bool   copy_R0           = runParamList.get<bool>(PL_KEY_COPY_R0);
+  const bool   construction_only = runParamList.get<bool>(PL_KEY_CONSTRUCTION_ONLY);
 
-  const bool havePrec = (precName != "None");
+  // Timer IO file tokens
+  const string solverFileToken   = runParamList.get<string>("solverFileToken");
+  const string precFileToken     = runParamList.get<string>("precFileToken");
+  const string matrixFileToken   = getProblemFileToken ();
+  const string numStepsFileToken = getTimeStepFileToken (pseudoTimesteps);
+  const string execSpaceFileToken = getNumThreadsFileToken ();
+  const string decompFileToken    = getDecompFileToken ();
+
+  const bool havePrec   = (precName != "None");
+  const bool haveSolver = (solverName != "None");
+  std::string solver_smart_label;
 
 
   // massage the solver label
@@ -562,12 +715,19 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
     if (solverPL_->isParameter("Num Blocks")) {
       ss << "[" << solverPL_->get<int>("Num Blocks") << "]";
     }
-
-    solverPL_->set(PL_KEY_BELOS_TIMER_LABEL, ss.str());
+    solver_smart_label = ss.str ();
+    solverPL_->set(PL_KEY_BELOS_TIMER_LABEL, solver_smart_label);
   }
 
   RCP<const ParameterList> solverPL = solverPL_;
   RCP<const ParameterList> precPL   = precPL_;
+
+  RCP<BelosSolverManager> solver;
+  RCP<BelosLinearProblem> belosProblem;
+  RCP<BelosOperatorT> belosPrec;
+  RCP<BelosOperatorT> belosOp;
+  RCP<Hierarchy>  H;
+
 
   // define counters for the main phases
   RCP<Time> globalTime_       = TimeMonitor::getNewTimer(TM_LABEL_GLOBAL);
@@ -593,10 +753,18 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
     RCP<MultiVector> nullspace= Teuchos::null;
     RCP<MultiVector> X= Teuchos::null;
     RCP<MultiVector> B= Teuchos::null;
+    RCP<MultiVector> R0 = Teuchos::null;
     RCP<const Map>   map= Teuchos::null;
     RCP<Map>        mapT= Teuchos::null;
-    RCP<Hierarchy>  H = Teuchos::null;
 
+    // destroy the objects created last pass, if needed
+    solver        = Teuchos::null;
+    belosProblem  = Teuchos::null;
+    belosPrec     = Teuchos::null;
+    belosOp       = Teuchos::null;
+    H             = Teuchos::null;
+
+    OSTab tab (out);
 
     this->comm_->barrier();
     // start the clock
@@ -608,7 +776,6 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
     {
       out << "Deep Copying Vectors and Matrices"
           << endl;
-      OSTab tab (out);
 
       // start the clock
       Teuchos::TimeMonitor tm (*copyTime_);
@@ -634,6 +801,12 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
       X   = MultiVectorFactory::Build(orig_X_->getMap(), orig_X_->getNumVectors(), true);
       B   = MultiVectorFactory::Build(orig_B_->getMap(), orig_B_->getNumVectors(), false);
       *B  = *orig_B_;
+
+      if (copy_R0) {
+        R0  = MultiVectorFactory::Build(orig_B_->getMap(), orig_B_->getNumVectors(), false);
+        *R0 = *orig_B_;
+      }
+
       mapT= Xpetra::clone(*orig_map_,dupeNode);
       map = mapT;;
 
@@ -651,7 +824,6 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
       if ((havePrec && precName == "MueLu") || (solverName == "MueLu")) {
         out << "Checking MueLu BlockSize and Matrix BlockSize"
             << endl;
-        OSTab tab (out);
 
         // this is a bit convoluted. Need to think carefully about the logic
         RCP<const ParameterList> pl = (solverName == "MueLu") ? solverPL : precPL;
@@ -721,27 +893,16 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
       {
         out << "Constructing the Preconditioner MueLu"
             << endl;
-        OSTab tab (out);
 
         // this is a bit convoluted. Need to think carefully about the logic
         RCP<const ParameterList> pl = (solverName == "MueLu") ? solverPL : precPL;
 
-        if (! pl.is_null())
-          out << *pl;
-
         // start the clock
         Teuchos::TimeMonitor tm (*precSetupTime_);
 
-        bool useAMGX = pl->isParameter("use external multigrid package") && (pl->get<std::string>("use external multigrid package") == "amgx");
         A->SetMaxEigenvalueEstimate(-STS::one());
 
-        if (useAMGX) {
-        #if defined (HAVE_MUELU_AMGX) and defined (HAVE_MUELU_TPETRA)
-          aH = Teuchos::rcp_dynamic_cast<amgx_op_type>(tH);
-        #endif
-        } else {
-          H = MueLu::CreateXpetraPreconditioner(A, *pl, coordinates);
-        }
+        H = MueLu::CreateXpetraPreconditioner(A, *pl, coordinates);
       }
     }
     // barrier after the timer scope, this allows the timers to track variations
@@ -749,16 +910,11 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
 
     // =========================================================================
     // Solver construction
-    // =========================================================================
-    RCP<BelosSolverManager> solver;
-    RCP<BelosLinearProblem> belosProblem;
-    RCP<BelosOperatorT> belosPrec;
-    RCP<BelosOperatorT> belosOp;
-    BelosSolverFactory factory;
+    // =========================================================================;
+    if (haveSolver)
     {
       out << "Constructing the Solver"
           << endl;
-      OSTab tab (out);
 
       // start the clock
       Teuchos::TimeMonitor tm (*solverSetupTime_);
@@ -780,6 +936,13 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
           belosProblem->setRightPrec(belosPrec);
         }
 
+        // the initial guess is zero...
+        if (copy_R0)
+          belosProblem->setInitResVec(R0);
+
+        if (useSmartSolverLabels_)
+          belosProblem->setLabel (solver_smart_label);
+
         bool set = belosProblem->setProblem();
         if (set == false) {
           out << "ERROR:  Belos::LinearProblem failed to set up correctly!" << std::endl;
@@ -789,6 +952,7 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
         }
 
         // Create an iterative solver manager
+        BelosSolverFactory factory;
         solver = factory.create(solverName, rcp_const_cast<ParameterList>(solverPL));
         solver->setProblem (belosProblem);
       }
@@ -800,9 +964,9 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
     // =========================================================================
     // Solver execution
     // =========================================================================
+    if (! construction_only)
     {
       out << "Solving the linear system" << endl;
-      OSTab tab (out);
 
       if (solverFactoryName == "MueLu") {
         // TODO Fix this. Muelu needs to accept this in a parameter list or something
@@ -827,10 +991,12 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
         // Get the number of iterations for this solve.
         out << "Number of iterations performed for this solve: " << solver->getNumIters() << std::endl;
         // Check convergence
-        if (ret != Belos::Converged)
-          out << std::endl << "ERROR:  Belos did not converge! " << std::endl;
-        else
-          out << std::endl << "SUCCESS:  Belos converged!" << std::endl;
+        if (checkConvergence_) {
+          if (ret != Belos::Converged)
+            out << std::endl << "ERROR:  Belos did not converge! " << std::endl;
+          else
+            out << std::endl << "SUCCESS:  Belos converged!" << std::endl;
+        }
 
       } else {
         throw MueLu::Exceptions::RuntimeError("Unknown solver Factory: \"" + solverFactoryName + "\"");
@@ -840,31 +1006,124 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
     comm_->barrier();
   }// timestep loop
 
+  // report the solver's effective parameters
+  if (haveSolver)
+  {
+    out << "Effective Solver parameters from final solve: "
+        << endl;
+    OSTab tab (out);
+    if (solverFactoryName == "Belos") {
+      // solver
+      if (! solver.is_null())
+        solver->getCurrentParameters ()->print(out);
+    }
+    else {
+      out << "Solvers from: " << solverFactoryName << ", are not yet supported for description," << endl;
+    }
+  }
+  // describe the solver
+  if (haveSolver)
+  {
+    out << "Solver description from solver in use for last solve "
+        << endl;
+    OSTab tab (out);
+    if (solverFactoryName == "Belos") {
+      // solver
+      if (! solver.is_null())
+        solver->describe(out, Teuchos::VERB_EXTREME);
+    }
+    else if (solverFactoryName == "MueLu") {
+      if (! H.is_null())
+        H->describe(out, Teuchos::VERB_EXTREME);
+    }
+    else {
+      out << "Solvers from: " << solverFactoryName << ", are not yet supported for description," << endl;
+    }
+  }
+  // describe the prec
+  if (havePrec)
+  {
+    out << "Preconditioner description from solver in use for last solve "
+        << endl;
+    OSTab tab (out);
 
-//  if (printTimings) {
-//    RCP<ParameterList> reportParams = rcp(new ParameterList);
-//    if (timingsFormat == "yaml") {
-//      reportParams->set("Report format",             "YAML");            // "Table" or "YAML"
-//      reportParams->set("YAML style",                "compact");         // "spacious" or "compact"
-//    }
-//    reportParams->set("How to merge timer sets",   "Union");
-//    reportParams->set("alwaysWriteLocal",          false);
-//    reportParams->set("writeGlobalStats",          true);
-//    reportParams->set("writeZeroTimers",           false);
-//    // FIXME: no "ignoreZeroTimers"
-//
-//    const std::string filter = "";
-//
-//    std::ios_base::fmtflags ff(out.flags());
-//    if (timingsFormat == "table-fixed") out << std::fixed;
-//    else                                out << std::scientific;
-//    TimeMonitor::report(comm.ptr(), out, filter, reportParams);
-//    out << std::setiosflags(ff);
-//  }
+    if (precFactoryName == "MueLu") {
+      if (! H.is_null())
+        H->describe(out, Teuchos::VERB_EXTREME);
+    }
+    else {
+      out << "NOT SUPPORTED YET!" << endl;
+    }
+  }
+
+  {
+    const std::string filter = "";
+
+    std::ios_base::fmtflags ff(out.flags());
+
+    // screen output
+    out << std::fixed;
+    timerReportParams_->set("Report format", "Table");
+    TimeMonitor::report(comm_.ptr(), out, filter, timerReportParams_);
+
+    // "Table" or "YAML"
+//    out << std::scientific;
+//    timerReportParams_->set("Report format", "YAML");
+//    TimeMonitor::report(comm_.ptr(), out, filter, timerReportParams_);
 
 
-  TimeMonitor::report(comm_.ptr(), out);
+    out << std::setiosflags(ff);
+  }
+
+
+  //TimeMonitor::report(comm_.ptr(), out);
 }
+//
+//void writeTimerToYaml ()
+//{
+//  // jjellio 09 Jan 2017
+//  //   YAML output for easier parsing.
+//  // Filename is chosen based on parameters and the number
+//  // of threads and processes chosen. This is currently
+//  // intended to provided information relevant to OpenMP
+//  // threaded solves.
+//  // TODO add GPU/Pthread/Qthread/Serial support
+//  std::ostream* os = out.get ();
+//  std::ofstream fptr;
+//  // only one worker writes a file
+//  if (myRank == 0)
+//  {
+//    int num_threads = 0;
+//
+//    #ifdef KOKKOS_HAVE_OPENMP
+//      num_threads = omp_get_max_threads ();
+//    #endif
+//
+//    std::stringstream filename;
+//    filename
+//       << "poisson_" << nx << "x" << ny << "x" << nz
+//       << "_solver-" << solverName;
+//
+//    if (restartLengthStudy)
+//      filename << "-" << initial_restartLength << "-" << maxNumIters;
+//    else
+//      filename << "-" << maxNumIters;
+//
+//    filename
+//       << "_numsteps-" << num_steps
+//       << "_threads-" << num_threads
+//       << "_np-" << comm->getSize()
+//       << ".yaml";
+//
+//    fptr.open(filename.str (), std::ofstream::out);
+//    os = &fptr;
+//  }
+//
+//  RCP<ParameterList> yaml_config = parameterList ();
+//  yaml_config->set("Report format", "YAML");
+//
+//  Teuchos::TimeMonitor::report (comm.ptr (), *os, yaml_config);
+//}
 
 
   Teuchos::RCP<const Teuchos::ParameterList>
@@ -890,6 +1149,10 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
     // Fake timestepping e.g., repeat the whole experiment in a loop
     const int PL_DEFAULT_TIMESTEP  = 50;
     defaults->set(PL_KEY_TIMESTEP, PL_DEFAULT_TIMESTEP);
+    const bool PL_DEFAULT_COPY_R0 = false;
+    defaults->set(PL_KEY_COPY_R0, PL_DEFAULT_COPY_R0);
+    const bool PL_DEFAULT_CONSTRUCTION_ONLY = false;
+    defaults->set(PL_KEY_CONSTRUCTION_ONLY, PL_DEFAULT_CONSTRUCTION_ONLY);
 
     return (defaults);
   }
@@ -902,17 +1165,22 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
    *    runPL is also expected to contain the defaults
    */
   Teuchos::RCP<Teuchos::ParameterList>
-  getPreconditionerParameters(const Teuchos::ParameterList& runPL)
+  getPreconditionerParameters(Teuchos::ParameterList& runPL)
   {
     using std::string;
     using Teuchos::RCP;
     using Teuchos::ParameterList;
     using Teuchos::parameterList;
 
+    std::string precFileToken;
     RCP<ParameterList> precPL = Teuchos::null;
 
     // check for the preconditioner name, it is required if you expect preconditioning
     const string precName = runPL.get<string>(PL_KEY_PREC_NAME);
+
+    precFileToken = precName;
+
+    runPL.set("precFileToken", precFileToken);
 
     if (precName == "None")
       return (precPL);
@@ -932,7 +1200,7 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
 
       Teuchos::updateParametersFromXmlFileAndBroadcast(precConfig, precPL.ptr(), *(this->comm_));
 
-      return (precPL);
+      precFileToken = getBasename(precConfig, ".xml");
     }
     else if( runPL.isSublist(precConfig) ) {
 
@@ -940,7 +1208,9 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
 
       const ParameterList& t = runPL.sublist(precConfig);
       precPL = parameterList (t);
-      return (precPL);
+
+
+      precFileToken = getBasename(precConfig);
 
     }// check in the master PL
     else if( driverPL_->isSublist(precConfig) ) {
@@ -949,7 +1219,8 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
 
       const ParameterList& t = driverPL_->sublist(precConfig);
       precPL = parameterList (t);
-      return (precPL);
+
+      precFileToken = getBasename(precConfig);
 
     }
     else {
@@ -957,21 +1228,26 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
       *pOut_ << "FAILED: Loading Preconditioner configuration: " << precConfig << ", is not a XML or a sublist." << std::endl;
     }
 
+    runPL.set("precFileToken", precFileToken);
+
     return (precPL);
   }
 
   Teuchos::RCP<Teuchos::ParameterList>
-  getSolverParameters(const Teuchos::ParameterList& runPL)
+  getSolverParameters(Teuchos::ParameterList& runPL)
   {
     using std::string;
     using Teuchos::RCP;
     using Teuchos::ParameterList;
     using Teuchos::parameterList;
 
+    std::string solverFileToken;
     RCP<ParameterList> solverPL = Teuchos::null;
 
     // check for the preconditioner name, it is required if you expect preconditioning
     const string solverName = runPL.get<string>(PL_KEY_SOLVER_NAME);
+
+    solverFileToken = solverName;
 
     // check for a parameter token
     if (! runPL.isParameter(PL_KEY_SOLVER_CONFIG))
@@ -987,6 +1263,9 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
       solverPL = parameterList();
 
       Teuchos::updateParametersFromXmlFileAndBroadcast(solverConfig, solverPL.ptr(), *(this->comm_));
+
+      solverFileToken = getBasename(solverConfig, ".xml");
+
     }
     else if( runPL.isSublist(solverConfig) ) {
 
@@ -994,6 +1273,8 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
 
       const ParameterList& t = runPL.sublist(solverConfig);
       solverPL = parameterList (t);
+
+      solverFileToken = getBasename(solverConfig);
     }
     else if( driverPL_->isSublist(solverConfig) ) {
 
@@ -1001,22 +1282,56 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
 
       const ParameterList& t = driverPL_->sublist(solverConfig);
       solverPL = parameterList (t);
+
+      solverFileToken = getBasename(solverConfig);
     }
     else {
 
       *pOut_ << "FAILED: Loading Solver configuration: " << solverConfig << ", is not a XML or a sublist." << std::endl;
     }
 
+    runPL.set("solverFileToken", solverFileToken);
     return (solverPL);
   }
 
 
+  std::string getBasename(const std::string& path, const std::string ext="")
+  {
+    std::string name;
+
+    // use the XML filename as the solverFileToken
+    const int extlen = ext.length (); // = len(".xml")
+    #ifdef _WIN32
+      const char sep = '\\';
+    #else
+      const char sep = '/';
+    #endif
+    size_t i = path.rfind(sep, path.length());
+    if (i == std::string::npos) {
+      // no path
+      int count =  int(path.length()) - extlen;
+      if (count > 0)
+        name = path.substr(0, count);
+
+    }
+    else {
+      int count =  int(path.length()) - int(i) - extlen;
+      if (count > 0)
+        name = path.substr(i+1, count);
+    }
+
+    return (name);
+  }
+
   // http://stackoverflow.com/questions/874134/find-if-string-ends-with-another-string-in-c
   bool isXML(const std::string& value) const
   {
-      const std::string ending = ".xml";
-      if (ending.size() > value.size()) return false;
-      return std::equal(ending.rbegin(), ending.rend(), value.rbegin());
+    using std::string;
+    using std::equal;
+
+      const string ending = ".xml";
+      if (ending.size() > value.size()) return (false);
+      return (equal(ending.rbegin(), ending.rend(), value.rbegin()));
   }
 
 
@@ -1038,6 +1353,15 @@ public:
     comm_->barrier();
     //RCP<Time> globalTimeMonitor = TimeMonitor::getNewTimer("Driver: S - Global Time");
     Xpetra::UnderlyingLib lib = xpetraParams_->GetLib();
+
+    using CItor=ParameterList::ConstIterator;
+
+    for(CItor it = driverPL_->begin(); it != driverPL_->end(); ++it)
+    {
+      if (driverPL_->entry(it).isList()) {
+        out << "Sublist: " << driverPL_->name(it) << endl << driverPL_->sublist(driverPL_->name(it), true);
+      }
+    }
 
     int runID = 0;
     string runLabel = "run";
@@ -1065,4 +1389,47 @@ public:
 
     return (EXIT_SUCCESS);
   }
+
+private:
+  /// \brief report the linear solvers available in Belos
+  ///
+  /// Report the names and parameter options available for each
+  /// solver.
+  void
+  reportBelosSolvers ()
+  {
+    using std::string;
+    using std::endl;
+    using Teuchos::Array;
+    using Belos::SolverFactory;
+    using Teuchos::RCP;
+    using Teuchos::ParameterList;
+    using Teuchos::parameterList;
+
+    typedef Teuchos::Array<string> string_array_type;
+
+    const std::string banner (80, '-');
+
+    BelosSolverFactory factory;
+
+    string_array_type supportedSolvers = factory.supportedSolverNames ();
+
+    string_array_type::iterator it;
+    for (it = supportedSolvers.begin (); it != supportedSolvers.end (); ++it)
+    {
+      const string& solverName = *it;
+      RCP<ParameterList> solverParams = parameterList ();
+
+      RCP<BelosSolverManager> aSolver = factory.create ( solverName, solverParams);
+
+      *pOut_ << banner
+             << std::endl
+             << solverName
+             << std::endl;
+
+      RCP< const ParameterList > solverParams1 = aSolver->getValidParameters ();
+      solverParams1->print(*pOut_);
+    }
+  }
 };
+
