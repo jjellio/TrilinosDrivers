@@ -45,14 +45,15 @@
 
 #include <omp.h>
 
-#include <BelosOperatorT.hpp>
-#include <BelosSolverManager.hpp>
-#include <BelosTypes.hpp>
-#include <BelosXpetraAdapterOperator.hpp>
-#include <Galeri_Problem.hpp>
-#include <MueLu_Exceptions.hpp>
-#include <MueLu_Hierarchy_decl.hpp>
-#include <MueLu_UtilitiesBase_decl.hpp>
+
+#include <cstdio>
+#include <iomanip>
+#include <string>
+#include <iostream>
+#include <unistd.h>
+#include <algorithm>
+#include <stdexcept>
+#include <utility>
 
 #include <Teuchos_ArrayRCPDecl.hpp>
 #include <Teuchos_BLAS_types.hpp>
@@ -65,18 +66,43 @@
 #include <Teuchos_TestForException.hpp>
 #include <Teuchos_Time.hpp>
 #include <Teuchos_VerbosityLevel.hpp>
-#include <Xpetra_CrsMatrixWrap.hpp>
+#include <Teuchos_XMLParameterListHelpers.hpp>
+#include <Teuchos_StandardCatchMacros.hpp>
+#include <Teuchos_Comm.hpp>
+
+// Xpetra
 #include <Xpetra_Map.hpp>
-#include <Xpetra_MapFactory.hpp>
 #include <Xpetra_Matrix.hpp>
-#include <Xpetra_MatrixFactory.hpp>
 #include <Xpetra_MultiVector.hpp>
 #include <Xpetra_Parameters.hpp>
 #include <Xpetra_Vector.hpp>
+#include <Xpetra_IO.hpp>
+#include <Xpetra_BlockedVector.hpp>
+#include <Xpetra_CrsMatrixWrap.hpp>
+#include <Xpetra_MapFactory.hpp>
+#include <Xpetra_MatrixFactory.hpp>
 #include <Xpetra_VectorFactory.hpp>
-#include <algorithm>
-#include <stdexcept>
-#include <utility>
+#include <Xpetra_ImportFactory.hpp>
+
+// Galeri
+#include <Galeri_Problem.hpp>
+#include <Galeri_XpetraParameters.hpp>
+#include <Galeri_XpetraProblemFactory.hpp>
+#include <Galeri_XpetraUtils.hpp>
+#include <Galeri_XpetraMaps.hpp>
+
+
+#include <BelosOperatorT.hpp>
+#include <BelosSolverManager.hpp>
+#include <BelosTypes.hpp>
+#include <BelosXpetraAdapterOperator.hpp>
+
+
+#include <MueLu.hpp>
+#include <MueLu_BaseClass.hpp>
+#include <MueLu_Exceptions.hpp>
+#include <MueLu_Hierarchy_decl.hpp>
+#include <MueLu_UtilitiesBase_decl.hpp>
 
 #ifdef HAVE_MUELU_EXPLICIT_INSTANTIATION
 #include <MueLu_ExplicitInstantiation.hpp>

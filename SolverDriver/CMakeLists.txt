@@ -44,32 +44,22 @@ ELSE()
   MESSAGE(FATAL_ERROR "Could not find Trilinos!")
 ENDIF()
 
-# If you haven't already set the C++ compiler, use the same compiler
-# that was used to build Trilinos on your machine.  You do _not_ need
-# to edit this line.
-IF(NOT CMAKE_CXX_COMPILER)
-  MESSAGE("Setting CXX compiler.")
-  SET(CMAKE_CXX_COMPILER ${Trilinos_CXX_COMPILER})
-ENDIF()
 
-# If you haven't already set the C compiler, use the same compiler
-# that was used to build Trilinos on your machine.  You do _not_ 
-# need to edit this line.
-IF(NOT CMAKE_C_COMPILER)
-  MESSAGE("Setting C compiler.")
-  SET(CMAKE_C_COMPILER ${Trilinos_C_COMPILER})
-ENDIF()
+# Make sure to use same compilers and flags as Trilinos
+SET(CMAKE_CXX_COMPILER ${Trilinos_CXX_COMPILER})
+SET(CMAKE_C_COMPILER ${Trilinos_C_COMPILER} )
+SET(CMAKE_Fortran_COMPILER ${Trilinos_Fortran_COMPILER} )
 
-SET(CMAKE_CXX_FLAGS ${Trilinos_CXX_COMPILER_FLAGS} ${CMAKE_CXX_FLAGS})
-SET(CMAKE_C_FLAGS ${Trilinos_C_COMPILER_FLAGS} ${CMAKE_C_FLAGS})
-SET(CMAKE_Fortran_FLAGS ${Trilinos_Fortran_COMPILER_FLAGS} ${CMAKE_Fortran_FLAGS})
-
+SET(CMAKE_CXX_FLAGS  "${Trilinos_CXX_COMPILER_FLAGS} ${CMAKE_CXX_FLAGS}" CACHE STRING "" FORCE)
+SET(CMAKE_C_FLAGS  "${Trilinos_C_COMPILER_FLAGS} ${CMAKE_C_FLAGS}" CACHE STRING "" FORCE )
+SET(CMAKE_Fortran_FLAGS  "${Trilinos_Fortran_COMPILER_FLAGS} ${CMAKE_Fortran_FLAGS}" CACHE STRING "" FORCE )
 
 
 #
 # EDIT HERE: Replace TrilinosExample with your project's name.
 #
 project(SolverDriver)
+
 
 # 
 # EDIT HERE: 
@@ -79,13 +69,23 @@ project(SolverDriver)
 # set HEADERS to the list of header files in your project, if there 
 # are any.
 #
+
+execute_process(
+    COMMAND "${PROJECT_SOURCE_DIR}/eti_generator.sh"
+    COMMENT "Generating sources..." )
+
+file(GLOB ETI_Sources "${CMAKE_BINARY_DIR}/eti/*.cpp")
+
+#message("${ETI_Sources}")
+
 set(SOURCES 
 mpi_local_ranks.cpp
 mpi_local_ranks.hpp
 affinity_check.hpp
 affinity_check.cpp
 SolverDriver.cpp
-SolverDriverDetails.hpp
+SolverDriverDetails_decl.hpp
+SolverDriverDetails_def.hpp
 )
 
 # 
@@ -95,7 +95,7 @@ SolverDriverDetails.hpp
 # include directory, and the include directories of the third-party
 # libraries (TPLs) with which Trilinos was built.
 #
-include_directories(".")
+include_directories("${PROJECT_SOURCE_DIR}")
 include_directories(${Trilinos_TPL_INCLUDE_DIRS})
 include_directories(${Trilinos_INCLUDE_DIRS})
 include_directories("/usr/lib/gcc/x86_64-redhat-linux/6.1.1/../../../../include/c++/6.1.1")
@@ -111,7 +111,9 @@ link_directories(${Trilinos_TPL_LIBRARY_DIRS})
 # file that you want to build.  This line tells CMake which source
 # file(s) to use to build the executable.
 #
-add_executable(SolverDriver.exe ${SOURCES})
+#add_subdirectory("eti")
+add_executable(SolverDriver.exe ${SOURCES} ${ETI_Sources})
+
 
 #
 # EDIT HERE: Change trilinosExample to the name of the executable

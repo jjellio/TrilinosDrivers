@@ -42,56 +42,39 @@
 // ***********************************************************************
 //
 // @HEADER
+
 #include <cstdio>
 #include <iomanip>
 #include <string>
 #include <iostream>
 #include <unistd.h>
+#include <stdexcept>
+#include <utility>
 
+#include <Teuchos_CommandLineProcessor.hpp>
+#include <Teuchos_DefaultComm.hpp>
+#include <Teuchos_ENull.hpp>
+#include <Teuchos_ParameterEntry.hpp>
+#include <Teuchos_ParameterList.hpp>
+#include <Teuchos_TestForException.hpp>
 #include <Teuchos_XMLParameterListHelpers.hpp>
 #include <Teuchos_StandardCatchMacros.hpp>
 #include <Teuchos_Comm.hpp>
 
+
 // Xpetra
-#include <Xpetra_MultiVectorFactory.hpp>
-#include <Xpetra_ImportFactory.hpp>
-#include <Xpetra_IO.hpp>
+#include <Xpetra_Map.hpp> // needed for lib enum
 
-// Galeri
-#include <Galeri_XpetraParameters.hpp>
-#include <Galeri_XpetraProblemFactory.hpp>
-#include <Galeri_XpetraUtils.hpp>
-#include <Galeri_XpetraMaps.hpp>
-
-#include <MueLu.hpp>
-
-#include <MueLu_BaseClass.hpp>
+#include <TpetraCore_config.h>
 #ifdef HAVE_MUELU_EXPLICIT_INSTANTIATION
 #include <MueLu_ExplicitInstantiation.hpp>
 #endif
-#include <MueLu_Level.hpp>
-#include <MueLu_MutuallyExclusiveTime.hpp>
-#include <MueLu_ParameterListInterpreter.hpp>
-#include <MueLu_Utilities.hpp>
-
-#ifdef HAVE_MUELU_BELOS
-#include <BelosConfigDefs.hpp>
-#include <BelosBiCGStabSolMgr.hpp>
-#include <BelosBlockCGSolMgr.hpp>
-#include <BelosBlockGmresSolMgr.hpp>
-#include <BelosLinearProblem.hpp>
-#include <BelosPseudoBlockCGSolMgr.hpp>
-#include <BelosXpetraAdapter.hpp>     // => This header defines Belos::XpetraOp
-#include <BelosMueLuAdapter.hpp>      // => This header defines Belos::MueLuOp
-#endif
-
-#include <MueLu_CreateXpetraPreconditioner.hpp>
 
 #ifdef HAVE_MUELU_OPENMP
 #include <omp.h>
 #endif
 
-#include "SolverDriverDetails.hpp"
+#include "SolverDriverDetails_decl.hpp"
 
 #include <Teuchos_YamlParser_decl.hpp>
 namespace Teuchos {
@@ -232,7 +215,7 @@ runDriver(const std::string& nodeName, const std::string& SC_type, const std::st
   } else if (nodeName == "serial") {
 
     #if defined(HAVE_TPETRA_INST_SERIAL) && defined(KOKKOS_HAVE_SERIAL)
-      typedef Kokkos::Compat::KokkosCudaWrapperNode Node;
+      typedef Kokkos::Compat::KokkosSerialWrapperNode Node;
       return runDriver<Node>(SC_type, LO_type, GO_type, argc, argv, clp, xpetraParams);
     #else
       throw MueLu::Exceptions::RuntimeError("Serial node type is disabled");
@@ -293,7 +276,7 @@ int main(int argc, char* argv[]) {
     // MPI initialization using Teuchos
     // =========================================================================
     // do this so argc/argv will have kokkos items removed
-    Kokkos::initialize(argc, argv);
+    //Kokkos::initialize(argc, argv);
     GlobalMPISession mpiSession(&argc, &argv, NULL);
 
 

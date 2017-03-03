@@ -28,4 +28,5 @@ cmake \
   -D CMAKE_BUILD_TYPE:STRING=RELEASE \
 ${SRC}
 
+#  -D CMAKE_EXE_LINKER_FLAGS="-Wl,--allow-multiple-definition" \
 
