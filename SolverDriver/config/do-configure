@@ -26,6 +26,7 @@ cmake \
   -G "Eclipse CDT4 - Unix Makefiles" \
   -D TRILINOS_PATH:FILEPATH="${TRILINOS_INSTALL}" \
   -D CMAKE_BUILD_TYPE:STRING=RELEASE \
+  -D CMAKE_EXE_LINKER_FLAGS="-Wl,--allow-multiple-definition" \
 ${SRC}
 
 #  -D CMAKE_EXE_LINKER_FLAGS="-Wl,--allow-multiple-definition" \
