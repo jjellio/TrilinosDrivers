@@ -2,7 +2,7 @@
 
 <!-- =============================================================================================== -->
   <ParameterList name="run">
-    <Parameter name="Pseudo Timesteps"          type="int"      value="2" />
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
     <Parameter name="Set Initial Residual"      type="bool"     value="true" />
 
     <!-- Define the solver to be used -->
@@ -18,7 +18,7 @@
 
 <!-- =============================================================================================== -->
   <ParameterList name="run1">
-    <Parameter name="Pseudo Timesteps"          type="int"      value="2" />
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
     <Parameter name="Set Initial Residual"      type="bool"     value="true" />
 
     <!-- Define the solver to be used -->
@@ -34,7 +34,7 @@
 
 <!-- =============================================================================================== -->
   <ParameterList name="run2">
-    <Parameter name="Pseudo Timesteps"          type="int"      value="2" />
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
     <Parameter name="Set Initial Residual"      type="bool"     value="true" />
 
     <!-- Define the solver to be used -->
@@ -50,7 +50,7 @@
 
 <!-- =============================================================================================== -->
   <ParameterList name="run3">
-    <Parameter name="Pseudo Timesteps"          type="int"      value="2" />
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
     <Parameter name="Set Initial Residual"      type="bool"     value="true" />
 
     <!-- Define the solver to be used -->
@@ -66,7 +66,7 @@
 
 <!-- =============================================================================================== -->
   <ParameterList name="run4">
-    <Parameter name="Pseudo Timesteps"          type="int"      value="2" />
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
     <Parameter name="Set Initial Residual"      type="bool"     value="true" />
 
     <!-- Define the solver to be used -->
@@ -82,7 +82,7 @@
 
 <!-- =============================================================================================== -->
   <ParameterList name="run5">
-    <Parameter name="Pseudo Timesteps"          type="int"      value="2" />
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
     <Parameter name="Set Initial Residual"      type="bool"     value="true" />
 
     <!-- Define the solver to be used -->
@@ -98,7 +98,7 @@
 
 <!-- =============================================================================================== -->
   <ParameterList name="run6">
-    <Parameter name="Pseudo Timesteps"          type="int"      value="2" />
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
     <Parameter name="Set Initial Residual"      type="bool"     value="true" />
 
     <!-- Define the solver to be used -->
@@ -114,7 +114,7 @@
 
 <!-- =============================================================================================== -->
   <ParameterList name="run7">
-    <Parameter name="Pseudo Timesteps"          type="int"      value="2" />
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
     <Parameter name="Set Initial Residual"      type="bool"     value="true" />
 
     <!-- Define the solver to be used -->
@@ -130,7 +130,7 @@
 
 <!-- =============================================================================================== -->
   <ParameterList name="run8">
-    <Parameter name="Pseudo Timesteps"          type="int"      value="2" />
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
     <Parameter name="Set Initial Residual"      type="bool"     value="true" />
 
     <!-- Define the solver to be used -->
@@ -146,7 +146,7 @@
 
 <!-- =============================================================================================== -->
   <ParameterList name="run9">
-    <Parameter name="Pseudo Timesteps"          type="int"      value="2" />
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
     <Parameter name="Set Initial Residual"      type="bool"     value="true" />
 
     <!-- Define the solver to be used -->
@@ -162,7 +162,7 @@
 
 <!-- =============================================================================================== -->
   <ParameterList name="run10">
-    <Parameter name="Pseudo Timesteps"          type="int"      value="2" />
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
     <Parameter name="Set Initial Residual"      type="bool"     value="true" />
 
     <!-- Define the solver to be used -->
@@ -178,7 +178,7 @@
 
 <!-- =============================================================================================== -->
   <ParameterList name="run11">
-    <Parameter name="Pseudo Timesteps"          type="int"      value="2" />
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
     <Parameter name="Set Initial Residual"      type="bool"     value="true" />
 
     <!-- Define the solver to be used -->
@@ -194,7 +194,7 @@
 
 <!-- =============================================================================================== -->
   <ParameterList name="run12">
-    <Parameter name="Pseudo Timesteps"          type="int"      value="2" />
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
     <Parameter name="Set Initial Residual"      type="bool"     value="true" />
 
     <!-- Define the solver to be used -->
@@ -210,7 +210,7 @@
 
 <!-- =============================================================================================== -->
   <ParameterList name="run13">
-    <Parameter name="Pseudo Timesteps"          type="int"      value="2" />
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
     <Parameter name="Set Initial Residual"      type="bool"     value="true" />
 
     <!-- Define the solver to be used -->
@@ -226,7 +226,7 @@
 <!-- =============================================================================================== -->
 
   <ParameterList name="run14">
-    <Parameter name="Pseudo Timesteps"          type="int"      value="2" />
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
     <Parameter name="Set Initial Residual"      type="bool"     value="true" />
 
     <!-- Define the solver to be used -->
@@ -242,7 +242,7 @@
 <!-- =============================================================================================== -->
 
   <ParameterList name="run15">
-    <Parameter name="Pseudo Timesteps"          type="int"      value="2" />
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
     <Parameter name="Set Initial Residual"      type="bool"     value="true" />
 
     <!-- Define the solver to be used -->
@@ -258,7 +258,7 @@
 <!-- =============================================================================================== -->
 
   <ParameterList name="run16">
-    <Parameter name="Pseudo Timesteps"          type="int"      value="2" />
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
     <Parameter name="Set Initial Residual"      type="bool"     value="true" />
 
     <!-- Define the solver to be used -->
@@ -274,7 +274,7 @@
   </ParameterList>
 
   <ParameterList name="run17">
-    <Parameter name="Pseudo Timesteps"          type="int"      value="100" />
+    <Parameter name="Pseudo Timesteps"          type="int"      value="50" />
     <Parameter name="Construction Only"         type="bool"     value="true" />
 
     <!-- Define the solver to be used -->
@@ -291,7 +291,7 @@
 <!-- =============================================================================================== -->
 
   <ParameterList name="run18">
-    <Parameter name="Pseudo Timesteps"          type="int"      value="2" />
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
     <Parameter name="Set Initial Residual"      type="bool"     value="true" />
 
     <!-- Define the solver to be used -->
@@ -307,7 +307,7 @@
   </ParameterList>
 
   <ParameterList name="run19">
-    <Parameter name="Pseudo Timesteps"          type="int"      value="100" />
+    <Parameter name="Pseudo Timesteps"          type="int"      value="50" />
     <Parameter name="Construction Only"         type="bool"     value="true" />
 
     <!-- Define the solver to be used -->
