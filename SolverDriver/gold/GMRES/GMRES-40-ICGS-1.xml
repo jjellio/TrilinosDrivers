@@ -1,8 +1,8 @@
-<ParameterList name="GMRES(20)-fast">
+<ParameterList name="GMRES-40-ICGS-1">
   <Parameter name="Block Size"            type="int"  value="1" />
   <Parameter name="Maximum Iterations"    type="int"  value="200" />
-  <Parameter name="Num Blocks"            type="int"  value="20" />
-  <Parameter name="Maximum Restarts"      type="int"  value="200" />
+  <Parameter name="Num Blocks"            type="int"  value="40" />
+  <Parameter name="Maximum Restarts"      type="int"  value="1000" />
   <Parameter name="Convergence Tolerance" type="double"  value="0.0" />
 
   <Parameter name="Orthogonalization"     type="string"  value="ICGS" />
@@ -15,5 +15,4 @@
   <Parameter name="Output Style"      type="int"  value="1" />
   <Parameter name="Verbosity"         type="int"  value="33" />
 -->
-
 </ParameterList>

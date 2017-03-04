@@ -45,7 +45,6 @@
 #ifndef SolverDriverDetails_decl_HPP
 #define SolverDriverDetails_decl_HPP
 
-#include <_Galeri_XpetraMaps.hpp>
 #include <omp.h>
 
 
@@ -92,6 +91,7 @@
 #include <Galeri_XpetraParameters.hpp>
 #include <Galeri_XpetraProblemFactory.hpp>
 #include <Galeri_XpetraUtils.hpp>
+#include <Galeri_XpetraMaps.hpp>
 // use eti version
 #include <BelosOperatorT.hpp>
 #include <BelosSolverManager.hpp>
