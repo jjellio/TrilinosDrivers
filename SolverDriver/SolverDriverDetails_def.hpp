@@ -176,7 +176,8 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::SolverDriverDetails
   configPL_->print(out);
 
   // construct the file tokens used for output
-  setFileTokens ();
+  if (comm_->getRank() == 0)
+    setFileTokens ();
 
   Teuchos::TimeMonitor::summarize(out, false, true, true, Teuchos::ECounterSetOp::Union);
 
@@ -285,6 +286,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::gatherAffinityInfo 
   out << "Wrote Affinities: " << filename << endl;
 
   // describe the environment as best we can
+  if(nodeLocalComm_->getRank ())
   {
     out << "========================================================"
         << endl
