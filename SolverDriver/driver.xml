@@ -2,16 +2,15 @@
 
 <!-- =============================================================================================== -->
   <ParameterList name="run">
-    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
-    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
-
+    <Parameter name="Pseudo Timesteps"          type="int"      value="0" />
+    <Parameter name="Construction Only"         type="bool"     value="true" />
     <!-- Define the solver to be used -->
-    <Parameter name="Solver"                    type="string"   value="CG"/>
-    <Parameter name="SolverParams"              type="string"   value="gold/CG/CG.xml"/>
-    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
-
+    <Parameter name="Solver"                    type="string"   value="None"/>
+    <Parameter name="SolverParams"              type="string"   value="Constructor-Only"/>
     <!-- Add a preconditioner to the solver -->
-    <Parameter name="Preconditioner"            type="string"   value="None"/>
+    <Parameter name="Preconditioner"            type="string"   value="MueLu"/>
+    <Parameter name="PreconditionerParams"      type="string"   value="gold/MueLu/MueLu-no-repartition.xml"/>
+    <Parameter name="PreconditionerFactory"     type="string"   value="MueLu"/>
   </ParameterList>
 <!-- =============================================================================================== -->
 

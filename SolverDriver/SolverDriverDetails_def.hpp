@@ -257,6 +257,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::gatherAffinityInfo 
   using std::string;
   using std::endl;
 
+  return;
 
   FancyOStream& out = *pOut_;
 

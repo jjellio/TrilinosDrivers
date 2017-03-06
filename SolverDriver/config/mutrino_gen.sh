@@ -86,7 +86,7 @@ NZ=${CUBE_SIZE}
 
 job_name="${NX}x${NY}x${NZ}-ht${ht}";
 
-FILE=${FILE_PREFIX}/${job_name}.msub
+FILE=${FILE_PREFIX}/n-${num_nodes}_${job_name}.msub
 
 #determine the walltime. Give 1 hour per PE combo
 num_pes=${#PEs[@]}
@@ -122,9 +122,6 @@ module list -t
 echo "==================================="
 
 
-cd ${FILE_PREFIX}
-
-
 ######################################################
 ######################################################
 # begin run specific stuff
@@ -156,6 +153,8 @@ cat >> $FILE <<- EOM
 
 ######################################################
 # job: ${job_decomp}
+
+cd ${FILE_PREFIX}
 
 uuid=\$(uuidgen)
 mkdir \${uuid};
@@ -203,7 +202,7 @@ aprun \
 -n ${TOTAL_MPI_PROCS} \
 ${AFFINITY_CHECK_EXE}
 
-mv affinity.csv affinity-${job_name}-${job_decomp}.csv
+mv affinity_details.csv affinity-${job_name}-${job_decomp}.csv
 
 # echo the following
 set -x
@@ -237,6 +236,8 @@ EOM
 
 # end of PEs
 done
+
+echo $FILE
 
 # end of HT
 done

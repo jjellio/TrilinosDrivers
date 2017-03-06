@@ -1,7 +1,13 @@
 #include "affinity_check.hpp"
 
+
+// whether to use GNU Pthread to get affinity
+// if undef, use linux syscall
+#define USE_PTHREAD_AFFINITY
+
+
 // this is needed to enable the GNU extensions, e.g., pthread_foo_np
-#ifndef _GNU_SOURCE
+#if !defined(_GNU_SOURCE) && defined(USE_PTHREAD_AFFINITY)
   #define _GNU_SOURCE
 #endif
 
@@ -32,9 +38,6 @@
 
 namespace PerfUtils {
 
-// whether to use GNU Pthread to get affinity
-// if undef, use linux syscall
-#define USE_PTHREAD_AFFINITY
 
 // local function
 
@@ -102,6 +105,7 @@ Teuchos::RCP<const cpu_map_type> gather_affinity_pthread ()
   return (this_cpu_map);
 }
 
+#ifdef USE_PTHREAD_AFFINITY
 // This uses a GNU extension to pthreads, again not portable ... ugh
 void gather_affinity_pthread (cpu_map_type& cpu_map)
 {
@@ -148,7 +152,7 @@ void gather_affinity_pthread (cpu_map_type& cpu_map)
 
   omp_destroy_lock(&map_lock);
 }
-
+#endif
 
 
 bool check_exclusive_affinity (const cpu_map_type& a, const cpu_map_type& b)
