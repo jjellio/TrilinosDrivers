@@ -1,0 +1,57 @@
+#!/bin/bash
+#MSUB -l walltime=16:00:00
+#MSUB -n
+#MSUB -l nodes=1:ppn=32:haswell
+#MSUB -N trilinos-install
+
+if [ "${Trilinos_Arch}" == "knl" ]; then
+
+module -s rm craype-haswell
+module load craype-mic-knl
+
+fi
+
+if [ "${Trilinos_Arch}" == "hsw" ]; then
+
+module -s rm craype-mic-knl
+module load craype-haswell
+
+fi
+
+module rm intel
+module load friendly-testing
+module load intel/17.0.1
+module load cmake
+module -s rm cray-libsci
+
+
+
+echo "===========  HOST  ==============="
+
+date
+hostname
+
+echo "=========== MODULES ==============="
+module list -t
+echo "==================================="
+
+
+echo "=========== FILENAME ==============="
+Trilinos_Logfile=trilinos-${Trilinos_Arch}-${Trilinos_ExecSpace}-muelu-make-install
+
+if [[ -e "${Trilinos_Logfile}" ]] ; then
+    i=0   
+    while [[ -e "${Trilinos_Logfile}${i}" ]] ; do
+        let i++
+    done
+    Trilinos_Logfile="${Trilinos_Logfile}$i"
+fi
+echo "==================================="
+
+
+pwd
+
+aprun -n 1 hostname &> ${Trilinos_Logfile}
+aprun -n 1 time make -j18 -k libs |& tee -a ${Trilinos_Logfile} &> /dev/null
+
+cd /lscratch1/trilinos-perf/install

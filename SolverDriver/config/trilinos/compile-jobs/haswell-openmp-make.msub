@@ -1,0 +1,31 @@
+#!/bin/bash
+#MSUB -l walltime=08:00:00
+#MSUB -l nodes=1:ppn=32:haswell
+#MSUB -N hsw-openmp-trilinos-make
+
+module -s rm craype-mic-knl
+module load craype-haswell
+module rm intel
+module load friendly-testing
+module load intel/17.0.1
+module load cmake
+
+
+
+msub /lscratch1/jjellio/build/compile-jobs/haswell-openmp-test.msub -l depend=${MOAB_JOBID}
+
+echo "===========  HOST  ==============="
+
+date
+hostname
+
+echo "=========== MODULES ==============="
+module list -t
+echo "==================================="
+
+
+pwd
+
+find -name "link.txt" -exec sed -ie 's/\-lhdf5hl_fortran_parallel//; s/\-lhdf5_fortran_parallel//' {} \;
+
+aprun -n 1 make -j20

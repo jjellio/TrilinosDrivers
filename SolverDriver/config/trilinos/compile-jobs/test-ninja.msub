@@ -1,0 +1,88 @@
+#!/bin/bash
+#MSUB -l walltime=10:00:00
+#MSUB -N trilinos-test
+
+
+if [ "${Trilinos_Arch}" == "knl" ]; then
+
+module -s rm craype-haswell
+module load craype-mic-knl
+
+fi
+
+if [ "${Trilinos_Arch}" == "hsw" ]; then
+
+module -s rm craype-mic-knl
+module load craype-haswell
+
+fi
+
+module rm intel
+module load friendly-testing
+module load intel/17.0.1
+module -s rm cmake
+export PATH=/home/jjellio/src/cmake-3.7.2/bin:$PATH
+
+which ctest
+
+echo "===========  HOST  ==============="
+
+date
+hostname
+
+echo "=========== MODULES ==============="
+module list -t
+echo "==================================="
+
+
+pwd
+
+
+export OMP_NUM_THREADS=4
+
+
+
+echo "=========== FILENAME ==============="
+Trilinos_Logfile=trilinos-${Trilinos_Arch}-${Trilinos_ExecSpace}-muelu-j8-test
+
+if [[ -e "${Trilinos_Logfile}" ]] ; then
+    i=0
+    while [[ -e "${Trilinos_Logfile}${i}" ]] ; do
+        let i++
+    done
+    Trilinos_Logfile="${Trilinos_Logfile}$i"
+fi
+echo "==================================="
+
+
+ctest -j8                 |& tee ${Trilinos_Logfile} &> /dev/null
+
+echo "=========== FILENAME ==============="
+Trilinos_Logfile=trilinos-${Trilinos_Arch}-${Trilinos_ExecSpace}-muelu-j1-test
+
+if [[ -e "${Trilinos_Logfile}" ]] ; then
+    i=0
+    while [[ -e "${Trilinos_Logfile}${i}" ]] ; do
+        let i++
+    done
+    Trilinos_Logfile="${Trilinos_Logfile}$i"
+fi
+echo "==================================="
+
+ctest --rerun-failed      |& tee ${Trilinos_Logfile} &> /dev/null
+
+echo "=========== FILENAME ==============="
+Trilinos_Logfile=trilinos-${Trilinos_Arch}-${Trilinos_ExecSpace}-muelu-failed-test
+
+if [[ -e "${Trilinos_Logfile}" ]] ; then
+    i=0
+    while [[ -e "${Trilinos_Logfile}${i}" ]] ; do
+        let i++
+    done
+    Trilinos_Logfile="${Trilinos_Logfile}$i"
+fi
+echo "==================================="
+
+ctest -VV --rerun-failed  |& tee ${Trilinos_Logfile} &> /dev/null
+
+
