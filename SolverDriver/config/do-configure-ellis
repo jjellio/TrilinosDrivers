@@ -1,0 +1,84 @@
+#!/bin/bash
+# 
+# Script for invoking CMake using the above CMakeLists.txt.  Invoke
+# this script in the source directory containing CMakeLists.txt:
+#
+# $ ./do-configure
+# $ make
+#
+# You will need to change the TRILINOS_PATH variable below to point to
+# the location of your Trilinos install.  Other variables that you may
+# need or want to change:
+#
+# CMAKE_BUILD_TYPE: "DEBUG" or "RELEASE".
+#
+# BUILD_SHARED_LIBS: If your build of Trilinos includes shared /
+# dynamic libraries, you can save build time by linking against them
+# instead of static libraries.  Otherwise, set this to OFF.
+#
+# CMAKE_VERBOSE_MAKEFILE: Set to ON if you prefer verbose Make output.
+#
+
+ARCH_NAME_=""
+EXE_SPACE_=""
+ENABLE_MUELU_=""
+BUILD_LABEL=""
+ENABLE_PREC_=""
+
+  ARCH_NAME_="knl";
+
+if [ "$1" == "serial" ]; then
+  EXE_SPACE_="serial"
+elif [ "$1" == "openmp" ]; then
+  EXE_SPACE_="openmp";
+elif [ "$1" == "serial-openmp" ]; then
+  EXE_SPACE_="serial-openmp";
+fi
+
+
+if [ "$2" == "prec" ]; then
+  ENABLE_PREC_="true"
+  BUILD_LABEL="${ARCH_NAME_}-${EXE_SPACE_}-prec"
+else
+  ENABLE_PREC_="false"
+  BUILD_LABEL="${ARCH_NAME_}-${EXE_SPACE_}"
+fi
+
+echo "Loaded modules: "
+module list
+echo "Loading Sparc TPLs: "
+# source the TPLs built for sparc... they have compatible HDF5
+# iolibs' netcdf is compiled against a different version of HDF5
+# which will not work
+source /home/jjellio/src/trilinos-perf/SolverDriver/config/sparc/sparc-ellis.env
+echo "Final set of loaded modules: "
+module list
+echo "Writing build.modules to current directory"
+echo "module purge" > build.modules;
+echo -n "module load " > build.modules;
+script -qc "module list --terse -s" | grep -v "Currently" |& tee | tr -d '\r' | tr '\n' ' ' >> build.modules
+
+
+
+SRC=/home/jjellio/src/trilinos-perf/SolverDriver
+
+# This script expects testbed (not SEMS!) modules to be loaded already.
+TRILINOS_INSTALL_PREFIX=/home/jjellio
+#Set path to Trilinos:
+TRILINOS_PATH=/home/jjellio/src/Trilinos
+TRILINOS_VERSION=`grep "Trilinos_VERSION " ${TRILINOS_PATH}/Version.cmake | cut -f2 -d' ' | tr -d ')'`
+COMPILER_NAME=intel
+COMPILER_VERSION=${INTEL_VERSION}
+TRILINOS_INSTALL=${TRILINOS_INSTALL_PREFIX}/install/trilinos-${TRILINOS_VERSION}/${COMPILER_NAME}-${COMPILER_VERSION}_${MPI_VENDOR}-${MPI_VERSION}_${BUILD_LABEL}
+
+
+cmake \
+  -G "Unix Makefiles" \
+  -D BUILD_SHARED_LIBS=ON \
+  -D TRILINOS_PATH:FILEPATH="${TRILINOS_INSTALL}" \
+  -D CMAKE_BUILD_TYPE:STRING=RELEASE \
+  -D CMAKE_EXE_LINKER_FLAGS="-Wl,--allow-multiple-definition" \
+${SRC}
+
+#  -D CMAKE_EXE_LINKER_FLAGS="-Wl,--allow-multiple-definition" \
+

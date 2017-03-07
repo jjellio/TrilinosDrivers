@@ -38,14 +38,41 @@ fi
 
 ENABLE_MUELU_="true"
 
+
+echo "Loaded modules: "
+module -s load cmake
+module list
+echo "Loading Sparc TPLs: "
+# source the TPLs built for sparc... they have compatible HDF5
+# iolibs' netcdf is compiled against a different version of HDF5
+# which will not work
+source /home/jjellio/src/trilinos-perf/SolverDriver/config/sparc/sparc-ellis.env
+#module swap openmpi/1.10.4/intel/17.0.098 intel/mpi/2017.0.098
+#export MPICC=mpiicc
+#export MPICXX=mpiicpc
+#export MPICFC=mpiifort
+#export MPI_VENDOR=intel
+#export MPI_VERSION=2017.0.098
+
+
+echo "Final set of loaded modules: "
+module list
+echo "Writing build.modules to current directory"
+echo "module purge" > build.modules;
+echo -n "module load " > build.modules;
+script -qc "module list --terse -s" | grep -v "Currently" |& tee | tr -d '\r' | tr '\n' ' ' >> build.modules
+
+
+
+
 # This script expects testbed (not SEMS!) modules to be loaded already.
 TRILINOS_INSTALL_PREFIX=/home/jjellio
 #Set path to Trilinos:
-TRILINOS_PATH=/home/jjellio/src/Trilinos-jjellio
+TRILINOS_PATH=/home/jjellio/src/Trilinos
 TRILINOS_VERSION=`grep "Trilinos_VERSION " ${TRILINOS_PATH}/Version.cmake | cut -f2 -d' ' | tr -d ')'`
 COMPILER_NAME=intel
 COMPILER_VERSION=${INTEL_VERSION}
-TRILINOS_INSTALL=${TRILINOS_INSTALL_PREFIX}/install/trilinos-${TRILINOS_VERSION}/${COMPILER_NAME}-${COMPILER_VERSION}_mpt-7.4.2_${BUILD_LABEL}
+TRILINOS_INSTALL=${TRILINOS_INSTALL_PREFIX}/install/trilinos-${TRILINOS_VERSION}/${COMPILER_NAME}-${COMPILER_VERSION}_${MPI_VENDOR}-${MPI_VERSION}_${BUILD_LABEL}
 
 # You could load a devpack here, but for now assume it was loaded.
 # module load devpack
@@ -95,6 +122,10 @@ if [ "${EXE_SPACE_}" == "serial-openmp" ]; then
   export EXTRA_FLAGS="-mkl=sequential"
   export EXTRA_OPTIONS="-D Tpetra_DefaultNode:STRING=Kokkos::Compat::KokkosSerialWrapperNode"
 fi
+
+export MPI_EXEC_NAME="mpirun"
+# --map-by NUMA:PE=2 --bind-to core 
+export MPI_EXEC_FLAGS="-x;OMP_PLACES=cores;-x;OMP_DISPLAY_ENV=verbose;--map-by;NUMA:PE=${CORES_PER_TEST};--map-by;core;-np" \
 
 
 if [ "${ENABLE_PREC_}" == "true" ]; then
@@ -169,7 +200,7 @@ fi
 
 # Set up Tests/Examples
 
-export TESTS=OFF
+export TESTS=ON
 export EXAMPLES=OFF
 
 # enable the stuff for muelu studies
@@ -193,32 +224,15 @@ export JENKINS_DO_PTHREAD=${PTHREAD}
 export JENKINS_DO_SERIAL=${SERIAL}
 export JENKINS_DO_COMPLEX=${COMPLEX}
 
-export JENKINS_ARCH_CXX_FLAG="${ARCH_CXX_FLAG} -g1"
-export JENKINS_ARCH_C_FLAG="${ARCH_C_FLAG} -g1"
-export MPICXX=CC
-export MPICC=cc
-export MPIFC=ftn
+export JENKINS_ARCH_CXX_FLAG=${ARCH_CXX_FLAG} -fPIC
+export JENKINS_ARCH_C_FLAG=${ARCH_C_FLAG} -fPIC
 
 export JENKINS_DO_TESTS=${TESTS}
 export JENKINS_DO_EXAMPLES=${EXAMPLES}
 
-echo "Loaded modules: "
-module -s load cmake
-module list
-echo "Loading Sparc TPLs: "
-# source the TPLs built for sparc... they have compatible HDF5
-# iolibs' netcdf is compiled against a different version of HDF5
-# which will not work
-source /lscratch1/jjellio/src/sparc.env
 
-echo "Final set of loaded modules: "
-module list
-echo "Writing build.modules to current directory"
-echo "module purge" > build.modules;
-echo -n "module load " > build.modules;
-script -qc "module list --terse -s" | grep -v "Currently" |& tee | tr -d '\r' | tr '\n' ' ' >> build.modules
 
 # This actually runs CMake.
 
-source /home/jjellio/src/Scripts/configure-testbeds-jenkins
+source ${HOME}/src/trilinos-perf/SolverDriver/config/trilinos/configure-testbeds-jenkins
 
