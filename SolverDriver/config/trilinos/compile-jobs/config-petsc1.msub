@@ -1,0 +1,112 @@
+#!/bin/bash
+#MSUB -l walltime=01:00:00
+#MSUB -l nodes=1:ppn=32:haswell
+#MSUB -N petsc-config
+
+set -x
+
+petsc_arch=""
+blas_stuff=""
+
+
+if [ "${Trilinos_Arch}" == "knl" ]; then
+
+module -s rm craype-haswell
+module load craype-mic-knl
+
+petsc_arch="knl"
+
+fi
+
+if [ "${Trilinos_Arch}" == "hsw" ]; then
+
+module -s rm craype-mic-knl
+module load craype-haswell
+
+petsc_arch="hsw"
+
+fi
+
+module rm intel
+module load friendly-testing
+module load intel/17.0.1
+module load cmake
+module -s rm cray-libsci
+
+threaded_blas="\"[${MKLROOT}/lib/intel64/libmkl_intel_ilp64.a,${MKLROOT}/lib/intel64/libmkl_intel_thread.a,${MKLROOT}/lib/intel64/libmkl_core.a,${MKLROOT}/../lib/intel64/libiomp5.a,-lpthread,-lm,-ldl]\""
+serial_blas="\"[${MKLROOT}/lib/intel64/libmkl_intel_ilp64.a,${MKLROOT}/lib/intel64/libmkl_sequential.a,${MKLROOT}/lib/intel64/libmkl_core.a,-lpthread,-lm,-ldl]\""
+
+
+if [ "${Trilinos_ExecSpace}" == "serial" ]; then
+
+petsc_arch="${petsc_arch}-mkl-serial-64bit-indices"
+blas_stuff="${serial_blas}"
+
+elif [ "${Trilinos_ExecSpace}" == "openmp" ]; then
+
+petsc_arch="${petsc_arch}-mkl-openmp-64bit-indices"
+blas_stuff="${threaded_blas}"
+
+else
+  echo "ERROR ${Trilinos_ExecSpace} is not serial or openmp"
+  exit;
+fi
+
+
+#
+# Trilinos_Arch Trilinos_ExecSpace
+#
+
+msub -v Trilinos_Arch,Trilinos_ExecSpace -l depend=${MOAB_JOBID} /lscratch1/jjellio/build/compile-jobs/make-petsc.msub
+
+echo "===========  HOST  ==============="
+
+date
+aprun -n 1 hostname
+
+echo "=========== MODULES ==============="
+module list -t
+echo "==================================="
+
+
+echo "=========== FILENAME ==============="
+Trilinos_Logfile=petsc-${petsc_arch}-config
+
+if [[ -e "${Trilinos_Logfile}" ]] ; then
+    i=0
+    while [[ -e "${Trilinos_Logfile}${i}" ]] ; do
+        let i++
+    done
+    Trilinos_Logfile="${Trilinos_Logfile}$i"
+fi
+echo "==================================="
+
+
+pwd
+
+
+export PETSC_DIR=${PWD}
+cd ${PETSC_DIR}
+
+aprun -n 1 ${PETSC_DIR}/configure FC_LINKER_FLAGS="-Wl,--as-needed,-lstdc++,--no-as-needed" COPTFLAGS="-O3" CXXOPTFLAGS="-O3" FOPTFLAGS="-O3" PETSC_ARCH=${petsc_arch} \
+--with-mpiexec=aprun  \
+--with-clanguage=C \
+--with-vendor-compilers=intel \
+--with-batch=1 \
+--with-cc=cc \
+--with-clib-autodetect=0 \
+--with-cxx=0 \
+--with-cxxlib-autodetect=0 \
+--with-debugging=0 \
+--with-fc=ftn \
+--with-fortran-datatypes=0 \
+--with-fortran-interfaces=0 \
+--with-fortranlib-autodetect=0 \
+--with-scalar-type=real \
+--with-x=0 \
+--with-ssl=0 \
+--with-shared-libraries=0 \
+--with-blas-lapack-lib=${blas_stuff} \
+--with-64-bit-indices |& tee ${Trilinos_Logfile} &> /dev/null
+
+

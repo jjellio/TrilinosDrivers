@@ -1,0 +1,68 @@
+#!/bin/bash
+#MSUB -l walltime=00:20:00
+#MSUB -N trilinos-test
+#MSUB -n
+#MSUB -l nodes=1:ppn=68:knl
+
+
+if [ "${Trilinos_Arch}" == "knl" ]; then
+
+module -s rm craype-haswell
+module load craype-mic-knl
+
+fi
+
+if [ "${Trilinos_Arch}" == "hsw" ]; then
+
+module -s rm craype-mic-knl
+module load craype-haswell
+
+fi
+
+module -s rm intel
+module load friendly-testing
+module load intel/17.0.1
+module load cmake
+modile -s rm cray-libsci
+source /lscratch1/jjellio/src/sparc.env
+echo "===========  HOST  ==============="
+
+date
+hostname
+
+echo "=========== MODULES ==============="
+module list -t
+echo "==================================="
+
+
+pwd
+
+
+export OMP_NUM_THREADS=4
+
+
+echo "=========== FILENAME ==============="
+Trilinos_Logfile=trilinos-${Trilinos_Arch}-${Trilinos_ExecSpace}-make-install
+
+if [[ -e "${Trilinos_Logfile}" ]] ; then
+    i=0
+    while [[ -e "${Trilinos_Logfile}${i}" ]] ; do
+      let i++
+    done
+
+    for (( j=i; j>=1; j-- )); do
+      let k=j+1
+      mv ${Trilinos_Logfile}${j} ${Trilinos_Logfile}${k}
+    done
+    # move the non numbered one
+    mv ${Trilinos_Logfile} ${Trilinos_Logfile}1
+
+fi
+echo "==================================="
+
+
+
+make install &> ${Trilinos_Logfile} 
+
+
+

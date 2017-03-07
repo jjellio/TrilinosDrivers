@@ -1,0 +1,61 @@
+SolverDriver
+
+
+The driver provides several key features:
+
+1. XML driven experiments
+
+2. Experiments all reuse the same linear system, in the same initial state. 
+   E.g., partitioned the same way
+3. Pseudo-timestepping without the overhead of matrix assembly, but with the 
+   memory effect of the matrix/RHS being rewritten
+
+4. Support for unpreconditioned solver evaluation
+
+5. Solver/Preconditioner configurations *must* be expressed in XML files or in 
+   sublists inside one XML file.
+
+6. Commandline choice of Execution Space, Local/Global ordinal types, and 
+  Scalar Type.
+7. Support for Arbitrary preconditioners
+
+1. XML driven experiments
+This allows one launch of the code to perform multiple experiments. That is, 
+gather data for multiple solver/preconditioner combinations where they all 
+solve exactly the same system distributed the same way.
+
+2. Matrix Reuse
+A huge burden when evaluating solvers is matrix creation. The driver alleviates 
+this partially, but performing one assembly to obtain a 'golden' state. Each 
+experiment always obtains a copy of all initial components (RHS,Matrix,Starting 
+guess)
+
+3. Pseudo Timestepping
+Rather than call the solver repeatedly, where the state it depends on never 
+changes, the code mimics a timestepper. This is useful for evaluating setup 
+costs.
+Step 1. Deep copy input data (mat,vecs)
+Setp 2. Construct Preconditioner
+Setp 3. Construct Solver
+Step 4. Perform Solver
+Setp 5. Goto Step 1.
+
+4. Plain solvers
+The driver supports solvers with no preconditioners. This ensures the 
+experimental methodology is consistent for all data obtained.
+
+5. Consistent Configuration
+Parameters to the solver/preconditioner must be expressed in XML. Ideally, 
+these 'gold' configurations will be retained with the data to ensure 
+reproducibility.
+
+6. Commandline options for codepaths used
+The driver provides a way to compare performance of LO=INT vs LO=LONG without a 
+recompile. Provided, Trilinos was built with these types enabled. Similarly, 
+available execution spaces can be chosen at launch. (ScalarTypes as well)
+
+7. Preconditioner support.
+The configuration design requires that solvers and preconditioners tell the 
+driver which Factory can construct them. Currently, this supports Belos and 
+MueLu. In the Future, Ifpack2 preconditioners will be added.
+

@@ -1,0 +1,30 @@
+#!/bin/bash
+#MSUB -l walltime=08:00:00
+#MSUB -l nodes=1:ppn=32:haswell
+#MSUB -N hsw-openmp-trilinos-test
+
+module -s rm craype-mic-knl
+module load craype-haswell
+module rm intel
+module load friendly-testing
+module load intel/17.0.1
+module load cmake
+
+echo "===========  HOST  ==============="
+
+date
+hostname
+
+echo "=========== MODULES ==============="
+module list -t
+echo "==================================="
+
+
+pwd
+
+
+export OMP_NUM_THREADS=4
+ctest -j4 |& tee trilinos-hsw-openmp-muelu-test4.log &> /dev/null
+ctest --rerun-failed |& tee trilinos-hsw-openmp-muelu-test1.log &> /dev/null
+ctest -VV --rerun-failed |& tee trilinos-hsw-openmp-muelu-test-failed.log &> /dev/null
+

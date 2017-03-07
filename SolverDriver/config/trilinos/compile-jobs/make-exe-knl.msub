@@ -1,0 +1,71 @@
+#!/bin/bash
+#MSUB -l walltime=16:00:00
+#MSUB -n
+#MSUB -l nodes=1:ppn=68:knl -los=CLE_quad_cache
+#MSUB -N trilinos-make-exe
+
+if [ "${Trilinos_Arch}" == "knl" ]; then
+
+module -s rm craype-haswell
+module load craype-mic-knl
+
+#msub  -v Trilinos_Arch,Trilinos_ExecSpace -l nodes=1:ppn=68:knl -l depend=${MOAB_JOBID} /lscratch1/jjellio/build/compile-jobs/test.msub
+
+fi
+
+if [ "${Trilinos_Arch}" == "hsw" ]; then
+
+module -s rm craype-mic-knl
+module load craype-haswell
+
+#msub  -v Trilinos_Arch,Trilinos_ExecSpace -l nodes=1:ppn=32:haswell -l depend=${MOAB_JOBID} /lscratch1/jjellio/build/compile-jobs/test.msub
+
+fi
+
+module rm intel
+module load friendly-testing
+module load intel/17.0.1
+module load cmake
+module -s rm cray-libsci
+
+
+
+echo "===========  HOST  ==============="
+
+date
+hostname
+
+echo "=========== MODULES ==============="
+module list -t
+echo "==================================="
+
+
+echo "=========== FILENAME ==============="
+Trilinos_Logfile=trilinos-${Trilinos_Arch}-${Trilinos_ExecSpace}-muelu-make-${Trilinos_Package}-all
+
+if [[ -e "${Trilinos_Logfile}" ]] ; then
+    i=0
+    while [[ -e "${Trilinos_Logfile}${i}" ]] ; do
+      let i++
+    done
+
+    for (( j=i; j>=1; j-- )); do
+      let k=j+1
+      mv ${Trilinos_Logfile}${j} ${Trilinos_Logfile}${k}
+    done
+    # move the non numbered one
+    mv ${Trilinos_Logfile} ${Trilinos_Logfile}1
+
+fi
+echo "==================================="
+
+
+pwd
+
+make_target="${Trilinos_Package}_all"
+
+aprun -n 1 hostname &> ${Trilinos_Logfile}
+aprun -r 8 -n 1 make -j40 -k ${make_target} |& tee -a ${Trilinos_Logfile} &> /dev/null
+
+
+

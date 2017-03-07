@@ -1,0 +1,63 @@
+#!/bin/bash
+#MSUB -l walltime=16:00:00
+#MSUB -l nodes=1:ppn=32:haswell
+#MSUB -N trilinos-ninja
+
+if [ "${Trilinos_Arch}" == "knl" ]; then
+
+module -s rm craype-haswell
+module load craype-mic-knl
+
+msub  -v Trilinos_Arch,Trilinos_ExecSpace -l nodes=1:ppn=68:knl -l depend=${MOAB_JOBID} /lscratch1/jjellio/build/compile-jobs/test-ninja.msub
+
+fi
+
+if [ "${Trilinos_Arch}" == "hsw" ]; then
+
+module -s rm craype-mic-knl
+module load craype-haswell
+
+msub  -v Trilinos_Arch,Trilinos_ExecSpace -l nodes=1:ppn=32:haswell -l depend=${MOAB_JOBID} /lscratch1/jjellio/build/compile-jobs/test-ninja.msub
+
+fi
+
+module rm intel
+module load friendly-testing
+module load intel/17.0.1
+module -s rm cmake
+export PATH=/home/jjellio/src/cmake-3.7.2/bin:$PATH
+
+
+module -s rm cray-libsci
+
+
+
+echo "===========  HOST  ==============="
+
+date
+hostname
+
+echo "=========== MODULES ==============="
+module list -t
+echo "==================================="
+
+
+echo "=========== FILENAME ==============="
+Trilinos_Logfile=trilinos-${Trilinos_Arch}-${Trilinos_ExecSpace}-muelu-ninja
+
+if [[ -e "${Trilinos_Logfile}" ]] ; then
+    i=0   
+    while [[ -e "${Trilinos_Logfile}${i}" ]] ; do
+        let i++
+    done
+    Trilinos_Logfile="${Trilinos_Logfile}$i"
+fi
+echo "==================================="
+
+
+pwd
+
+
+time aprun -n 1 /home/jjellio/src/ninja-1.7.2/ninja -j20 &> ${Trilinos_Logfile}
+
+

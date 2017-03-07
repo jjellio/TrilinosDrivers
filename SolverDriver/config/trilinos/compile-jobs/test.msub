@@ -1,0 +1,164 @@
+#!/bin/bash
+#MSUB -l walltime=16:00:00
+#MSUB -N trilinos-test
+#MSUB -n
+
+if [ "${Trilinos_Arch}" == "knl" ]; then
+
+module -s rm craype-haswell
+module load craype-mic-knl
+
+fi
+
+if [ "${Trilinos_Arch}" == "hsw" ]; then
+
+module -s rm craype-mic-knl
+module load craype-haswell
+
+fi
+
+module -s rm intel
+module load friendly-testing
+module load intel/17.0.1
+module load cmake
+modile -s rm cray-libsci
+
+echo "===========  HOST  ==============="
+
+date
+hostname
+
+echo "=========== MODULES ==============="
+module list -t
+echo "==================================="
+
+
+pwd
+
+
+export OMP_NUM_THREADS=4
+
+
+echo "=========== FILENAME ==============="
+Trilinos_Logfile=trilinos-${Trilinos_Arch}-${Trilinos_ExecSpace}-make-all-test
+
+if [[ -e "${Trilinos_Logfile}" ]] ; then
+    i=0
+    while [[ -e "${Trilinos_Logfile}${i}" ]] ; do
+      let i++
+    done
+
+    for (( j=i; j>=1; j-- )); do
+      let k=j+1
+      mv ${Trilinos_Logfile}${j} ${Trilinos_Logfile}${k}
+    done
+    # move the non numbered one
+    mv ${Trilinos_Logfile} ${Trilinos_Logfile}1
+
+fi
+echo "==================================="
+
+
+
+aprun -n 1 hostname &> ${Trilinos_Logfile}
+
+aprun -n 1 make -j32 -k &> ${Trilinos_Logfile}
+
+
+
+echo "=========== FILENAME ==============="
+Trilinos_Logfile=trilinos-${Trilinos_Arch}-${Trilinos_ExecSpace}-j8-test
+
+if [[ -e "${Trilinos_Logfile}" ]] ; then
+    i=0
+    while [[ -e "${Trilinos_Logfile}${i}" ]] ; do
+      let i++
+    done
+
+    for (( j=i; j>=1; j-- )); do
+      let k=j+1
+      mv ${Trilinos_Logfile}${j} ${Trilinos_Logfile}${k}
+    done
+    # move the non numbered one
+    mv ${Trilinos_Logfile} ${Trilinos_Logfile}1
+
+fi
+echo "==================================="
+
+
+
+aprun -n 1 hostname &> ${Trilinos_Logfile}
+ctest -j8 |& tee -a ${Trilinos_Logfile} &> /dev/null
+
+echo "=========== FILENAME ==============="
+Trilinos_Logfile=trilinos-${Trilinos_Arch}-${Trilinos_ExecSpace}-j1-test
+
+if [[ -e "${Trilinos_Logfile}" ]] ; then
+    i=0
+    while [[ -e "${Trilinos_Logfile}${i}" ]] ; do
+      let i++
+    done
+
+    for (( j=i; j>=1; j-- )); do
+      let k=j+1
+      mv ${Trilinos_Logfile}${j} ${Trilinos_Logfile}${k}
+    done
+    # move the non numbered one
+    mv ${Trilinos_Logfile} ${Trilinos_Logfile}1
+
+fi
+echo "==================================="
+
+
+aprun -n 1 hostname &> ${Trilinos_Logfile}
+ctest --rerun-failed |& tee -a ${Trilinos_Logfile} &> /dev/null
+
+echo "=========== FILENAME ==============="
+Trilinos_Logfile=trilinos-${Trilinos_Arch}-${Trilinos_ExecSpace}-failed-test
+
+if [[ -e "${Trilinos_Logfile}" ]] ; then
+    i=0
+    while [[ -e "${Trilinos_Logfile}${i}" ]] ; do
+      let i++
+    done
+
+    for (( j=i; j>=1; j-- )); do
+      let k=j+1
+      mv ${Trilinos_Logfile}${j} ${Trilinos_Logfile}${k}
+    done
+    # move the non numbered one
+    mv ${Trilinos_Logfile} ${Trilinos_Logfile}1
+
+fi
+echo "==================================="
+
+
+
+aprun -n 1 hostname &> ${Trilinos_Logfile}
+ctest -VV --rerun-failed |& tee -a ${Trilinos_Logfile} &> /dev/null
+
+echo "=========== FILENAME ==============="
+Trilinos_Logfile=trilinos-${Trilinos_Arch}-${Trilinos_ExecSpace}-make-install
+
+if [[ -e "${Trilinos_Logfile}" ]] ; then
+    i=0
+    while [[ -e "${Trilinos_Logfile}${i}" ]] ; do
+      let i++
+    done
+
+    for (( j=i; j>=1; j-- )); do
+      let k=j+1
+      mv ${Trilinos_Logfile}${j} ${Trilinos_Logfile}${k}
+    done
+    # move the non numbered one
+    mv ${Trilinos_Logfile} ${Trilinos_Logfile}1
+
+fi
+echo "==================================="
+
+
+
+make install &> ${Trilinos_Logfile} 
+
+
+

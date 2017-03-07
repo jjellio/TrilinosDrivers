@@ -1,0 +1,103 @@
+#!/bin/bash
+#MSUB -l walltime=16:00:00
+#MSUB -N petsc-test
+#MSUB -n
+
+petsc_arch=""
+blas_stuff=""
+
+if [ "${Trilinos_Arch}" == "knl" ]; then
+
+module -s rm craype-haswell
+module load craype-mic-knl
+
+petsc_arch="knl"
+
+fi
+
+if [ "${Trilinos_Arch}" == "hsw" ]; then
+
+module -s rm craype-mic-knl
+module load craype-haswell
+
+petsc_arch="hsw"
+
+fi
+
+
+module rm intel
+module load friendly-testing
+module load intel/17.0.1
+module load cmake
+module -s rm cray-libsci
+
+
+if [ "${Trilinos_ExecSpace}" == "serial" ]; then
+
+petsc_arch="${petsc_arch}-mkl-serial-64bit-indices"
+blas_stuff="${serial_blas}"
+
+elif [ "${Trilinos_ExecSpace}" == "openmp" ]; then
+
+petsc_arch="${petsc_arch}-mkl-openmp-64bit-indices"
+blas_stuff="${threaded_blas}"
+
+else
+  echo "ERROR ${Trilinos_ExecSpace} is not serial or openmp"
+  exit;
+fi
+
+
+echo "===========  HOST  ==============="
+
+date
+hostname
+
+echo "=========== MODULES ==============="
+module list -t
+echo "==================================="
+
+
+pwd
+
+
+export OMP_NUM_THREADS=4
+
+
+
+echo "=========== FILENAME ==============="
+Trilinos_Logfile=petsc-${petsc_arch}-test
+
+if [[ -e "${Trilinos_Logfile}" ]] ; then
+    i=0
+    while [[ -e "${Trilinos_Logfile}${i}" ]] ; do
+        let i++
+    done
+    Trilinos_Logfile="${Trilinos_Logfile}$i"
+fi
+echo "==================================="
+
+
+export PETSC_DIR=/lscratch1/trilinos-perf/src/petsc
+
+
+aprun -n 1 hostname &> ${Trilinos_Logfile}
+aprun -n 1 make PETSC_DIR=/lscratch1/trilinos-perf/src/petsc PETSC_ARCH=${petsc_arch} MAKE_NP=18 -k test |& tee -a ${Trilinos_Logfile} &> /dev/null
+
+
+
+echo "=========== FILENAME ==============="
+Trilinos_Logfile=petsc-${petsc_arch}-check
+
+if [[ -e "${Trilinos_Logfile}" ]] ; then
+    i=0
+    while [[ -e "${Trilinos_Logfile}${i}" ]] ; do
+        let i++
+    done
+    Trilinos_Logfile="${Trilinos_Logfile}$i"
+fi
+echo "==================================="
+
+
+aprun -n 1 make PETSC_DIR=/lscratch1/trilinos-perf/src/petsc PETSC_ARCH=${petsc_arch} MAKE_NP=18 -k check |& tee -a ${Trilinos_Logfile} &> /dev/null
+
