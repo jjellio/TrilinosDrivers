@@ -8,10 +8,8 @@ ENABLE_PREC_=""
 
 if [ "$1" == "hsw" ]; then
   ARCH_NAME_="hsw";
-  module -s swap craype-mic-knl craype-haswell
 elif [ "$1" == "knl" ]; then
   ARCH_NAME_="knl";
-  module -s swap craype-haswell craype-mic-knl
 else
   echo "ERROR, please specify an architecture to build for."
   echo "$0 hsw|knl [openmp|serial]"
@@ -125,7 +123,7 @@ fi
 
 export MPI_EXEC_NAME="mpirun"
 # --map-by NUMA:PE=2 --bind-to core 
-export MPI_EXEC_FLAGS="-x;OMP_PLACES=cores;-x;OMP_DISPLAY_ENV=verbose;--map-by;NUMA:PE=${CORES_PER_TEST};--map-by;core;-np" \
+export MPI_EXEC_FLAGS="-x;OMP_PLACES=cores;-x;OMP_DISPLAY_ENV=verbose;--map-by;NUMA:PE=${CORES_PER_TEST};--bind-to;core;-np" \
 
 
 if [ "${ENABLE_PREC_}" == "true" ]; then
@@ -224,8 +222,8 @@ export JENKINS_DO_PTHREAD=${PTHREAD}
 export JENKINS_DO_SERIAL=${SERIAL}
 export JENKINS_DO_COMPLEX=${COMPLEX}
 
-export JENKINS_ARCH_CXX_FLAG=${ARCH_CXX_FLAG} -fPIC
-export JENKINS_ARCH_C_FLAG=${ARCH_C_FLAG} -fPIC
+export JENKINS_ARCH_CXX_FLAG="${ARCH_CXX_FLAG} -fPIC"
+export JENKINS_ARCH_C_FLAG="${ARCH_C_FLAG} -fPIC"
 
 export JENKINS_DO_TESTS=${TESTS}
 export JENKINS_DO_EXAMPLES=${EXAMPLES}

@@ -33,6 +33,9 @@ elif [ "$1" == "openmp" ]; then
   EXE_SPACE_="openmp";
 elif [ "$1" == "serial-openmp" ]; then
   EXE_SPACE_="serial-openmp";
+else
+  echo "Set the exec space!"
+  exit;
 fi
 
 
@@ -69,8 +72,9 @@ TRILINOS_PATH=/home/jjellio/src/Trilinos
 TRILINOS_VERSION=`grep "Trilinos_VERSION " ${TRILINOS_PATH}/Version.cmake | cut -f2 -d' ' | tr -d ')'`
 COMPILER_NAME=intel
 COMPILER_VERSION=${INTEL_VERSION}
+#COMPILER_VERSION=
 TRILINOS_INSTALL=${TRILINOS_INSTALL_PREFIX}/install/trilinos-${TRILINOS_VERSION}/${COMPILER_NAME}-${COMPILER_VERSION}_${MPI_VENDOR}-${MPI_VERSION}_${BUILD_LABEL}
-
+echo $TRILINOS_INSTALL
 
 cmake \
   -G "Unix Makefiles" \
