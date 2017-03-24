@@ -1,15 +1,15 @@
 #!/bin/bash
 
-ortho="ICGS"
 ortho_passes=1
 max_iters=200
 conv_tol="0.0"
-RS_SET="10 15 20 25 30 25 40 50 60 70 80 90 100"
+RS_SET="10 15 20 25 30 35 40 50 60 70 80 90 100"
 
-run_count=1;
+run_count=26;
 DRIVER_ENTRY="gmres_driver.stubs"
 
 for RS in ${RS_SET}; do
+for ortho in "DGKS"; do
 
 solver_name="GMRES-${RS}-${ortho}-${ortho_passes}"
 
@@ -55,6 +55,11 @@ cat >> $DRIVER_ENTRY <<- EOM
 
 EOM
 
-let run_count=run_count+1
+if [ "${run_count}" == "" ]; then
+  run_count=1;
+else
+  let run_count=run_count+1
+fi
 
+done
 done

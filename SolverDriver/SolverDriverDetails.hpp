@@ -813,7 +813,7 @@ void performRun(Teuchos::ParameterList& runParamList, const int runID)
 
 
   // determine solver/preconditioner configurations
-  auto defaultDriverPL = getDefaultParameters ();
+  auto defaultDriverPL = getDefaultSolverExperimentParameters ();
 
   // apply defaults
   runParamList.setParametersNotAlreadySet(*defaultDriverPL);
@@ -1252,7 +1252,7 @@ void writeTimersForFunAndProfit (const std::string& filename)
 
 
   Teuchos::RCP<const Teuchos::ParameterList>
-  getDefaultParameters () const
+  getDefaultSolverExperimentParameters () const
   {
     using Teuchos::RCP;
     using Teuchos::parameterList;

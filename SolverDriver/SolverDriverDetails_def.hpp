@@ -92,7 +92,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::SolverDriverDetails
   cores_per_proc_=-1;                  clp.setOption("cores_per_proc", &cores_per_proc_,
                                             "How many physical cores are allocated to this process (required). "
                                             "For Serial, this should be 1.");
-  threads_per_core_=-1;                clp.setOption("threads_per_core", &threads_per_core_,
+  threads_per_core_=-1;                clp.setOption("Threads_per_core", &threads_per_core_,
                                             "How many hardware threads are allowed per core (required). "
                                             "For Serial, this could be one or 2. E.g., does this process exclusively own the core,"
                                             "or does it share the core with another process. E.g., 4 MPI procs per KNL core.");
@@ -110,8 +110,23 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::SolverDriverDetails
   }
 
   comm_ = Teuchos::DefaultComm<int>::getComm();
-  nodeLocalComm_ = PerfUtils::getNodeLocalComm(comm_);
+  nodeLocalComm_ = PerfUtils::getNodeLocalComm_mpi3(comm_);
   nodeComm_      = PerfUtils::getNodeComm(comm_, nodeLocalComm_);
+
+for (int r=0; r < comm_->getSize (); ++r)
+{
+  if (r == comm_->getRank ()) {
+    std::cout << "rank: " << comm_->getRank ()
+              <<  std::endl
+              << "  Node: " << PerfUtils::getHostname ()
+              << endl
+              << "local rank: " << nodeLocalComm_->getRank () << " / " << nodeLocalComm_->getSize ()
+              <<  std::endl
+              << "Node rank: " << nodeComm_->getRank () << " / " << nodeComm_->getSize ()
+              << endl;
+  }
+  comm_->barrier ();
+}
 
   // Instead of checking each time for rank, create a rank 0 stream
   pOut_ = fancyOStream(rcpFromRef(cout));
@@ -168,6 +183,10 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::SolverDriverDetails
   // =========================================================================
   createLinearSystem(*xpetraParams_, *galeriPL_);
 
+  // construct the file tokens used for output
+  if (comm_->getRank() == 0)
+    setFileTokens ();
+
   // =========================================================================
   // Thread Affinity construction
   // =========================================================================
@@ -175,12 +194,10 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::SolverDriverDetails
 
   configPL_->print(out);
 
-  // construct the file tokens used for output
-  if (comm_->getRank() == 0)
-    setFileTokens ();
-
   Teuchos::TimeMonitor::summarize(out, false, true, true, Teuchos::ECounterSetOp::Union);
 
+  if (comm_->getRank () == 0 )
+    NO::execution_space::print_configuration(out, true);
 }
 
 
@@ -257,7 +274,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::gatherAffinityInfo 
   using std::string;
   using std::endl;
 
-  return;
+  //return;
 
   FancyOStream& out = *pOut_;
 
@@ -270,7 +287,14 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::gatherAffinityInfo 
   RCP<Time> tm =  TimeMonitor::getNewTimer("Driver: 2 - Gather Thread Affinity");
   Teuchos::TimeMonitor linearSystemCreationTimer ( *tm );
 
-  const std::string filename = AFFINITY_MAP_CSV_STR;
+  std::ostringstream oss;
+  oss << getProblemFileToken() << "_"
+      << getNumThreadsFileToken() << "_"
+      << getDecompFileToken()    << "_"
+      << AFFINITY_MAP_CSV_STR;
+
+  const std::string filename = oss.str ();
+
 
   auto localComm2 = PerfUtils::getNodeLocalComm_mpi3(comm_);
   my_cpu_map_    = PerfUtils::gather_affinity_pthread();
@@ -282,12 +306,13 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::gatherAffinityInfo 
   out << "MPI-3 and MPI-2 implementation of local node communicators are congruent: "
       << (comms_congruent ? "OK" : "ERROR!!!")
       << endl;
+  nodeLocalComm_ = localComm2;
 
   PerfUtils::writeAffinityCSV(filename, comm_, pOut_, nodeLocalComm_);
   out << "Wrote Affinities: " << filename << endl;
 
   // describe the environment as best we can
-  if(nodeLocalComm_->getRank ())
+  if(comm_->getRank () == 0)
   {
     out << "========================================================"
         << endl
@@ -310,7 +335,84 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::gatherAffinityInfo 
     std::stringstream oss;
     PerfUtils::print_affinity (oss, *my_cpu_map_);
     out << oss.str ();
+
   }
+
+#ifdef KOKKOS_HAVE_CUDA
+// first query this process's device
+int myDevice = -1;
+cudaError_t myDevice_rc = cudaGetDevice (&myDevice);
+std::vector<int> localNodeDeviceIDs (nodeLocalComm_->getSize ());
+localNodeDeviceIDs.reserve (nodeLocalComm_->getSize ());
+localNodeDeviceIDs.resize (nodeLocalComm_->getSize ());
+
+nodeLocalComm_->gather ( int(sizeof(int)), reinterpret_cast<char *> (&myDevice), int(sizeof(int)), reinterpret_cast<char *> (&localNodeDeviceIDs[0]), 0);
+
+if (nodeLocalComm_->getRank () == 0) {
+  int nDevices = -1;
+  std::ostringstream ss;
+
+  if (comm_->getRank () == 0)
+    ss << "Cuda: " << endl;
+
+  cudaGetDeviceCount(&nDevices);
+  ss << "  Node: " << PerfUtils::getHostname ()
+     << endl
+     << "  nDevices: " << nDevices
+     << endl
+     << "  nDevices == Process per Node : "
+     << ( nodeLocalComm_->getSize () == nDevices ? "OK" : "ERROR!")
+     << endl;
+  
+  std::ostringstream oss;
+  for(int i=0; i < nDevices; ++i) {
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, i);
+    ss  << "    Device [ " << i << " ]: " << prop.name
+        << endl;
+  }
+
+  std::map<int,int> dupeDevices;
+  for(int i=0; i < localNodeDeviceIDs.size (); ++i) {
+    dupeDevices[ localNodeDeviceIDs[i] ]++;
+  }
+  ss << "  Duplicates Detected: " << ( dupeDevices.size () == nodeLocalComm_->getSize () ? "OK" : "ERROR")
+     << endl;
+
+  ss << "  Local Rank to Device Mapping :" << endl;
+  for(int i=0; i < localNodeDeviceIDs.size (); ++i) {
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, localNodeDeviceIDs[i]);
+    ss  << "    Local Rank[ " << i << " ]: " << "Device[ " << localNodeDeviceIDs[i] << " ]"
+        << endl;
+  }
+  
+
+  const std::string nodeDevStr = ss.str ();
+  const int nodeDevStr_sz = nodeDevStr.length () + 1;
+  
+  for (int r=0; r < nodeComm_->getSize (); ++r) {
+    if (r == nodeComm_->getRank () && nodeComm_->getRank () == 0) {
+      out << ss.str ();
+    } else if (r != nodeComm_->getRank () && nodeComm_->getRank () == 0) {
+      int remote_sz = -1;
+      Teuchos::receive<int, int>( *nodeComm_, r, int(sizeof(remote_sz)), &remote_sz);
+
+      char * remote_str = new char[remote_sz];
+      Teuchos::receive<int, char> ( *nodeComm_, r, remote_sz, remote_str);
+
+      out << remote_str;
+    } else if (r == nodeComm_->getRank () && nodeComm_->getRank () != 0) {
+      int remote_sz = nodeDevStr_sz;
+      Teuchos::send<int, int> ( *nodeComm_, int(sizeof(remote_sz)),  &nodeDevStr_sz, 0);
+
+      Teuchos::send<int,char> (*nodeComm_, remote_sz, nodeDevStr.c_str(), 0);
+    }
+  }
+}
+#endif
+
+
 
   comm_->barrier();
 }
@@ -607,10 +709,18 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::setNumThreadsFileTo
     ss << "Serial";
   }
   else if (node_name == "Cuda/Wrapper") {
-    ss << "Cuda";
+    ss << "Cuda-";
+
+    #ifdef KOKKOS_HAVE_CUDA
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, 0);
+    std::string name = prop.name;
+    std::replace( name.begin(), name.end(), ' ', '-'); // replace all 'x' to 'y'
+    ss << name;
+    #endif
   }
   else {
-    *pOut_ << "node_name = " << node_name << ", us unknown" << std::endl;
+    *pOut_ << "node_name = " << node_name << ", is unknown" << std::endl;
   }
 
   ss << "_np-" << comm_->getSize ();
@@ -627,10 +737,13 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::getTimeStepFileToke
   return (ss.str());
 }
 
+
+
 template<class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
 void
-SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performRun(Teuchos::ParameterList& runParamList, const int runID)
+SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebraExperiment (Teuchos::ParameterList& runParamList, const int runID)
 {
+
 
   using Teuchos::RCP;
   using Teuchos::rcp;
@@ -646,20 +759,174 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performRun(Teuchos:
   using std::endl;
   using ss_t = std::stringstream;
 
-  Teuchos::TimeMonitor::clearCounters();
-
   FancyOStream& out = *pOut_;
-
-  out << "Preparing for run #" << runID
-      << endl;
-
-  ss_t ss;
-  ss << "Driver: Run " << runID;
-  const std::string runPrefix = ss.str ();
 
 
   // determine solver/preconditioner configurations
-  auto defaultDriverPL = getDefaultParameters ();
+  auto defaultDriverPL = getDefaultLinearAlgebraExperimentParameters ();
+
+  // apply defaults
+  runParamList.setParametersNotAlreadySet(*defaultDriverPL);
+
+  const int    pseudoTimesteps   = runParamList.get<int>(PL_KEY_TIMESTEP);
+  const bool   do_deep_copies    = runParamList.get<bool>(PL_KEY_TIMESTEP_DEEPCOPY);
+  const bool construction_only   = runParamList.get<bool>(PL_KEY_CONSTRUCTOR_ONLY);
+  const string experimentType    = runParamList.get<string>(PL_KEY_EXPERIMENT_TYPE);
+
+  // Timer IO file tokens
+  const string problemFileToken   = getProblemFileToken ();
+  const string numStepsFileToken  = getTimeStepFileToken (pseudoTimesteps);
+  const string execSpaceFileToken = getNumThreadsFileToken ();
+  const string decompFileToken    = getDecompFileToken ();
+
+  std::ostringstream oss;
+  oss << problemFileToken   << "_"
+      << "LinearAlgebra-" << Xpetra::toString(xpetraParams_->GetLib()) << "_"
+      << numStepsFileToken  << "_"
+      << execSpaceFileToken << "_"
+      << decompFileToken    << ".yaml";
+
+  const std::string fileName = oss.str ();
+
+
+  out << std::string(80,'-')
+      << endl
+      << "------  " << fileName
+      << endl
+      << std::string(80,'-')
+      << endl;
+
+
+  // define counters for the main phases
+  RCP<Time> globalTime_       = TimeMonitor::getNewTimer(TM_LABEL_GLOBAL);
+  RCP<Time> copyTime_         = TimeMonitor::getNewTimer(TM_LABEL_COPY);
+  RCP<Time> applyTime_        = TimeMonitor::getNewTimer("Tpetra::Apply");
+  RCP<Time> norm2Time_        = TimeMonitor::getNewTimer("Tpetra::Norm2");
+  RCP<Time> scaleTime_        = TimeMonitor::getNewTimer("Tpetra::Scale");
+  RCP<Time> all_reduceTime_   = TimeMonitor::getNewTimer("Teuchos::reduceAll");
+
+  // Timestep loop around here
+  // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+  // Run starts here.
+  // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+  for (int i=0; i < pseudoTimesteps; ++i)
+  {
+
+    // We keep two copies of the matrix.
+    // The original, and the one Muelu can repartition
+    // This allows measuring repartitioning costs, without
+    // paying for matrix assembly again.
+    RCP<Matrix> A = Teuchos::null;
+    RCP<MultiVector> coordinates = Teuchos::null;
+    RCP<MultiVector> nullspace= Teuchos::null;
+    RCP<MultiVector> X= Teuchos::null;
+    RCP<MultiVector> B= Teuchos::null;
+    RCP<MultiVector> R0 = Teuchos::null;
+    RCP<const Map>   map= Teuchos::null;
+    RCP<Map>        mapT= Teuchos::null;
+
+    typedef Teuchos::ScalarTraits<SC> STS;
+    SC zero = STS::zero(), one = STS::one();
+
+    OSTab tab (out);
+
+    this->comm_->barrier();
+    // start the clock
+    Teuchos::TimeMonitor glb_tm (*globalTime_);
+
+    // ===========================================================================
+    // reset the matrix, initial guess and RHS.
+    // ===========================================================================
+    {
+      out << "Deep Copying Vectors and Matrices"
+          << endl;
+
+      // start the clock
+      Teuchos::TimeMonitor tm (*copyTime_);
+/*
+      RCP<Node> dupeNode = rcp (new Node());
+
+      // copying does not set the fixed block size
+      A = MatrixFactory2::BuildCopy(orig_A_);
+
+      if (orig_A_->GetFixedBlockSize() > 1)
+        A->SetFixedBlockSize( orig_A_->GetFixedBlockSize() );
+*/
+      X   = MultiVectorFactory::Build(orig_X_->getMap(), orig_X_->getNumVectors(), true);
+      B   = MultiVectorFactory::Build(orig_B_->getMap(), orig_B_->getNumVectors(), false);
+      *B  = *orig_B_;
+    }
+    // barrier after the timer scope, this allows the timers to track variations
+    comm_->barrier();
+
+    // apply
+    {
+      // start the clock
+      Teuchos::TimeMonitor tm (*applyTime_);
+      orig_A_->apply(*(B), *(X), Teuchos::NO_TRANS, one, zero);
+    }
+    // barrier after the timer scope, this allows the timers to track variations
+    comm_->barrier();
+
+    {
+      // start the clock
+      Teuchos::TimeMonitor tm (*norm2Time_);
+      Teuchos::Array<typename STS::magnitudeType> norms(1);
+      X->norm2(norms);
+    }
+    // barrier after the timer scope, this allows the timers to track variations
+    comm_->barrier();
+
+    {
+      // start the clock
+      Teuchos::TimeMonitor tm (*scaleTime_);
+      X->scale(SC(1.00253));
+    }
+    // barrier after the timer scope, this allows the timers to track variations
+    comm_->barrier();
+
+    {
+      // start the clock
+      Teuchos::TimeMonitor tm (*all_reduceTime_);
+      int nv = 10;
+      SC lclSum[10]  = {1,2,3,4,5,6,7,8,9,10};
+      SC gblSum[10] = {0,0,0,0,0,0,0,0,0,0};
+
+      Teuchos::reduceAll<int, SC> (*comm_, Teuchos::REDUCE_SUM, nv, lclSum, gblSum);
+
+    }
+    // barrier after the timer scope, this allows the timers to track variations
+    comm_->barrier();
+  }
+  writeTimersForFunAndProfit (fileName);
+}
+
+
+template<class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
+void
+SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performSolverExperiment (Teuchos::ParameterList& runParamList, const int runID)
+{
+
+
+  using Teuchos::RCP;
+  using Teuchos::rcp;
+  using Teuchos::rcp_const_cast;
+  using Teuchos::ArrayRCP;
+  using Teuchos::TimeMonitor;
+  using Teuchos::Time;
+  using Teuchos::FancyOStream;
+  using Teuchos::OSTab;
+  using Teuchos::ParameterList;
+  using Teuchos::parameterList;
+  using std::string;
+  using std::endl;
+  using ss_t = std::stringstream;
+
+  FancyOStream& out = *pOut_;
+
+
+  // determine solver/preconditioner configurations
+  auto defaultDriverPL = getDefaultSolverExperimentParameters ();
 
   // apply defaults
   runParamList.setParametersNotAlreadySet(*defaultDriverPL);
@@ -673,7 +940,9 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performRun(Teuchos:
   const string solverFactoryName = runParamList.get<string>(PL_KEY_SOLVER_FACTORY);
   const int    pseudoTimesteps   = runParamList.get<int>(PL_KEY_TIMESTEP);
   const bool   copy_R0           = runParamList.get<bool>(PL_KEY_COPY_R0);
-  const bool   construction_only = runParamList.get<bool>(PL_KEY_CONSTRUCTION_ONLY);
+  const bool   do_deep_copies    = runParamList.get<bool>(PL_KEY_TIMESTEP_DEEPCOPY);
+  const bool construction_only   = runParamList.get<bool>(PL_KEY_CONSTRUCTOR_ONLY);
+  const string experimentType    = runParamList.get<string>(PL_KEY_EXPERIMENT_TYPE);
 
   // Timer IO file tokens
   const string solverFileToken   = runParamList.get<string>("solverFileToken");
@@ -806,7 +1075,16 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performRun(Teuchos:
 
       mapT= Xpetra::clone(*orig_map_,dupeNode);
       map = mapT;;
+/*
 
+      A = Teuchos::rcp_const_cast<Matrix> (orig_A_);
+      B = Teuchos::rcp_const_cast<MultiVector> (orig_B_);
+      X = Teuchos::rcp_const_cast<MultiVector> (orig_X_);
+      X->putScalar(0.0);
+      nullspace = Teuchos::rcp_const_cast<MultiVector> (orig_nullspace_);
+      coordinates = Teuchos::rcp_const_cast<MultiVector> (orig_coordinates_);
+      map = orig_map_;
+*/
     }
     // barrier after the timer scope, this allows the timers to track variations
     comm_->barrier();
@@ -1056,6 +1334,58 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performRun(Teuchos:
   writeTimersForFunAndProfit (fileName);
 }
 
+template<class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
+void
+SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performRun(Teuchos::ParameterList& runParamList, const int runID)
+{
+
+  using Teuchos::RCP;
+  using Teuchos::rcp;
+  using Teuchos::rcp_const_cast;
+  using Teuchos::ArrayRCP;
+  using Teuchos::TimeMonitor;
+  using Teuchos::Time;
+  using Teuchos::FancyOStream;
+  using Teuchos::OSTab;
+  using Teuchos::ParameterList;
+  using Teuchos::parameterList;
+  using std::string;
+  using std::endl;
+  using ss_t = std::stringstream;
+
+  Teuchos::TimeMonitor::clearCounters();
+
+  FancyOStream& out = *pOut_;
+
+  out << "Preparing for run #" << runID
+      << endl;
+
+  #ifdef HAVE_MUELU_OPENMP
+  {
+    std::string node_name = Node::name();
+    if(!comm_->getRank() && !node_name.compare("OpenMP/Wrapper"))
+      out << "OpenMP Max Threads = "
+          << omp_get_max_threads()
+          << std::endl;
+  }
+  #endif
+
+
+  // determine what we are doing
+  const string experimentType    = runParamList.isParameter(PL_KEY_EXPERIMENT_TYPE)
+                                  ? runParamList.get<string>(PL_KEY_EXPERIMENT_TYPE)
+                                  : PL_DEFAULT_EXPERIMENT_TYPE;
+
+  if (experimentType == EXPERIMENT_TYPE_SOLVER) {
+    performSolverExperiment(runParamList, runID);
+  } else if (experimentType == EXPERIMENT_TYPE_LINEAR_ALGEBRA) {
+    performLinearAlgebraExperiment(runParamList, runID);
+  } else {
+
+  }
+
+}
+
 
 template<class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
 void
@@ -1098,17 +1428,45 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::writeTimersForFunAn
   }
 }
 
-
-
 template<class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
 Teuchos::RCP<const Teuchos::ParameterList>
-SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::getDefaultParameters () const
+SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::getDefaultLinearAlgebraExperimentParameters () const
 {
   using Teuchos::RCP;
   using Teuchos::parameterList;
   using Teuchos::ParameterList;
 
   RCP<ParameterList> defaults = parameterList();
+
+  // ExperimentType
+  defaults->set(PL_KEY_EXPERIMENT_TYPE, PL_DEFAULT_EXPERIMENT_TYPE);
+
+  // Fake timestepping e.g., repeat the whole experiment in a loop
+  defaults->set(PL_KEY_TIMESTEP, PL_DEFAULT_TIMESTEP);
+
+  // whether to compute or construct only
+  defaults->set(PL_KEY_CONSTRUCTOR_ONLY, PL_DEFAULT_CONSTRUCTOR_ONLY);
+
+  // whether the experiment should deep copy between timesteps
+  defaults->set(PL_KEY_TIMESTEP_DEEPCOPY, PL_DEFAULT_TIMESTEP_DEEPCOPY);
+
+
+  return (defaults);
+}
+
+
+template<class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
+Teuchos::RCP<const Teuchos::ParameterList>
+SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::getDefaultSolverExperimentParameters () const
+{
+  using Teuchos::RCP;
+  using Teuchos::parameterList;
+  using Teuchos::ParameterList;
+
+  RCP<ParameterList> defaults = parameterList();
+
+  // ExperimentType
+  defaults->set(PL_KEY_EXPERIMENT_TYPE, PL_DEFAULT_EXPERIMENT_TYPE);
 
   // SolverName
   defaults->set(PL_KEY_SOLVER_NAME, PL_DEFAULT_SOLVER_NAME);
@@ -1122,12 +1480,16 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::getDefaultParameter
   defaults->set(PL_KEY_PREC_FACTORY, PL_DEFAULT_PREC_FACTORY);
 
   // Fake timestepping e.g., repeat the whole experiment in a loop
-  const int PL_DEFAULT_TIMESTEP  = 50;
   defaults->set(PL_KEY_TIMESTEP, PL_DEFAULT_TIMESTEP);
-  const bool PL_DEFAULT_COPY_R0 = false;
+
   defaults->set(PL_KEY_COPY_R0, PL_DEFAULT_COPY_R0);
-  const bool PL_DEFAULT_CONSTRUCTION_ONLY = false;
-  defaults->set(PL_KEY_CONSTRUCTION_ONLY, PL_DEFAULT_CONSTRUCTION_ONLY);
+
+  // whether to compute or construct only
+  defaults->set(PL_KEY_CONSTRUCTOR_ONLY, PL_DEFAULT_CONSTRUCTOR_ONLY);
+
+  // whether the experiment should deep copy between timesteps
+  defaults->set(PL_KEY_TIMESTEP_DEEPCOPY, PL_DEFAULT_TIMESTEP_DEEPCOPY);
+
 
   return (defaults);
 }

@@ -25,7 +25,13 @@
 // use OpenMP
 // TODO: Make this more generic without depending on Kokkos
 // Can C++11 support everything?  (No,still uses sched_getAffinity)
+#ifdef _OPENMP
+#define AFFINITY_HAVE_OPENMP
+#endif
+
+#ifdef AFFINITY_HAVE_OPENMP
 #include <omp.h>
+#endif
 
 #include <chrono>
 #include <ctime>
@@ -50,15 +56,21 @@ void gather_affinity_linux_syscall (cpu_map_type& cpu_map)
 {
   cpu_map.clear ();
 
-  omp_lock_t map_lock;
-  omp_init_lock(&map_lock);
+  #ifdef AFFINITY_HAVE_OPENMP
+    omp_lock_t map_lock;
+    omp_init_lock(&map_lock);
+  #endif
 
   // still enter a parallel region. This makes an implicit assumption
   // that the underlying thread model will support gettid()
   #pragma omp parallel
   {
     // get the logical thread ID
-    int tid = omp_get_thread_num ();
+    int tid = 0;
+
+    #ifdef AFFINITY_HAVE_OPENMP
+      tid = omp_get_thread_num ();
+    #endif
 
     // for this thread, query its cpuset
     cpu_set_t my_cpuset;
@@ -82,14 +94,23 @@ void gather_affinity_linux_syscall (cpu_map_type& cpu_map)
         // this logical thread-id. This is *not* one to one, as threads may
         // be bound at the core or socket level
         // the cpu map is also shared, so use a lock to modify it.
-        omp_set_lock(&map_lock);
-          cpu_map.insert( std::make_pair(tid,j) );
-        omp_unset_lock(&map_lock);
+
+        #ifdef AFFINITY_HAVE_OPENMP
+          omp_set_lock(&map_lock);
+        #endif
+            cpu_map.insert( std::make_pair(tid,j) );
+
+        #ifdef AFFINITY_HAVE_OPENMP
+            omp_unset_lock(&map_lock);
+        #endif
+
       }
     }
   }
 
-  omp_destroy_lock(&map_lock);
+  #ifdef AFFINITY_HAVE_OPENMP
+    omp_destroy_lock(&map_lock);
+  #endif
 }
 
 Teuchos::RCP<const cpu_map_type> gather_affinity_pthread ()
@@ -111,8 +132,10 @@ void gather_affinity_pthread (cpu_map_type& cpu_map)
 {
   cpu_map.clear ();
 
-  omp_lock_t map_lock;
-  omp_init_lock(&map_lock);
+  #ifdef AFFINITY_HAVE_OPENMP
+    omp_lock_t map_lock;
+    omp_init_lock(&map_lock);
+  #endif
 
   // open a parallel region, this will activate whatever threads have been created
   // This assumes kokkos has been initialized, if not this call will spawn
@@ -120,7 +143,11 @@ void gather_affinity_pthread (cpu_map_type& cpu_map)
   #pragma omp parallel
   {
     // get the logical thread ID
-    int tid = omp_get_thread_num ();
+    int tid = 0;
+
+    #ifdef AFFINITY_HAVE_OPENMP
+      tid = omp_get_thread_num ();
+    #endif
 
     // for this thread, query its cpuset
     cpu_set_t my_cpuset;
@@ -143,14 +170,23 @@ void gather_affinity_pthread (cpu_map_type& cpu_map)
         // this logical thread-id. This is *not* one to one, as threads may
         // be bound at the core or socket level
         // the cpu map is also shared, so use a lock to modify it.
-        omp_set_lock(&map_lock);
-          cpu_map.insert( std::make_pair(tid,j) );
-        omp_unset_lock(&map_lock);
+
+        #ifdef AFFINITY_HAVE_OPENMP
+          omp_set_lock(&map_lock);
+        #endif
+            cpu_map.insert( std::make_pair(tid,j) );
+
+        #ifdef AFFINITY_HAVE_OPENMP
+            omp_unset_lock(&map_lock);
+        #endif
+
       }
     }
   }
 
-  omp_destroy_lock(&map_lock);
+  #ifdef AFFINITY_HAVE_OPENMP
+    omp_destroy_lock(&map_lock);
+  #endif
 }
 #endif
 

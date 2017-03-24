@@ -196,7 +196,7 @@ private:
   int cores_per_proc_;
   int threads_per_core_;
 
-  std::string decompFileToken_;;
+  std::string decompFileToken_;
   std::string problemFileToken_;
   std::string numThreadsFileToken_;
 
@@ -222,12 +222,25 @@ private:
 
   // driver controls
   static constexpr const char* PL_KEY_TIMESTEP           = "Pseudo Timesteps";
+  static const int             PL_DEFAULT_TIMESTEP;
 
   static constexpr const char* PL_KEY_COPY_R0            = "Set Initial Residual";
+  static const bool            PL_DEFAULT_COPY_R0;
+
+  static constexpr const char* PL_KEY_TIMESTEP_DEEPCOPY  = "Deep Copy each Timestep";
+  static const bool            PL_DEFAULT_TIMESTEP_DEEPCOPY;
 
   static constexpr const char* PL_KEY_BELOS_TIMER_LABEL  = "Timer Label";
 
-  static constexpr const char* PL_KEY_CONSTRUCTION_ONLY  = "Construction Only";
+  // Solver | LinearAlg
+  static constexpr const char* PL_KEY_EXPERIMENT_TYPE         = "ExperimentType";
+  static constexpr const char* EXPERIMENT_TYPE_SOLVER         = "Solver";
+  static constexpr const char* EXPERIMENT_TYPE_LINEAR_ALGEBRA = "Linear Algebra";
+
+  static constexpr const char* PL_DEFAULT_EXPERIMENT_TYPE = EXPERIMENT_TYPE_SOLVER;
+
+  static constexpr const char* PL_KEY_CONSTRUCTOR_ONLY     = "Construction Only";
+  static const bool            PL_DEFAULT_CONSTRUCTOR_ONLY;
 
 
   static constexpr const char* TM_LABEL_GLOBAL       = "0 - Total Time";
@@ -236,6 +249,9 @@ private:
   static constexpr const char* TM_LABEL_PREC_SETUP   = "3 - Constructing Preconditioner";
   static constexpr const char* TM_LABEL_SOLVER_SETUP = "4 - Constructing Solver";
   static constexpr const char* TM_LABEL_SOLVE        = "5 - Solve";
+
+  static constexpr const char* TM_LABEL_APPLY        = "2 - Apply";
+
 
 
   static constexpr const char* AFFINITY_MAP_CSV_STR  = "affinity.csv";
@@ -271,11 +287,16 @@ private:
   std::string getTimeStepFileToken (const int numsteps);
 
   void performRun(Teuchos::ParameterList& runParamList, const int runID);
+  void performSolverExperiment(Teuchos::ParameterList& runParamList, const int runID);
+  void performLinearAlgebraExperiment(Teuchos::ParameterList& runParamList, const int runID);
 
   void writeTimersForFunAndProfit (const std::string& filename);
 
   Teuchos::RCP<const Teuchos::ParameterList>
-  getDefaultParameters () const;
+  getDefaultSolverExperimentParameters () const;
+
+  Teuchos::RCP<const Teuchos::ParameterList>
+  getDefaultLinearAlgebraExperimentParameters () const;
 
   /*
    * Expects to see:
@@ -303,5 +324,18 @@ private:
   void
   reportBelosSolvers ();
 };
+
+
+template<class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
+const int  SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::PL_DEFAULT_TIMESTEP = 50;
+
+template<class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
+const bool SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::PL_DEFAULT_COPY_R0  = false;
+
+template<class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
+const bool SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::PL_DEFAULT_TIMESTEP_DEEPCOPY = true;
+
+template<class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
+const bool SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::PL_DEFAULT_CONSTRUCTOR_ONLY = false;
 
 #endif // SolverDriverDetails_decl_HPP

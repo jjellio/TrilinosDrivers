@@ -48,7 +48,8 @@ getNodeLocalComm_mpi3 (const Teuchos::RCP<const teuchos_comm_type> comm)
   // rebuilding trilinos, and hoping something isn't broken. To hell with that.
   // The fact you cannot easily add functionality is an AMAZING flaw in Trilinos' software stack.
   int splitReturn = MPI_Comm_split_type(
-                      *(reinterpret_cast<const MpiComm<ordinal_type>&>(*comm).getRawMpiComm () ),
+                      MPI_COMM_WORLD,
+                      //*(reinterpret_cast<const MpiComm<ordinal_type>&>(*comm).getRawMpiComm () ),
                       MPI_COMM_TYPE_SHARED,
                       globalRank,
                        MPI_INFO_NULL,
@@ -61,6 +62,7 @@ getNodeLocalComm_mpi3 (const Teuchos::RCP<const teuchos_comm_type> comm)
     << "and key " << globalRank << ".  MPI_Comm_split_type failed with error \""
     << mpiErrorCodeToString (splitReturn) << "\".");
   if (nodeComm == MPI_COMM_NULL) {
+    std::cout << "rank: " << globalRank << ", got null comm" << std::endl;
     return (RCP< Comm<ordinal_type> >());
   } else {
     RCP<const OpaqueWrapper<MPI_Comm> > wrapped =
@@ -151,7 +153,7 @@ getNodeComm (
   Teuchos::Array<int> self (1, nodeLocalcomm->getRank());
   auto commSelf = comm->createSubcommunicator  ( self.view(0, 1) );
 
-  const int myColor = nodeLocalcomm->getRank () == 0 ? 0 : -1;
+  const int myColor = nodeLocalcomm->getRank (); // == 0 ? 0 : -1;
   const int myKey   = comm->getRank ();
 
   RCP<teuchos_comm_type> nodeComm = comm->split (myColor, myKey);

@@ -251,6 +251,8 @@ int main(int argc, char* argv[]) {
     using std::cout;
 
 
+    GlobalMPISession mpiSession(&argc, &argv, NULL);
+
     // =========================================================================
     // Parameters initialization
     // =========================================================================
@@ -276,8 +278,7 @@ int main(int argc, char* argv[]) {
     // MPI initialization using Teuchos
     // =========================================================================
     // do this so argc/argv will have kokkos items removed
-    //Kokkos::initialize(argc, argv);
-    GlobalMPISession mpiSession(&argc, &argv, NULL);
+    Kokkos::initialize(argc, argv);
 
 
     Xpetra::UnderlyingLib lib = xpetraParams->GetLib();

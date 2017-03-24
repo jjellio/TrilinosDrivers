@@ -1,0 +1,18 @@
+<ParameterList name="GMRES-25-DGKS-1">
+  <Parameter name="Block Size"            type="int"  value="1" />
+  <Parameter name="Maximum Iterations"    type="int"  value="200" />
+  <Parameter name="Num Blocks"            type="int"  value="25" />
+  <Parameter name="Maximum Restarts"      type="int"  value="1000" />
+  <Parameter name="Convergence Tolerance" type="double"  value="0.0" />
+
+  <Parameter name="Orthogonalization"     type="string"  value="DGKS" />
+  <ParameterList name="DGKS">  
+    <Parameter name="maxNumOrthogPasses"  type="int"  value="1" />
+  </ParameterList>
+    <Parameter name="Verbosity"             type="int"  value="0" />
+<!--
+  <Parameter name="Output Frequency"  type="int"  value="10" />
+  <Parameter name="Output Style"      type="int"  value="1" />
+  <Parameter name="Verbosity"         type="int"  value="33" />
+-->
+</ParameterList>

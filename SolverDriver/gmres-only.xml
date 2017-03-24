@@ -1,0 +1,626 @@
+<ParameterList name="Driver">
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-10-ICGS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run1">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-10-DGKS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run2">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-15-ICGS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run3">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-15-DGKS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run4">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-20-ICGS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run5">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-20-DGKS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run6">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-25-ICGS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run7">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-25-DGKS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run8">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-30-ICGS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run9">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-30-DGKS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run10">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-35-ICGS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run11">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-35-DGKS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run12">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-40-ICGS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run13">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-40-DGKS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run14">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-50-ICGS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run15">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-50-DGKS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run16">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-60-ICGS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run17">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-60-DGKS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run18">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-70-ICGS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run19">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-70-DGKS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run20">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-80-ICGS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run21">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-80-DGKS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run22">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-90-ICGS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run23">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-90-DGKS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run24">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-100-ICGS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run25">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-100-DGKS-2.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run26">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-10-DGKS-1.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run27">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-15-DGKS-1.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run28">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-20-DGKS-1.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run29">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-25-DGKS-1.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run30">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-30-DGKS-1.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run31">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-35-DGKS-1.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run32">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-40-DGKS-1.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run33">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-50-DGKS-1.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run34">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-60-DGKS-1.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run35">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-70-DGKS-1.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run36">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-80-DGKS-1.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run37">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-90-DGKS-1.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+
+<!-- =============================================================================================== -->
+  <ParameterList name="run38">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="1" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="GMRES"/>
+    <Parameter name="SolverParams"              type="string"   value="gold/GMRES/GMRES-100-DGKS-1.xml"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="None"/>
+  </ParameterList>
+<!-- =============================================================================================== -->
+
+</ParameterList>
