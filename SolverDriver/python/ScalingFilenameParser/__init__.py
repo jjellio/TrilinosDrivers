@@ -150,6 +150,78 @@ class ScalingFileNameParser:
     # return a dict of tokens
     return my_tokens
 
+  def getColumnsDTypes(self, execspace_name='unknown'):
+    import numpy as np
+    # this would be easier with a refactor
+    # e.g., problem_name, problem_attributes, solver_name, solver_attributes, ...
+    if execspace_name == 'OpenMP':
+      return {
+              'Timer Name' : 'str',
+              'problem_type' : 'str',
+              'problem_nx' : 'int32',
+              'problem_ny' : 'int32',
+              'problem_nz' : 'int32',
+              'problem_bs' : 'int32',
+              'solver_name' : 'str',
+              'solver_attributes' : 'str',
+              'execspace_name' : 'str',
+              'execspace_attributes' : 'str',
+              'prec_name' : 'str',
+              'prec_attributes' : 'str',
+              'numsteps' : 'int32',
+              'num_mpi_procs' : 'int32',
+              # order matters here, we want things sorted how we group/analyze data
+              'num_nodes' : 'int32',
+              'procs_per_node' : 'int32',
+              'cores_per_proc' : 'int32',
+              'threads_per_core' : 'int32',
+              # these are unique to the execspace
+              'omp_num_threads' : 'int32',
+              'nodes' : 'str',
+              'timestamp': 'str',
+              # teuchos stuff
+              'minT'  : 'float64',
+              'minC'  : 'float64',
+              'meanT' : 'float64',
+              'meanC' : 'float64',
+              'maxT'  : 'float64',
+              'maxC'  : 'float64',
+              'meanCT' : 'float64',
+              'meanCC' : 'float64'}
+    elif execspace_name == 'Cuda':
+      return {'Timer Name' : 'str',
+              'problem_type' : 'str',
+              'problem_nx' : 'int32',
+              'problem_ny' : 'int32',
+              'problem_nz' : 'int32',
+              'problem_bs' : 'int32',
+              'solver_name' : 'str',
+              'solver_attributes' : 'str',
+              'execspace_name' : 'str',
+              'execspace_attributes' : 'str',
+              'prec_name' : 'str',
+              'prec_attributes' : 'str',
+              'numsteps' : 'int32',
+              'num_mpi_procs' : 'int32',
+              # order matters here, we want things sorted how we group/analyze data
+              'num_nodes' : 'int32',
+              'procs_per_node' : 'int32',
+              'cores_per_proc' : 'int32',
+              'threads_per_core' : 'int32',
+              # these are unique to the execspace
+              'cuda_device_name' : 'str',
+              'nodes' : 'str',
+              'timestamp': 'str',
+              # teuchos stuff
+              'minT'  : 'float64',
+              'minC'  : 'float64',
+              'meanT' : 'float64',
+              'meanC' : 'float64',
+              'maxT'  : 'float64',
+              'maxC'  : 'float64',
+              'meanCT' : 'float64',
+              'meanCC' : 'float64'}
+
   def getIndexColumns(self, execspace_name='unknown'):
     # this would be easier with a refactor
     # e.g., problem_name, problem_attributes, solver_name, solver_attributes, ...
@@ -174,7 +246,9 @@ class ScalingFileNameParser:
               'cores_per_proc',
               'threads_per_core',
               # these are unique to the execspace
-              'omp_num_threads']
+              'omp_num_threads',
+              'nodes',
+              'timestamp']
     elif execspace_name == 'Cuda':
       return ['Timer Name',
               'problem_type',
@@ -196,7 +270,9 @@ class ScalingFileNameParser:
               'cores_per_proc',
               'threads_per_core',
               # these are unique to the execspace
-              'cuda_device_name']
+              'cuda_device_name',
+              'nodes',
+              'timestamp']
 
   def getMasterGroupBy(self, execspace_name='unknown', scaling_type='unknown'):
     # this would be easier with a refactor
@@ -286,6 +362,14 @@ class ScalingFileNameParser:
                                 "_{np_token}" \
                                 "_{decomp_token}.yaml".format(**self.fmt_strs)
 
+    return data_orig_filename_fmt.format(**my_tokens)
+
+  def build_affinity_filename(self, my_tokens):
+    # reconstruct the file name these tokens were parsed from
+    data_orig_filename_fmt  = "{problem_token}" \
+                              "_{execspace_token}" \
+                              "_{np_token}" \
+                              "_{decomp_token}_affinity.csv".format(**self.fmt_strs)
     return data_orig_filename_fmt.format(**my_tokens)
 
   def updateScalingTerms(self, my_tokens, scaling_dict_terms):
@@ -597,12 +681,20 @@ def rebuild_source_filename(my_tokens):
   return _myFileNameParser.rebuild_source_filename(my_tokens)
 
 
+def build_affinity_filename(my_tokens):
+  return _myFileNameParser.build_affinity_filename(my_tokens)
+
+
 def getTokensFromDataFrameGroupBy(dataframe_group):
   return _myFileNameParser.getScalingTerms(dataframe_group)
 
 
 def getIndexColumns(execspace_name):
   return _myFileNameParser.getIndexColumns(execspace_name=execspace_name)
+
+
+def getColumnsDTypes(execspace_name):
+  return _myFileNameParser.getColumnsDTypes(execspace_name=execspace_name)
 
 
 def getMasterGroupBy(execspace_name, scaling_type):

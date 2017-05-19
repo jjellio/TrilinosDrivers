@@ -27,6 +27,7 @@ MAX_LINESTYLE='solid'
 
 plot_only_min = False
 smooth_outliers = False
+ht_consistent_yaxes = False
 composite_count = 0
 
 DECOMP_COLORS = {
@@ -111,6 +112,9 @@ def plot_composite(composite_group, my_nodes, my_ticks, driver_df, average=False
     simple_fname = '{}-{}'.format(composite_count, simple_fname)
     global composite_count
     composite_count = composite_count + 1
+
+  if not ht_consistent_yaxes:
+    simple_fname = '{fname}-free_yaxis'.format(fname=simple_fname)
 
   if not FORCE_REPLOT:
     my_file = Path("{}.png".format(simple_fname))
@@ -328,28 +332,29 @@ def plot_composite(composite_group, my_nodes, my_ticks, driver_df, average=False
 
       plot_idx = plot_idx + 1
 
-  best_ylims = [np.inf, -np.inf]
-  for axis in ax:
-    ylims = axis.get_ylim()
-    best_ylims[0] = min(best_ylims[0], ylims[0])
-    best_ylims[1] = max(best_ylims[1], ylims[1])
+  if ht_consistent_yaxes:
+    best_ylims = [np.inf, -np.inf]
+    for axis in ax:
+      ylims = axis.get_ylim()
+      best_ylims[0] = min(best_ylims[0], ylims[0])
+      best_ylims[1] = max(best_ylims[1], ylims[1])
 
-  # nothing below zero
-  best_ylims[0] = max(best_ylims[0], 0.0)
-  for axis in ax:
-    axis.set_ylim(best_ylims)
+    # nothing below zero
+    best_ylims[0] = max(best_ylims[0], 0.0)
+    for axis in ax:
+      axis.set_ylim(best_ylims)
 
-  for figure in indep_plot:
-    figure.gca().set_ylim(best_ylims)
+    for figure in indep_plot:
+      figure.gca().set_ylim(best_ylims)
 
-  best_ylims = [np.inf, -np.inf]
-  for axis in perc_ax:
-    ylims = axis.get_ylim()
-    best_ylims[0] = min(best_ylims[0], ylims[0])
-    best_ylims[1] = max(best_ylims[1], ylims[1])
+    best_ylims = [np.inf, -np.inf]
+    for axis in perc_ax:
+      ylims = axis.get_ylim()
+      best_ylims[0] = min(best_ylims[0], ylims[0])
+      best_ylims[1] = max(best_ylims[1], ylims[1])
 
-  for axis in perc_ax:
-    axis.set_ylim(best_ylims)
+    for axis in perc_ax:
+      axis.set_ylim(best_ylims)
 
   x=1
   for figure in indep_plot:

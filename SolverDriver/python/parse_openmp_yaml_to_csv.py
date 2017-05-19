@@ -8,11 +8,8 @@ Usage:
 Options:
   -h --help                     Show this screen.
   -i FILE --input-files=FILE    Input file
-  -o FILE --output-file=FILE    Output file
-  -a MODE --analysis=MODE       Mode [default: setup_timers]
-  -d DISPLAY --display=DISPLAY  Display mode [default: print]
-  -s STYLE --style=STYLE        Plot style [default: stack]
-  -t TOP --top=TOP              Number of timers [default: 11]
+  -o FILE --output-csv=FILE     Output file [default: all_data.csv]
+  -a PATH --affinity-dir=PATH   Path to directory with affinity CSV data [default: ../affinity]
 """
 
 import glob
@@ -20,12 +17,37 @@ import numpy       as np
 import pandas      as pd
 from   docopt import docopt
 import yaml
+from pathlib import Path
 import re
 import ScalingFilenameParser as SFP
 
+# affinity_files have the name:
+# affinity_dir/Laplace3D-BS-1-1240x1240x1240_OpenMP-threads-16_np-2048_decomp-128x16x4x1_affinity.csv
+# Tokenized:
+# # affinity_dir/<problem_type>-BS-1-1240x1240x1240_OpenMP-threads-16_np-2048_decomp-128x16x4x1_affinity.csv
+def parse_affinity_data(affinity_path, tokens):
+  affinity_filename = '{path}/{name}'.format(path=affinity_path,
+                                             name=SFP.build_affinity_filename(my_tokens))
+
+  my_file = Path(affinity_filename)
+  if ~my_file.is_file():
+    print('Missing Affinity File: {}'.format(affinity_filename))
+    return
+
+  df = pd.read_csv(affinity_filename,
+                   parse_dates=True,
+                   skipinitialspace=True,
+                   low_memory=False)
+
+  hostnames = ','.join(df['hostname'].unique())
+  timestamp = df['Timestamp'].max()
+
+  tokens['nodes'] = hostnames
+  tokens['timestamp'] = timestamp
+
+
 # this file can be refactored into a single parse YAML to CSV.
 # it is a quick hack
-
 def construct_dataframe(yaml_data, extra_columns):
   """Construst a pandas DataFrame from the timers section of the provided YAML data"""
   timers = yaml_data['Timer names']
@@ -59,7 +81,13 @@ if __name__ == '__main__':
   # Process input
   options = docopt(__doc__)
 
-  input_files = options['--input-files']
+  input_files  = options['--input-files']
+  affinity_dir = options['--affinity-dir']
+  output_csv   = options['--output-csv']
+
+  print('input-files: {input}\n'
+        'output-csv: {output}\n'
+        'affinity-dir: {affinity}\n'.format(affinity=affinity_dir,output=output_csv,input=input_files))
 
   SCALING_TYPE = 'weak'
 
@@ -72,7 +100,7 @@ if __name__ == '__main__':
   #           'Num Threads', 'Max Aggregate Time']
   dataset = pd.DataFrame()
   df_idx = -1
-  future_index = ['Experiment', 'Timer Name']
+  future_index = SFP.getIndexColumns(execspace_name='OpenMP')
 
   for input_file in input_files:
     with open(input_file) as data_file:
@@ -87,54 +115,46 @@ if __name__ == '__main__':
       print("Rebuild FAIL: {} != {}".format(rebuilt_filename, input_file))
       exit(-1)
 
+    parse_affinity_data(affinity_path=affinity_dir, tokens=my_tokens)
+
     print(my_tokens)
 
-    experiment_id = "{solver_name}{solver_attributes}_{prec_name}{prec_attributes}".format(**my_tokens)
+    #experiment_id = "{solver_name}{solver_attributes}_{prec_name}{prec_attributes}".format(**my_tokens)
 
+    # parse the YAML timers
     timer_data = construct_dataframe(yaml_data, list(my_tokens.keys()))
 
+    # add the experiment's other data (cores, threads, timestamp, etc..)
     for key, value in my_tokens.items():
       timer_data[key] = my_tokens[key]
 
-    timer_data['Max Aggregate Time'] = timer_data['maxT'] / timer_data['maxC']
-    timer_data['Experiment'] = experiment_id
+    # timer_data['Max Aggregate Time'] = timer_data['maxT'] / timer_data['maxC']
+    # timer_data['Experiment'] = experiment_id
 
+    # pre allocate the dataframe, this could fail. Currently, we allocate the number of timers, in the first file
+    # read, times 4, and then assume that will be true for all files read.
+    # This just needs to be large enough to hold all data, then we delete the unused rows.
+    # preallocating greatly speeds up the insertion phase.
     if df_idx == -1:
       num_timers = timer_data['Timer Name'].nunique()
       num_files  = len(input_files)
+
+      # dtypes = SFP.getColumnsDTypes(execspace_name='OpenMP')
+      # print(dtypes)
+
       dataset = pd.DataFrame(columns=list(timer_data), index=np.arange(num_timers*num_files*4))
-      future_index = list(my_tokens.keys()) + future_index
 
     for index, row in timer_data.iterrows():
       df_idx += 1
-      dataset.loc[df_idx] = row[:] #new_data[key]
-      # new_data = {'Timer Name' : index,
-      #             'Experiment' : experiment_id,
-      #             'Problem' : row['Problem'],
-      #             'num_nodes' : row['num_nodes'],
-      #             'procs_per_node' : row['procs_per_node'],
-      #             'cores_per_proc' : row['cores_per_proc'],
-      #             'threads_per_core': row['threads_per_core'],
-      #             'Num Threads' : row['Num Threads'],
-      #             'Max Aggregate Time' : row['Max Aggregate Time']}
-      # for key in new_data.keys():
-      #   dataset.loc[df_idx, key] = new_data[key]
+      dataset.loc[df_idx] = row[:]
 
   # drop over allocated data
   dataset = dataset[pd.notnull(dataset['Timer Name'])]
   # set the index, verify it, and sort
-  dataset.set_index(keys=['Experiment',
-                          'problem_type', 'problem_nx', 'problem_ny', 'problem_nz',
-                          'Timer Name',
-                          'num_nodes', 'procs_per_node', 'cores_per_proc', 'threads_per_core',
-                          'omp_num_threads'],
+  dataset.set_index(keys=SFP.getIndexColumns(execspace_name='OpenMP'),
                     drop=False, inplace=True, verify_integrity=True)
 
-  dataset.sort_values(inplace=True,
-                      by=['Experiment',
-                          'problem_type', 'problem_nx', 'problem_ny', 'problem_nz',
-                          'Timer Name',
-                          'num_nodes', 'procs_per_node', 'cores_per_proc', 'threads_per_core',
-                          'omp_num_threads'])
+  dataset.sort_index(inplace=True)
+
   # write the total dataset out, index=False, because we do not drop it above
-  dataset.to_csv('all_data.csv', index=False)
+  dataset.to_csv(output_csv, index=False)
