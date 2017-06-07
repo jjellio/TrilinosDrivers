@@ -29,12 +29,19 @@ def parse_affinity_data(affinity_path, tokens):
   affinity_filename = '{path}/{name}'.format(path=affinity_path,
                                              name=SFP.build_affinity_filename(my_tokens))
 
-  my_file = Path(affinity_filename)
-  if ~my_file.is_file():
+  my_file_lookup = Path(affinity_filename)
+  try:
+    affinity_file_abs = my_file_lookup.resolve()
+  except:
     print('Missing Affinity File: {}'.format(affinity_filename))
     return
 
-  df = pd.read_csv(affinity_filename,
+  #if ~my_file.is_file():
+  #  print('Missing Affinity File: {}'.format(affinity_filename))
+  #  print(my_file.stat())
+  #  return
+
+  df = pd.read_csv(affinity_file_abs,
                    parse_dates=True,
                    skipinitialspace=True,
                    low_memory=False)
