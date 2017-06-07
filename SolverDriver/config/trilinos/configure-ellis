@@ -232,5 +232,5 @@ export JENKINS_DO_EXAMPLES=${EXAMPLES}
 
 # This actually runs CMake.
 
-source ${HOME}/src/trilinos-perf/SolverDriver/config/trilinos/configure-testbeds-jenkins
+source ${HOME}/src/trilinos-perf/SolverDriver/config/trilinos/configure-ellis-cmake
 
