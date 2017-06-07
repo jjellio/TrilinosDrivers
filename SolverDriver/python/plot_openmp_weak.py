@@ -1,4 +1,17 @@
 #!/usr/bin/env python3
+"""plotter.py
+
+Usage:
+  plotter.py -d DATASET [-s STUDY]
+  plotter.py (-h | --help)
+
+Options:
+  -h --help                      Show this screen.
+  -d DATASET --dataset=DATASET   Input file [default: all_data.csv]
+  -s STUDY --study=STUDY         Type of analysis, weak/strong [default: strong]
+"""
+
+from   docopt import docopt
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
 import numpy  as np
@@ -464,7 +477,7 @@ def load_dataset(dataset_name):
                     drop=False, inplace=True, verify_integrity=True)
   print('Rebuilt truncated index')
 
-  return dataset,driver_dataset
+  return dataset, driver_dataset
 
 def get_ordered_timers(dataset):
   # find an order of timer names based on aggregate time
@@ -986,6 +999,11 @@ def main():
                  total_time_key='5 - Solve')
 
 
-
 if __name__ == '__main__':
+  # Process input
+  options = docopt(__doc__)
+
+  dataset_filename  = options['--dataset']
+  study_type        = options['--study']
+
   main()
