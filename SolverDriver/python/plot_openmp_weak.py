@@ -148,6 +148,69 @@ def is_outlier(points, thresh=3.5):
 #                       on=['num_nodes'],
 #                       indicator=True)
 
+def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, average=False):
+  # Use aggregation. Since the dataset is noisy and we have multiple experiments worth of data
+  # This is similar to ensemble type analysis
+  # what you could do, is rather than sum, look at the variations between chunks of data and vote
+  # on outliers/anomalous values.
+  timings = data_group.groupby('num_nodes', as_index=False)[[QUANTITY_OF_INTEREST_MIN,
+                                                           QUANTITY_OF_INTEREST_MAX,
+                                                           QUANTITY_OF_INTEREST_THING]].sum()
+
+  driver_timings = driver_groups.get_group(data_name).groupby('num_nodes',
+                                                               as_index=False)[
+    [QUANTITY_OF_INTEREST_MIN,
+     QUANTITY_OF_INTEREST_MAX,
+     QUANTITY_OF_INTEREST_THING]].sum()
+
+  # if we want average times, then sum the counts that correspond to these timers, and compute the mean
+  if average:
+    counts = data_group.groupby('num_nodes', as_index=False)[[QUANTITY_OF_INTEREST_MIN_COUNT,
+                                                            QUANTITY_OF_INTEREST_MAX_COUNT]].sum()
+
+    driver_counts = driver_groups.get_group(data_name).groupby('num_nodes', as_index=False)[
+      [QUANTITY_OF_INTEREST_MIN_COUNT,
+       QUANTITY_OF_INTEREST_MAX_COUNT]].sum()
+
+    timings[QUANTITY_OF_INTEREST_MIN] = timings[QUANTITY_OF_INTEREST_MIN] / counts[QUANTITY_OF_INTEREST_MIN_COUNT]
+    timings[QUANTITY_OF_INTEREST_MAX] = timings[QUANTITY_OF_INTEREST_MAX] / counts[QUANTITY_OF_INTEREST_MAX_COUNT]
+
+    driver_timings[QUANTITY_OF_INTEREST_MIN] = driver_timings[QUANTITY_OF_INTEREST_MIN] / \
+                                               driver_counts[QUANTITY_OF_INTEREST_MIN_COUNT]
+
+    driver_timings[QUANTITY_OF_INTEREST_MAX] = driver_timings[QUANTITY_OF_INTEREST_MAX] / \
+                                               driver_counts[QUANTITY_OF_INTEREST_MAX_COUNT]
+
+  driver_timings = driver_timings[['num_nodes', QUANTITY_OF_INTEREST_MIN, QUANTITY_OF_INTEREST_MAX]]
+  driver_timings.rename(columns={QUANTITY_OF_INTEREST_MIN: 'Driver Min',
+                                 QUANTITY_OF_INTEREST_MAX: 'Driver Max'}, inplace=True)
+
+  barf_df = data_group.groupby('num_nodes', as_index=False)[QUANTITY_OF_INTEREST_THING].mean()
+  timings[QUANTITY_OF_INTEREST_THING] = barf_df[QUANTITY_OF_INTEREST_THING]
+
+  plottable_df.merge(timings, on='num_nodes', how='left')
+  plottable_df.merge(driver_timings, on='num_nodes', how='left')
+
+  # attempt to deal with the outliers
+  if SMOOTH_OUTLIERS:
+    plottable_df['max_is_outlier'] = is_outlier(plottable_df[QUANTITY_OF_INTEREST_MAX].values, thresh=3.0)
+    plottable_df['min_is_outlier'] = is_outlier(plottable_df[QUANTITY_OF_INTEREST_MIN].values, thresh=3.0)
+    # print(my_agg_times)
+    # df['flag'][df.name.str.contains('e$')] = 'Blue'
+    plottable_df[QUANTITY_OF_INTEREST_MAX][(plottable_df['max_is_outlier'] == True)] = my_agg_times[
+      QUANTITY_OF_INTEREST_MAX].median()
+    plottable_df[QUANTITY_OF_INTEREST_MIN][(plottable_df['min_is_outlier'] == True)] = my_agg_times[
+      QUANTITY_OF_INTEREST_MIN].median()
+    # my_agg_times[(my_agg_times['max_is_outlier'] == True), QUANTITY_OF_INTEREST_MAX] = np.NAN
+    # print(my_agg_times)
+
+  # scale by 100 so these can be formatted as percentages
+  plottable_df['max_percent'] = plottable_df[QUANTITY_OF_INTEREST_MAX] / my_agg_times['Driver Max'] * 100.00
+  plottable_df['min_percent'] = plottable_df[QUANTITY_OF_INTEREST_MIN] / my_agg_times['Driver Max'] * 100.00
+
+  # my_agg_times['flat_mpi_min_factor'] = my_agg_times[QUANTITY_OF_INTEREST_MIN] / my_agg_times['flat_mpi_min']
+  # my_agg_times['flat_mpi_max_factor'] = my_agg_times[QUANTITY_OF_INTEREST_MAX] / my_agg_times['flat_mpi_max']
+
 
 ###############################################################################
 def plot_composite(composite_group,
@@ -276,67 +339,10 @@ def plot_composite(composite_group,
     plot_idx = 0
     for ht_name, ht_group in ht_groups:
       threads_per_core = int(ht_name)
-      # Use aggregation. Since the dataset is noisy and we have multiple experiments worth of data
-      # This is similar to ensemble type analysis
-      # what you could do, is rather than sum, look at the variations between chunks of data and vote
-      # on outliers/anomalous values.
-      timings = ht_group.groupby('num_nodes', as_index=False)[[QUANTITY_OF_INTEREST_MIN,
-                                                               QUANTITY_OF_INTEREST_MAX,
-                                                               QUANTITY_OF_INTEREST_THING]].sum()
-                                                               # 'flat_mpi_min',
-                                                               # 'flat_mpi_max']].sum()
-      driver_timings = driver_ht_groups.get_group(ht_name).groupby('num_nodes',
-                                                                   as_index=False)[
-                                                                    [QUANTITY_OF_INTEREST_MIN,
-                                                                     QUANTITY_OF_INTEREST_MAX,
-                                                                     QUANTITY_OF_INTEREST_THING]].sum()
-
-      # if we want average times, then sum the counts that correspond to these timers, and compute the mean
-      if average:
-        counts = ht_group.groupby('num_nodes', as_index=False)[[QUANTITY_OF_INTEREST_MIN_COUNT,
-                                                                QUANTITY_OF_INTEREST_MAX_COUNT]].sum()
-
-        driver_counts = driver_ht_groups.get_group(ht_name).groupby('num_nodes', as_index=False)[
-                                                                      [QUANTITY_OF_INTEREST_MIN_COUNT,
-                                                                       QUANTITY_OF_INTEREST_MAX_COUNT]].sum()
-
-        timings[QUANTITY_OF_INTEREST_MIN] = timings[QUANTITY_OF_INTEREST_MIN] / counts[QUANTITY_OF_INTEREST_MIN_COUNT]
-        timings[QUANTITY_OF_INTEREST_MAX] = timings[QUANTITY_OF_INTEREST_MAX] / counts[QUANTITY_OF_INTEREST_MAX_COUNT]
-
-        driver_timings[QUANTITY_OF_INTEREST_MIN] = driver_timings[QUANTITY_OF_INTEREST_MIN] /\
-                                                   driver_counts[QUANTITY_OF_INTEREST_MIN_COUNT]
-
-        driver_timings[QUANTITY_OF_INTEREST_MAX] = driver_timings[QUANTITY_OF_INTEREST_MAX] /\
-                                                   driver_counts[QUANTITY_OF_INTEREST_MAX_COUNT]
-
-      driver_timings = driver_timings[['num_nodes', QUANTITY_OF_INTEREST_MIN,QUANTITY_OF_INTEREST_MAX]]
-      driver_timings.rename(columns={QUANTITY_OF_INTEREST_MIN: 'Driver Min',
-                                     QUANTITY_OF_INTEREST_MAX: 'Driver Max'}, inplace=True)
-
-      barf_df = ht_group.groupby('num_nodes', as_index=False)[QUANTITY_OF_INTEREST_THING].mean()
-      timings[QUANTITY_OF_INTEREST_THING] = barf_df[QUANTITY_OF_INTEREST_THING]
 
       my_agg_times = pd.DataFrame(columns=['num_nodes', 'ticks'], data=np.column_stack((my_nodes, my_ticks)))
-      my_agg_times = pd.merge(my_agg_times, timings, on='num_nodes', how='left')
-      my_agg_times = pd.merge(my_agg_times, driver_timings, on='num_nodes', how='left')
 
-      # attempt to deal with the outliers
-      if SMOOTH_OUTLIERS:
-        my_agg_times['max_is_outlier'] = is_outlier(my_agg_times[QUANTITY_OF_INTEREST_MAX].values, thresh=3.0)
-        my_agg_times['min_is_outlier'] = is_outlier(my_agg_times[QUANTITY_OF_INTEREST_MIN].values, thresh=3.0)
-        #print(my_agg_times)
-        #df['flag'][df.name.str.contains('e$')] = 'Blue'
-        my_agg_times[QUANTITY_OF_INTEREST_MAX][(my_agg_times['max_is_outlier'] == True)] = my_agg_times[QUANTITY_OF_INTEREST_MAX].median()
-        my_agg_times[QUANTITY_OF_INTEREST_MIN][(my_agg_times['min_is_outlier'] == True)] = my_agg_times[QUANTITY_OF_INTEREST_MIN].median()
-        #my_agg_times[(my_agg_times['max_is_outlier'] == True), QUANTITY_OF_INTEREST_MAX] = np.NAN
-        #print(my_agg_times)
-
-      # scale by 100 so these can be formatted as percentages
-      my_agg_times['max_percent'] = my_agg_times[QUANTITY_OF_INTEREST_MAX] / my_agg_times['Driver Max'] * 100.00
-      my_agg_times['min_percent'] = my_agg_times[QUANTITY_OF_INTEREST_MIN] / my_agg_times['Driver Max'] * 100.00
-
-      # my_agg_times['flat_mpi_min_factor'] = my_agg_times[QUANTITY_OF_INTEREST_MIN] / my_agg_times['flat_mpi_min']
-      # my_agg_times['flat_mpi_max_factor'] = my_agg_times[QUANTITY_OF_INTEREST_MAX] / my_agg_times['flat_mpi_max']
+      get_plottable_dataframe(my_agg_times, ht_group, ht_name, driver_ht_groups)
 
       # count the missing values, can use any quantity of interest for this
       num_missing_data_points = my_agg_times[QUANTITY_OF_INTEREST_MIN].isnull().values.ravel().sum()
