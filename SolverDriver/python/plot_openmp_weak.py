@@ -41,7 +41,6 @@ MAX_LINESTYLE='solid'
 PLOT_ONLY_MIN = False
 SMOOTH_OUTLIERS = False
 HT_CONSISTENT_YAXES = False
-COMPOSITE_PLOT_GLOBAL_COUNTER = 0
 
 # define the colors used for each deomp type
 DECOMP_COLORS = {
@@ -89,7 +88,7 @@ def is_outlier(points, thresh=3.5):
 
 
 def plot_composite(composite_group, my_nodes, my_ticks, driver_df, average=False,
-                   annotate_with_driver=True, numbered_plots=True):
+                   annotate_with_driver=True, numbered_plots_idx=-1):
   """
   Plot all decompositions on a single figure.
 
@@ -141,10 +140,8 @@ def plot_composite(composite_group, my_nodes, my_ticks, driver_df, average=False
 
   # if numbered, then prepend the number to the filename
   # and increment the count.
-  if numbered_plots:
-    simple_fname = '{}-{}'.format(COMPOSITE_PLOT_GLOBAL_COUNTER, simple_fname)
-    global COMPOSITE_PLOT_GLOBAL_COUNTER
-    COMPOSITE_PLOT_GLOBAL_COUNTER = COMPOSITE_PLOT_GLOBAL_COUNTER + 1
+  if numbered_plots_idx >= 0:
+    simple_fname = '{}-{}'.format(numbered_plots_idx, simple_fname)
 
   # whether or not the yaxes should be the same for all HT combos plotted
   if not HT_CONSISTENT_YAXES:
@@ -535,7 +532,8 @@ def get_timers(dataset, restriction_tokens={}):
 def plot_dataset(dataset, driver_dataset, ordered_timers,
                  total_time_key='',
                  restriction_tokens={},
-                 scaling_type='weak'):
+                 scaling_type='weak',
+                 number_plots=True):
 
   # enforce all plots use the same num_nodes. i.e., the axes will be consistent
   my_nodes = np.array(list(map(int, dataset['num_nodes'].unique())))
@@ -607,6 +605,9 @@ def plot_dataset(dataset, driver_dataset, ordered_timers,
   # e.g., each experiment has their corresponding driver timers as additional columns
   driver_composite_groups = driver_dataset.groupby(omp_groupby_columns)
 
+  # optional numbered plots
+  numbered_plots_idx = -1
+
   # if we sort timers, then construct a sorted set
   if ordered_timers:
     print(ordered_timers)
@@ -618,23 +619,37 @@ def plot_dataset(dataset, driver_dataset, ordered_timers,
     sorted_composite_groups = sorted(foo, key=lambda x: ordered_timers.index(x[0]))
     print(sorted_composite_groups)
 
+    # loop over the sorted names, which are index tuples
     for composite_group_name in sorted_composite_groups:
       composite_group = composite_groups.get_group(composite_group_name)
+      # construct an index into the driver_df by changing the timer label to match the driver's
+      # global total label
       driver_constructor_name = list(composite_group_name)
       driver_constructor_name[0] = total_time_key
-      plot_composite(composite_group,
-                     my_nodes, my_ticks,
-                     # this restricts the driver timers to those that match with the composite group
-                     driver_composite_groups.get_group(tuple(driver_constructor_name)))
+
+      plot_composite(composite_group=composite_group,
+                     my_nodes=my_nodes,
+                     my_ticks=my_ticks,
+                     driver_df=driver_composite_groups.get_group(tuple(driver_constructor_name)),
+                     numbered_plots_idx=numbered_plots_idx)
+
   else:
+    # loop over the groups using the built in iterator (name,group)
     for composite_group_name, composite_group in composite_groups:
+      # construct an index into the driver_df by changing the timer label to match the driver's
+      # global total label
       driver_constructor_name = list(composite_group_name)
       driver_constructor_name[0] = total_time_key
-      plot_composite(composite_group,
-                     my_nodes, my_ticks,
-                     # this restricts the driver timers to those that match with the composite group
-                     driver_composite_groups.get_group(tuple(driver_constructor_name)),
-                     numbered_plots=False)
+
+      # increment this counter first, because it starts at the sentinel value of -1, which means no numbers
+      if number_plots:
+        numbered_plots_idx += 1
+
+      plot_composite(composite_group=composite_group,
+                     my_nodes=my_nodes,
+                     my_ticks=my_ticks,
+                     driver_df=driver_composite_groups.get_group(tuple(driver_constructor_name)),
+                     numbered_plots_idx=numbered_plots_idx)
 
 
 def main():
