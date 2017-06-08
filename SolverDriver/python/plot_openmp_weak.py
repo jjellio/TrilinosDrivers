@@ -11,35 +11,34 @@ Options:
   -s STUDY --study=STUDY         Type of analysis, weak/strong [default: strong]
 """
 
-from   docopt import docopt
+from docopt import docopt
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
-import numpy  as np
+import numpy as np
 import pandas as pd
-from tableau import tableau20
 from pathlib import Path
 import copy
 import ScalingFilenameParser as SFP
-from operator import itemgetter
+# from operator import itemgetter
 
 MIN_NUM_NODES = 1
 MAX_NUM_NODES = 10000
-FORCE_REPLOT = False
-QUANTITY_OF_INTEREST='minT'
-QUANTITY_OF_INTEREST_COUNT='minC'
+FORCE_REPLOT  = False
+QUANTITY_OF_INTEREST       = 'minT'
+QUANTITY_OF_INTEREST_COUNT = 'minC'
 
-QUANTITY_OF_INTEREST_MIN='minT'
-QUANTITY_OF_INTEREST_MIN_COUNT='minC'
-QUANTITY_OF_INTEREST_MAX='maxT'
-QUANTITY_OF_INTEREST_MAX_COUNT='maxC'
-QUANTITY_OF_INTEREST_THING='meanCT'
-QUANTITY_OF_INTEREST_THING_COUNT='meanCC'
+QUANTITY_OF_INTEREST_MIN         = 'minT'
+QUANTITY_OF_INTEREST_MIN_COUNT   = 'minC'
+QUANTITY_OF_INTEREST_MAX         = 'maxT'
+QUANTITY_OF_INTEREST_MAX_COUNT   = 'maxC'
+QUANTITY_OF_INTEREST_THING       = 'meanCT'
+QUANTITY_OF_INTEREST_THING_COUNT = 'meanCC'
 
-MIN_LINESTYLE='dotted'
-MAX_LINESTYLE='solid'
+MIN_LINESTYLE = 'dotted'
+MAX_LINESTYLE = 'solid'
 
-PLOT_ONLY_MIN = False
-SMOOTH_OUTLIERS = False
+PLOT_ONLY_MIN       = False
+SMOOTH_OUTLIERS     = False
 HT_CONSISTENT_YAXES = False
 
 # define the colors used for each deomp type
@@ -541,6 +540,56 @@ def get_ordered_timers(dataset, rank_by_column_name):
   return ordered_timers
 
 
+def dict_to_pandas_query_string(kv):
+  """
+  convert a dict to a string of ("key" == "value") & ("key" == "value")...
+
+  :param kv: dict of key value pairs
+  :return: string for querying
+  """
+  query_string = ' & '.join(
+    [
+      '({name} == \"{value}\")'.format(
+        # this quotes the lhs string if it contains a space
+        name=name if ' ' not in name else '\"{}\"'.format(name),
+        value=value)
+      # end of the format class
+      for name, value in kv.items()
+    ])
+  return query_string
+
+
+def get_aggregate_groups(dataset, scaling_type,
+                         timer_name_rename='Operation Op*x',
+                         timer_name_re_str='^.* Operation Op\*x$'):
+  """
+  given a dataset, use the regex provided to create a new dataset with timer names matching the RE,
+  and then rename those timers to timer_name_rename
+
+  This function is designed to gather all SpMV timers that are comparable, and then
+  label them all using the same timer name.
+
+  :param dataset: Dataframe created by load_dataset
+  :param scaling_type: the type of scaling study being performed. This impacts how we query the dataset
+  :param timer_name_rename: rename the 'Timer Name' values in the result to this string
+  :param timer_name_re_str: use this regular expression to match timer names
+  :return:
+  """
+  spmv_groupby_columns = SFP.getMasterGroupBy(execspace_name='OpenMP', scaling_type=scaling_type)
+  spmv_groupby_columns.remove('procs_per_node')
+  spmv_groupby_columns.remove('cores_per_proc')
+  spmv_groupby_columns.remove('solver_name')
+  spmv_groupby_columns.remove('solver_attributes')
+  spmv_groupby_columns.remove('prec_name')
+  spmv_groupby_columns.remove('prec_attributes')
+
+  spmv_only_data = dataset[dataset['Timer Name'].str.match(timer_name_re_str)]
+  spmv_only_data['Timer Name'] = timer_name_rename
+
+  spmv_agg_groups = spmv_only_data.groupby(spmv_groupby_columns)
+  return spmv_agg_groups
+
+
 def plot_dataset(dataset,
                  driver_dataset,
                  ordered_timers,
@@ -578,33 +627,15 @@ def plot_dataset(dataset,
     print('Length of ticks and nodes are different')
     exit(-1)
 
-  spmv_groupby_columns = SFP.getMasterGroupBy(execspace_name='OpenMP', scaling_type=scaling_type)
-  spmv_groupby_columns.remove('procs_per_node')
-  spmv_groupby_columns.remove('cores_per_proc')
-  spmv_groupby_columns.remove('solver_name')
-  spmv_groupby_columns.remove('solver_attributes')
-  spmv_groupby_columns.remove('prec_name')
-  spmv_groupby_columns.remove('prec_attributes')
-
-  spmv_only_data = dataset[dataset['Timer Name'].str.match('^.* Operation Op\*x$')]
-  spmv_only_data['Timer Name'] = 'Operation Op*x'
-
-  spmv_agg_groups = spmv_only_data.groupby(spmv_groupby_columns)
+  spmv_agg_groups = get_aggregate_groups(dataset=dataset, scaling_type=scaling_type)
 
   # plot the aggregate spmv data, e.g., all data regardless of experiment so long as the problem size is the same
   for spmv_agg_name, spmv_agg_group in spmv_agg_groups:
     plot_composite(spmv_agg_group, my_nodes, my_ticks, driver_dataset)
 
-  # first, restrict the dataset to construction only muelu data
+  # restrict the dataset if requested
   if restriction_tokens:
-    restriction_query_string = ' & '.join(
-      ['({name} == \"{value}\")'.format(
-                                        # this quotes the lhs string if it contains a space
-                                        name=name if ' ' not in name else '\"{}\"'.format(name),
-                                        value=value)
-                                # end of the format class
-                                for name, value in restriction_tokens.items()
-      ])
+    restriction_query_string = dict_to_pandas_query_string(restriction_tokens)
 
     print(restriction_query_string)
     dataset = dataset.query(restriction_query_string)
@@ -697,10 +728,10 @@ def main(dataset_filename,
 
 if __name__ == '__main__':
   # Process input
-  options = docopt(__doc__)
+  _arg_options = docopt(__doc__)
 
-  dataset_filename  = options['--dataset']
-  study_type        = options['--study']
+  _arg_dataset_filename  = _arg_options['--dataset']
+  _arg_study_type        = _arg_options['--study']
 
-  main(dataset_filename=dataset_filename,
-       scaling_study_type=study_type)
+  main(dataset_filename=_arg_dataset_filename,
+       scaling_study_type=_arg_study_type)
