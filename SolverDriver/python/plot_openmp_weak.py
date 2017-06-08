@@ -43,12 +43,14 @@ SMOOTH_OUTLIERS = False
 HT_CONSISTENT_YAXES = False
 COMPOSITE_PLOT_GLOBAL_COUNTER = 0
 
+# define the colors used for each deomp type
 DECOMP_COLORS = {
-  '64x1' : 'xkcd:greyish',
-  '32x2' : 'xkcd:windows blue',
-  '16x4' : 'xkcd:amber',
-  '8x8'  : 'xkcd:faded green',
-  '4x16' : 'xkcd:dusty purple'
+  '64x1'      : 'xkcd:greyish',
+  '32x2'      : 'xkcd:windows blue',
+  '16x4'      : 'xkcd:amber',
+  '8x8'       : 'xkcd:faded green',
+  '4x16'      : 'xkcd:dusty purple',
+  'flat_mpi'  : 'xkcd:black'
 }
 
 
@@ -84,17 +86,6 @@ def is_outlier(points, thresh=3.5):
   modified_z_score = 0.6745 * diff / med_abs_deviation
 
   return modified_z_score > thresh
-
-# def timer_lookup_acrossDFs(df_source, df_dest, timer_name='3 - Constructing Preconditioner'):
-#   print(df_source.groups())
-#   # obtain an index, and query the driver's timer for the preconditioner setup
-#   row_index = list(df_source.head(1).iloc[0].name)
-#   row_index[0] = timer_name
-#   row_index = tuple(row_index)
-#   # we now can query the driver for the total time spend creating the preconditioner
-#   adjacent_row = df_dest.loc[row_index]
-#   print(adjacent_row)
-#   return adjacent_row
 
 
 def plot_composite(composite_group, my_nodes, my_ticks, driver_df, average=False,
