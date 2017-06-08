@@ -52,6 +52,7 @@ DECOMP_COLORS = {
 }
 
 
+###############################################################################
 def is_outlier(points, thresh=3.5):
   """
   Returns a boolean array with True if points are outliers and False
@@ -86,6 +87,69 @@ def is_outlier(points, thresh=3.5):
   return modified_z_score > thresh
 
 
+# def add_flat_mpi_column(flat_mpi_dataset, other_dataset, scaling_study_type):
+#   """
+#   Add the flat MPI data to the other dataset
+#
+#   :param [in] flat_mpi_dataset: Dataframe obtained by load_dataset
+#   :param [in/out] other_dataset: Dataframe obtained by load_dataset
+#   :return: nothing, modifies the other dataset
+#   """
+#   # figure out the flat MPI time
+#   # ideally, we would want to query the Serial execution space here... but that is kinda complicated, we likely
+#   # need to add an argument that is a serial execution space dataframe, as the groupby logic expects the execution
+#   # space to be the same
+#   SFP.getMasterGroupBy(execspace_name='Serial', scaling_type=scaling_study_type)
+#   flat_mpi_df = flat_mpi_data_group.groupby(
+#                                         ['procs_per_node', 'cores_per_proc', 'threads_per_core']).get_group((64,1,1))
+#   flat_mpi_df.rename(columns={QUANTITY_OF_INTEREST_MIN: 'flat_mpi_min',
+#                               QUANTITY_OF_INTEREST_MAX: 'flat_mpi_max',
+#                               QUANTITY_OF_INTEREST_MIN_COUNT : 'flat_mpi_min_count',
+#                               QUANTITY_OF_INTEREST_MIN_COUNT : 'flat_mpi_max_count'}, inplace=True)
+#
+#   # add the flat mpi times as columns to all decompositions
+#   # the join only uses num_nodes, as the other decomp information is only relevant for hybrid runs
+#   other_dataset_data_group.merge(flat_mpi_df[['num_nodes',
+#                                               'flat_mpi_min',
+#                                               'flat_mpi_max',
+#                                               'flat_mpi_min_count',
+#                                               'flat_mpi_max_count']],
+#                       how='left',
+#                       on=['num_nodes'],
+#                       indicator=True)
+
+
+# def add_flat_mpi_column(flat_mpi_data_group, other_dataset_data_group):
+#   """
+#   This data should be grouped!  Given two groups of data, add the flat MPI data to the other data group
+#
+#   :param [in] flat_mpi_data_group: Dataframe obtained by a groupby, but not grouped at the decomp level
+#   :param [in/out] other_dataset_data_group: Dataframe obtained by a groupby, but not grouped at the decomp level
+#   :return: nothing, modifies the other dataset
+#   """
+#   # figure out the flat MPI time
+#   # ideally, we would want to query the Serial execution space here... but that is kinda complicated, we likely
+#   # need to add an argument that is a serial execution space dataframe, as the groupby logic expects the execution
+#   # space to be the same
+#   flat_mpi_df = flat_mpi_data_group.groupby(['procs_per_node', 'cores_per_proc', 'threads_per_core']).get_group((64,1,1))
+#   flat_mpi_df.rename(columns={QUANTITY_OF_INTEREST_MIN: 'flat_mpi_min',
+#                               QUANTITY_OF_INTEREST_MAX: 'flat_mpi_max',
+#                               QUANTITY_OF_INTEREST_MIN_COUNT : 'flat_mpi_min_count',
+#                               QUANTITY_OF_INTEREST_MIN_COUNT : 'flat_mpi_max_count'}, inplace=True)
+#
+#   # add the flat mpi times as columns to all decompositions
+#   # the join only uses num_nodes, as the other decomp information is only relevant for hybrid runs
+#   other_dataset_data_group.merge(flat_mpi_df[['num_nodes',
+#                                               'flat_mpi_min',
+#                                               'flat_mpi_max',
+#                                               'flat_mpi_min_count',
+#                                               'flat_mpi_max_count']],
+#                       how='left',
+#                       on=['num_nodes'],
+#                       indicator=True)
+
+
+###############################################################################
 def plot_composite(composite_group,
                    my_nodes,
                    my_ticks,
@@ -117,20 +181,21 @@ def plot_composite(composite_group,
   :return: nothing
   """
 
-  # figure out the flat MPI time
-  # ideally, we would want to query the Serial execution space here... but that is kinda complicated, we likely
-  # need to add an argument that is a serial execution space dataframe, as the groupby logic expects the execution
-  # space to be the same
-  flat_mpi_df = composite_group.groupby(['procs_per_node', 'cores_per_proc', 'threads_per_core']).get_group((64,1,1))
-  flat_mpi_df.rename(columns={QUANTITY_OF_INTEREST_MIN: 'flat_mpi_min',
-                              QUANTITY_OF_INTEREST_MAX: 'flat_mpi_max'}, inplace=True)
-
-  # add the flat mpi times as columns to all decompositions
-  composite_group = pd.merge(composite_group, flat_mpi_df[['num_nodes',
-                                                           'flat_mpi_min',
-                                                           'flat_mpi_max']],
-                             how='left',
-                             on=['num_nodes'])
+  # # figure out the flat MPI time
+  # # ideally, we would want to query the Serial execution space here... but that is kinda complicated, we likely
+  # # need to add an argument that is a serial execution space dataframe, as the groupby logic expects the execution
+  # # space to be the same
+  # flat_mpi_df = composite_group.groupby(['procs_per_node', 'cores_per_proc', 'threads_per_core']).get_group((64,1,1))
+  # flat_mpi_df.rename(columns={QUANTITY_OF_INTEREST_MIN: 'flat_mpi_min',
+  #                             QUANTITY_OF_INTEREST_MAX: 'flat_mpi_max'}, inplace=True)
+  #
+  # # add the flat mpi times as columns to all decompositions
+  # # the join only uses num_nodes, as the other decomp information is only relevant for hybrid runs
+  # composite_group = pd.merge(composite_group, flat_mpi_df[['num_nodes',
+  #                                                          'flat_mpi_min',
+  #                                                          'flat_mpi_max']],
+  #                            how='left',
+  #                            on=['num_nodes'])
 
   decomp_groups = composite_group.groupby(['procs_per_node', 'cores_per_proc'])
   driver_decomp_groups = driver_df.groupby(['procs_per_node', 'cores_per_proc'])
@@ -195,8 +260,8 @@ def plot_composite(composite_group,
     factor_ax.append(ax_.twinx())
     perc_ax.append(perc_ax_)
 
-  composite_group['flat_mpi_factor_min'] = composite_group[QUANTITY_OF_INTEREST_MIN] / composite_group['flat_mpi_min']
-  composite_group['flat_mpi_factor_max'] = composite_group[QUANTITY_OF_INTEREST_MAX] / composite_group['flat_mpi_max']
+  # composite_group['flat_mpi_factor_min'] = composite_group[QUANTITY_OF_INTEREST_MIN] / composite_group['flat_mpi_min']
+  # composite_group['flat_mpi_factor_max'] = composite_group[QUANTITY_OF_INTEREST_MAX] / composite_group['flat_mpi_max']
 
   for decomp_group_name, decomp_group in decomp_groups:
     procs_per_node = int(decomp_group_name[0])
@@ -207,20 +272,19 @@ def plot_composite(composite_group,
     # iterate over HTs
     ht_groups = decomp_group.groupby('threads_per_core')
     driver_ht_groups = driver_decomp_groups.get_group(decomp_group_name).groupby('threads_per_core')
-    ht_n = 1
-    max_ht_n = len(ht_groups)
+
     plot_idx = 0
     for ht_name, ht_group in ht_groups:
       threads_per_core = int(ht_name)
       # Use aggregation. Since the dataset is noisy and we have multiple experiments worth of data
       # This is similar to ensemble type analysis
       # what you could do, is rather than sum, look at the variations between chunks of data and vote
-      # outliers.
+      # on outliers/anomalous values.
       timings = ht_group.groupby('num_nodes', as_index=False)[[QUANTITY_OF_INTEREST_MIN,
                                                                QUANTITY_OF_INTEREST_MAX,
-                                                               QUANTITY_OF_INTEREST_THING,
-                                                               'flat_mpi_min',
-                                                               'flat_mpi_max']].sum()
+                                                               QUANTITY_OF_INTEREST_THING]].sum()
+                                                               # 'flat_mpi_min',
+                                                               # 'flat_mpi_max']].sum()
       driver_timings = driver_ht_groups.get_group(ht_name).groupby('num_nodes',
                                                                    as_index=False)[
                                                                     [QUANTITY_OF_INTEREST_MIN,
@@ -235,7 +299,6 @@ def plot_composite(composite_group,
         driver_counts = driver_ht_groups.get_group(ht_name).groupby('num_nodes', as_index=False)[
                                                                       [QUANTITY_OF_INTEREST_MIN_COUNT,
                                                                        QUANTITY_OF_INTEREST_MAX_COUNT]].sum()
-
 
         timings[QUANTITY_OF_INTEREST_MIN] = timings[QUANTITY_OF_INTEREST_MIN] / counts[QUANTITY_OF_INTEREST_MIN_COUNT]
         timings[QUANTITY_OF_INTEREST_MAX] = timings[QUANTITY_OF_INTEREST_MAX] / counts[QUANTITY_OF_INTEREST_MAX_COUNT]
@@ -430,6 +493,7 @@ def plot_composite(composite_group,
   plt.close(fig)
 
 
+###############################################################################
 def load_dataset(dataset_filename):
   """
   Load a CSV datafile. This assumes the data was parsed from YAML using the parser in this directory
@@ -519,6 +583,7 @@ def load_dataset(dataset_filename):
   return dataset, driver_dataset
 
 
+###############################################################################
 def get_ordered_timers(dataset, rank_by_column_name):
   """
   Given a dataset, construct and ordered list of Timer Names that ranks based on the largest aggregate (sum)
@@ -540,6 +605,7 @@ def get_ordered_timers(dataset, rank_by_column_name):
   return ordered_timers
 
 
+###############################################################################
 def dict_to_pandas_query_string(kv):
   """
   convert a dict to a string of ("key" == "value") & ("key" == "value")...
@@ -559,6 +625,7 @@ def dict_to_pandas_query_string(kv):
   return query_string
 
 
+###############################################################################
 def get_aggregate_groups(dataset, scaling_type,
                          timer_name_rename='Operation Op*x',
                          timer_name_re_str='^.* Operation Op\*x$'):
@@ -590,6 +657,7 @@ def get_aggregate_groups(dataset, scaling_type,
   return spmv_agg_groups
 
 
+###############################################################################
 def plot_dataset(dataset,
                  driver_dataset,
                  ordered_timers,
@@ -698,6 +766,7 @@ def plot_dataset(dataset,
                      numbered_plots_idx=numbered_plots_idx)
 
 
+###############################################################################
 def main(dataset_filename,
          scaling_study_type):
   dataset, driver_dataset = load_dataset(dataset_filename=dataset_filename)
@@ -726,6 +795,7 @@ def main(dataset_filename,
                  scaling_type=scaling_study_type)
 
 
+###############################################################################
 if __name__ == '__main__':
   # Process input
   _arg_options = docopt(__doc__)
