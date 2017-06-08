@@ -2,7 +2,7 @@
 """plotter.py
 
 Usage:
-  plotter.py -d DATASET [-s STUDY]
+  plotter.py [-d DATASET -s STUDY]
   plotter.py (-h | --help)
 
 Options:
