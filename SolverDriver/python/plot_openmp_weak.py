@@ -549,23 +549,6 @@ def plot_dataset(dataset, driver_dataset, ordered_timers,
     print('Length of ticks and nodes are different')
     exit(-1)
 
-  # # figure out the best SpMV time
-  # matvec_df = dataset[dataset['Timer Name'] == 'Belos:CG: Operation Op*x']
-  # matvec_df = matvec_df.groupby(['problem_type', 'num_nodes'])
-  # best_spmvs_idx = matvec_df[QUANTITY_OF_INTEREST].idxmin()
-  #
-  # best_spmvs_df = dataset.ix[best_spmvs_idx]
-  # best_spmvs_df.set_index(['problem_type', 'num_nodes'], drop=False, inplace=True, verify_integrity=True)
-  # pd.set_option('display.expand_frame_repr', False)
-  # print(best_spmvs_df[['problem_type',
-  #                         'num_nodes',
-  #                         'procs_per_node',
-  #                         'cores_per_proc',
-  #                         'threads_per_core',
-  #                         QUANTITY_OF_INTEREST,
-  #                         QUANTITY_OF_INTEREST_COUNT]])
-  # pd.set_option('display.expand_frame_repr', True)
-
   omp_groupby_columns = SFP.getMasterGroupBy(execspace_name='OpenMP', scaling_type=scaling_type)
   omp_groupby_columns.remove('procs_per_node')
   omp_groupby_columns.remove('cores_per_proc')
