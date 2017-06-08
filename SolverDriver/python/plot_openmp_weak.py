@@ -87,7 +87,13 @@ def is_outlier(points, thresh=3.5):
   return modified_z_score > thresh
 
 
-def plot_composite(composite_group, my_nodes, my_ticks, driver_df, average=False, numbered_plots_idx=-1):
+def plot_composite(composite_group,
+                   my_nodes,
+                   my_ticks,
+                   driver_df,
+                   scaling_study_type,
+                   average=False,
+                   numbered_plots_idx=-1):
   """
   Plot all decompositions on a single figure.
 
@@ -106,6 +112,7 @@ def plot_composite(composite_group, my_nodes, my_ticks, driver_df, average=False
   :param my_nodes:  a list of nodes that will be shared by all plots for the xaxis.
   :param my_ticks: the actual x location for the tick marks, which will be labeled using the node list
   :param driver_df: dataframe containing timers from the driver itself (not Trilinos/kernel timers)
+  :param scaling_study_type: weak/strong (TODO add onnode)
   :param average: flag that will enable averaging
   :param numbered_plots_idx: if non-negative, then add this number before the filename
   :return: nothing
@@ -534,23 +541,29 @@ def get_ordered_timers(dataset, rank_by_column_name):
   return ordered_timers
 
 
-def get_timers(dataset, restriction_tokens={}):
-  # The dataset contains many timers, that may be shared between experiments.
-  # for example, solve vs setup timers may overlap, since solve implies a setup
-  # restriction_tokens is a dict of column names and values that should be *enforced*
-  # for timer selection, e.g., this is like a WHERE clause in SQL
-
-  query_string = ' & '.join(['(\"{name}\" == \"{value}\")'.format(name=name, value=value)
-                            for name,value in restriction_tokens.items() ])
-  print(query_string)
-
-
-def plot_dataset(dataset, driver_dataset, ordered_timers,
+def plot_dataset(dataset,
+                 driver_dataset,
+                 ordered_timers,
                  total_time_key='',
                  restriction_tokens={},
                  scaling_type='weak',
                  number_plots=True):
+  """
+  The main function for plotting, which will call plot_composite many times. This function
+  is also the logical place to add additional plotting features such as stacked plots
 
+  :param dataset: timer data from a Dataframe created by load_dataset
+  :param driver_dataset: driver data from a Dataframe created by load_dataset
+  :param ordered_timers: optional list of timer names that should be plotted. (order will be preserved)
+  :param total_time_key: timer name in driver_df that should represent the total time for a single experiment
+  :param restriction_tokens: optional constraints to impose on the data, e.g., only constructor data
+                             This could be removed and enforced prior to calling this function
+  :param scaling_type: weak/strong, determines what type of plot will be generated
+                       Ideally, this could be inferred from the data
+  :param number_plots: Whether plots should be numbered as they are created. If ordered_timers is provided,
+                       This will create plots with a numeric value prepended to the filename that ranks the timers
+  :return: nothing
+  """
   # enforce all plots use the same num_nodes. i.e., the axes will be consistent
   my_nodes = np.array(list(map(int, dataset['num_nodes'].unique())))
   my_num_nodes = dataset['num_nodes'].nunique()
