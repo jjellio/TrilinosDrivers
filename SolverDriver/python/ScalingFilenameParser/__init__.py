@@ -71,7 +71,7 @@ class ScalingFileNameParser:
     self.re_strs['prec_token'] = r'{0}{1}'.format(self.re_strs['prec_name'], self.re_strs['prec_attributes'])
 
     self.re_strs['numsteps'] = r'numsteps-(?P<numsteps>\d+)'
-    self.re_strs['execspace'] = r'(?P<execspace_name>OpenMP|Cuda)(?P<execspace_attributes>(-[a-zA-Z0-9]+)*)?'
+    self.re_strs['execspace'] = r'(?P<execspace_name>OpenMP|Cuda|Serial)(?P<execspace_attributes>(-[a-zA-Z0-9]+)*)?'
     self.re_strs['np'] = r'np-(?P<num_mpi_procs>\d+)'
     self.re_strs['decomp'] = r'decomp-(?P<num_nodes>\d+)x' \
                              r'(?P<procs_per_node>\d+)x' \
@@ -130,6 +130,9 @@ class ScalingFileNameParser:
     if my_tokens['execspace_name'] == 'OpenMP':
       execspace_matches = self.execspace_openmp_re.match(my_tokens['execspace_attributes'])
       execspace_dict = execspace_matches.groupdict()
+    elif my_tokens['execspace_name'] == 'Serial':
+      # nothing
+      pass
     elif my_tokens['execspace_name'] == 'Cuda':
       print(my_tokens['execspace_attributes'])
       execspace_matches = self.execspace_cuda_re.match(my_tokens['execspace_attributes'])
@@ -154,7 +157,7 @@ class ScalingFileNameParser:
     import numpy as np
     # this would be easier with a refactor
     # e.g., problem_name, problem_attributes, solver_name, solver_attributes, ...
-    if execspace_name == 'OpenMP':
+    if execspace_name == 'OpenMP' or execspace_name == 'Serial':
       return {
               'Timer Name' : 'str',
               'problem_type' : 'str',
@@ -225,7 +228,7 @@ class ScalingFileNameParser:
   def getIndexColumns(self, execspace_name='unknown'):
     # this would be easier with a refactor
     # e.g., problem_name, problem_attributes, solver_name, solver_attributes, ...
-    if execspace_name == 'OpenMP':
+    if execspace_name == 'OpenMP' or execspace_name == 'Serial':
       return ['Timer Name',
               'problem_type',
               'problem_nx',
@@ -277,7 +280,7 @@ class ScalingFileNameParser:
   def getMasterGroupBy(self, execspace_name='unknown', scaling_type='unknown'):
     # this would be easier with a refactor
     # e.g., problem_name, problem_attributes, solver_name, solver_attributes, ...
-    if execspace_name == 'OpenMP':
+    if execspace_name == 'OpenMP' or execspace_name == 'Serial':
       if scaling_type == 'strong':
         return ['Timer Name',
                 'problem_type',
@@ -516,7 +519,7 @@ class ScalingFileNameParser:
                                       and my_tokens['prec_attributes'] != 'None'):
         my_solver_token += "{prec_attributes}"
 
-    if my_tokens['execspace_name'] == 'OpenMP':
+    if my_tokens['execspace_name'] == 'OpenMP' or my_tokens['execspace_name'] == 'Serial':
       if weak:
         my_fmt_string += "_{weak_prob_token}".format(**self.fmt_strs)
         my_fmt_string += my_solver_token
@@ -597,7 +600,7 @@ class ScalingFileNameParser:
     if prec_attributes is True and (skip_none_values is False and my_tokens['prec_attributes'] is not None):
       my_fmt_string += "{prec_attributes}\n"
 
-    if my_tokens['execspace_name'] == 'OpenMP':
+    if my_tokens['execspace_name'] == 'OpenMP' or my_tokens['execspace_name'] == 'Serial':
       if weak:
         my_fmt_string += "{problem_type} {min_problem_nx}x{min_problem_ny}x{min_problem_nz}" \
                          " to {max_problem_nx}x{max_problem_ny}x{max_problem_nz}\n" \
