@@ -229,6 +229,72 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
   return plottable_df
 
 
+def get_figures_and_axes(subplot_names,
+                         fig_size=5.0,
+                         fig_size_width_inflation=1.0,
+                         fig_size_height_inflation=1.0,
+                         num_plots_per_col=1):
+  axes = dict()
+  figures = dict()
+  num_plots_per_row = len(subplot_names)
+
+  figures['composite'] = []
+  figures['independent'] = dict()
+
+  for name in subplot_names:
+    axes[name] = []
+    figures['independent'][name] = []
+
+  fig = plt.figure()
+  # width: there are two plots currently, currently I make these with a 'wide' aspect ratio
+  # height: a factor of the number of HTs shown
+  fig.set_size_inches(fig_size * num_plots_per_row * fig_size_width_inflation,
+                      fig_size * num_plots_per_col * fig_size_height_inflation)
+
+  figures['composite'].append(fig)
+
+  for row_idx in range(0, num_plots_per_col):
+    col_idx = 1
+    for name in subplot_names:
+      ax_ = fig.add_subplot(num_plots_per_col, num_plots_per_row, row_idx * num_plots_per_col + col_idx)
+
+      temp_fig = plt.figure()
+      temp_fig.set_size_inches(fig_size * fig_size_width_inflation * 1.5,
+                               fig_size * fig_size_height_inflation * 1.5)
+
+      axes[name].append(ax_)
+      figures['independent'][name].append(temp_fig)
+
+      col_idx += 1
+
+  return axes, figures
+
+
+def plot_raw_data(ax, indep_ax, xticks, yvalues, linestyle, label, color):
+
+  if PLOT_ONLY_MIN:
+    # plot the data
+    ax.plot(xticks,
+            yvalues,
+            label=label,
+            color=color,
+            linestyle=linestyle)
+
+    if indep_ax:
+      indep_ax.plot(xticks,
+                    yvalues,
+                    label=label,
+                    color=color,
+                    linestyle=linestyle)
+
+
+def set_weak_scaling_axes(ax, x_ticks, nodes, title):
+  ax.set_xlabel("Number of Nodes")
+  ax.set_xticks(x_ticks)
+  ax.set_xticklabels(nodes, rotation=45)
+  ax.set_xlim([0.5, len(nodes) + 1])
+
+
 ###############################################################################
 def plot_composite_weak(composite_group,
                         my_nodes,
@@ -236,6 +302,7 @@ def plot_composite_weak(composite_group,
                         driver_df,
                         average=False,
                         numbered_plots_idx=-1,
+                        generate_indpendents=True,
                         scaling_study_type='weak'):
   """
   Plot all decompositions on a single figure.
@@ -309,6 +376,8 @@ def plot_composite_weak(composite_group,
 
   # the number of HT combos we have
   nhts = composite_group['threads_per_core'].nunique()
+  max_hts = composite_group['threads_per_core'].max()
+  min_hts = composite_group['threads_per_core'].min()
   ndecomps = len(decomp_groups)
 
   my_num_nodes = my_nodes.size
@@ -316,29 +385,19 @@ def plot_composite_weak(composite_group,
   fig_size = 5
   fig_size_height_inflation = 1.125
   fig_size_width_inflation  = 1.5
-  fig = plt.figure()
-  # width: there are two plots currently, currently I make these with a 'wide' aspect ratio
-  # height: a factor of the number of HTs shown
-  fig.set_size_inches(fig_size * 2.0 * fig_size_width_inflation,
-                      fig_size * nhts * fig_size_height_inflation)
 
-  ax = []
-  factor_ax = []
-  perc_ax = []
-  indep_plot = []
+  subplot_names = ['raw_data', 'percent_total', 'scaling_factor']
+  axes, figures = get_figures_and_axes(subplot_names=subplot_names,
+                                       fig_size=fig_size,
+                                       fig_size_width_inflation=fig_size_width_inflation,
+                                       fig_size_height_inflation=fig_size_height_inflation,
+                                       num_plots_per_col=nhts)
 
-  for plot_idx in range(0, nhts):
-    ax_ = fig.add_subplot(nhts, 2, plot_idx*2 + 1)
-    perc_ax_ = fig.add_subplot(nhts, 2, plot_idx*2 + 2)
-    perc_ax_.yaxis.set_major_formatter(FormatStrFormatter('%3.0f %%'))
+  for ax in axes['percent_total']:
+    ax.yaxis.set_major_formatter(FormatStrFormatter('%3.0f %%'))
 
-    temp_fig = plt.figure()
-    temp_fig.set_size_inches(fig_size * fig_size_width_inflation * 1.5,
-                             fig_size * fig_size_height_inflation * 1.5)
-    indep_plot.append(temp_fig)
-    ax.append(ax_)
-    factor_ax.append(ax_.twinx())
-    perc_ax.append(perc_ax_)
+  for fig in figures['percent_total']:
+    fig.gca().yaxis.set_major_formatter(FormatStrFormatter('%3.0f %%'))
 
   # composite_group['flat_mpi_factor_min'] = composite_group[QUANTITY_OF_INTEREST_MIN] / composite_group['flat_mpi_min']
   # composite_group['flat_mpi_factor_max'] = composite_group[QUANTITY_OF_INTEREST_MAX] / composite_group['flat_mpi_max']
@@ -353,10 +412,8 @@ def plot_composite_weak(composite_group,
     ht_groups = decomp_group.groupby('threads_per_core')
     driver_ht_groups = driver_decomp_groups.get_group(decomp_group_name).groupby('threads_per_core')
 
-    plot_idx = 0
+    row_idx = 0
     for ht_name, ht_group in ht_groups:
-      threads_per_core = int(ht_name)
-
       my_agg_times = pd.DataFrame(columns=['num_nodes', 'ticks'], data=np.column_stack((my_nodes, my_ticks)))
 
       my_agg_times = get_plottable_dataframe(my_agg_times, ht_group, ht_name, driver_ht_groups)
@@ -378,70 +435,105 @@ def plot_composite_weak(composite_group,
 
       if PLOT_ONLY_MIN:
         # plot the data
-        ax[plot_idx].plot(my_agg_times['ticks'], my_agg_times[QUANTITY_OF_INTEREST_MIN],
-                          label='{}'.format(decomp_label), color=DECOMP_COLORS[decomp_label])
+        plot_raw_data(ax=axes['raw_data'][row_idx],
+                      indep_ax=figures['independents']['raw_data'][row_idx].gca(),
+                      xticks=my_agg_times['ticks'],
+                      yvalues=my_agg_times[QUANTITY_OF_INTEREST_MIN],
+                      linestyle='.',
+                      label='{}'.format(decomp_label),
+                      color=DECOMP_COLORS[decomp_label])
       else:
         # plot the data
-        ax[plot_idx].plot(my_agg_times['ticks'], my_agg_times[QUANTITY_OF_INTEREST_MIN],
-                          label='min-{}'.format(decomp_label), color=DECOMP_COLORS[decomp_label],
-                          linestyle=MIN_LINESTYLE)
-        ax[plot_idx].plot(my_agg_times['ticks'], my_agg_times[QUANTITY_OF_INTEREST_MAX],
-                          label='max-{}'.format(decomp_label), color=DECOMP_COLORS[decomp_label],
-                          linestyle=MAX_LINESTYLE)
-      # ax[plot_idx].plot(my_agg_times['ticks'], my_agg_times[QUANTITY_OF_INTEREST_THING],
-      #                   label='meanCT-{}'.format(decomp_label), color=DECOMP_COLORS[decomp_label],
-      #                   marker='o', fillstyle='none', linestyle='none')
-      ax[plot_idx].set_ylabel('Runtime (s)')
+        plot_raw_data(ax=axes['raw_data'][row_idx],
+                      indep_ax=figures['independents']['raw_data'][row_idx].gca(),
+                      xticks=my_agg_times['ticks'],
+                      yvalues=my_agg_times[QUANTITY_OF_INTEREST_MIN],
+                      linestyle=MIN_LINESTYLE,
+                      label='min-{}'.format(decomp_label),
+                      color=DECOMP_COLORS[decomp_label])
+
+        plot_raw_data(ax=axes['raw_data'][row_idx],
+                      indep_ax=figures['independents']['raw_data'][row_idx].gca(),
+                      xticks=my_agg_times['ticks'],
+                      yvalues=my_agg_times[QUANTITY_OF_INTEREST_MAX],
+                      linestyle=MAX_LINESTYLE,
+                      label='max-{}'.format(decomp_label),
+                      color=DECOMP_COLORS[decomp_label])
+
+      axes['raw_data'][row_idx].set_ylabel('Runtime (s)')
+
+      # construct the independent figure
+      figures['independents']['raw_data'][row_idx].gca().set_ylabel('Runtime (s)')
+      figures['independents']['raw_data'][row_idx].gca().set_xlabel('Number of Nodes')
+      figures['independents']['raw_data'][row_idx].gca().set_xticks(my_ticks)
+      figures['independents']['raw_data'][row_idx].gca().set_xticklabels(my_nodes, rotation=45)
+      figures['independents']['raw_data'][row_idx].gca().set_xlim([0.5, my_num_nodes + 1])
+      figures['independents']['raw_data'][row_idx].gca().set_title('{}\n(HTs={:.0f})'.format(simple_title, ht_name))
 
       # factor_ax[plot_idx].plot(my_agg_times['ticks'], my_agg_times['flat_mpi_min_factor'],
       #                          marker='o', fillstyle='none', linestyle='none', color=DECOMP_COLORS[decomp_label])
       # factor_ax[plot_idx].plot(my_agg_times['ticks'], my_agg_times['flat_mpi_max_factor'],
       #                          marker='x', fillstyle='none', linestyle='none', color=DECOMP_COLORS[decomp_label])
       # factor_ax[plot_idx].set_ylabel('Runtime as Factor of Flat MPI')
-
-      # construct the independent figure
       if PLOT_ONLY_MIN:
         # plot the data
-        indep_plot[plot_idx].gca().plot(my_agg_times['ticks'], my_agg_times[QUANTITY_OF_INTEREST_MIN],
-                          label='{}'.format(decomp_label), color=DECOMP_COLORS[decomp_label])
+        plot_raw_data(ax=axes['percent_total'][row_idx],
+                      indep_ax=figures['independents']['percent_total'][row_idx].gca(),
+                      xticks=my_agg_times['ticks'],
+                      yvalues=my_agg_times['min_percent'],
+                      linestyle='.',
+                      label='{}'.format(decomp_label),
+                      color=DECOMP_COLORS[decomp_label])
       else:
-        indep_plot[plot_idx].gca().plot(my_agg_times['ticks'], my_agg_times[QUANTITY_OF_INTEREST_MIN],
-                                        label='min-{}'.format(decomp_label), color=DECOMP_COLORS[decomp_label],
-                                        linestyle=MIN_LINESTYLE)
-        indep_plot[plot_idx].gca().plot(my_agg_times['ticks'], my_agg_times[QUANTITY_OF_INTEREST_MAX],
-                                        label='max-{}'.format(decomp_label), color=DECOMP_COLORS[decomp_label],
-                                        linestyle=MAX_LINESTYLE)
-      indep_plot[plot_idx].gca().set_ylabel('Runtime (s)')
-      indep_plot[plot_idx].gca().set_xlabel('Number of Nodes')
-      indep_plot[plot_idx].gca().set_xticks(my_ticks)
-      indep_plot[plot_idx].gca().set_xticklabels(my_nodes, rotation=45)
-      indep_plot[plot_idx].gca().set_xlim([0.5, my_num_nodes + 1])
-      indep_plot[plot_idx].gca().set_title('{}\n(HTs={:.0f})'.format(simple_title, ht_name))
+        # plot the data
+        plot_raw_data(ax=axes['percent_total'][row_idx],
+                      indep_ax=figures['independents']['percent_total'][row_idx].gca(),
+                      xticks=my_agg_times['ticks'],
+                      yvalues=my_agg_times['min_percent'],
+                      linestyle='.',
+                      label='min-{}'.format(decomp_label),
+                      color=DECOMP_COLORS[decomp_label])
 
-      if PLOT_ONLY_MIN:
-        # plot the min/max percentage of total time
-        perc_ax[plot_idx].plot(my_agg_times['ticks'], my_agg_times['min_percent'],
-                          label='{}'.format(decomp_label), color=DECOMP_COLORS[decomp_label])
-      else:
-        # plot the min/max percentage of total time
-        perc_ax[plot_idx].plot(my_agg_times['ticks'], my_agg_times['min_percent'],
-                               label='min-{}'.format(decomp_label), color=DECOMP_COLORS[decomp_label])
-        perc_ax[plot_idx].plot(my_agg_times['ticks'], my_agg_times['max_percent'],
-                               label='max-{}'.format(decomp_label), color=DECOMP_COLORS[decomp_label],
-                               linestyle=':')
+        plot_raw_data(ax=axes['percent_total'][row_idx],
+                      indep_ax=figures['independents']['percent_total'][row_idx].gca(),
+                      xticks=my_agg_times['ticks'],
+                      yvalues=my_agg_times['max_percent'],
+                      linestyle=':',
+                      label='max-{}'.format(decomp_label),
+                      color=DECOMP_COLORS[decomp_label])
 
-      perc_ax[plot_idx].set_ylabel('Percentage of Total Time')
+      axes['percent_total'][row_idx].set_ylabel('Percentage of Total Time')
 
+      # use min_hts and max_hts + nhts to label the axes
       if int(ht_name) != 1:
-        ax[plot_idx].set_xlabel("Number of Nodes")
-        ax[plot_idx].set_xticks(my_ticks)
-        ax[plot_idx].set_xticklabels(my_nodes, rotation=45)
-        ax[plot_idx].set_xlim([0.5, my_num_nodes + 1])
+        set_weak_scaling_axes(ax=axes['raw_data'][row_idx],
+                              x_ticks=my_ticks,
+                              nodes=my_nodes,
+                              title='HTs={:.0f}'.format(ht_name))
 
-        perc_ax[plot_idx].set_xlabel("Number of Nodes")
-        perc_ax[plot_idx].set_xticks(my_ticks)
-        perc_ax[plot_idx].set_xticklabels(my_nodes, rotation=45)
-        perc_ax[plot_idx].set_xlim([0.5, my_num_nodes + 1])
+        set_weak_scaling_axes(ax=figures['independents']['raw_data'][row_idx].gca(),
+                              x_ticks=my_ticks,
+                              nodes=my_nodes,
+                              title='HTs={:.0f}'.format(ht_name))
+
+        set_weak_scaling_axes(ax=axes['percent_total'][row_idx],
+                              x_ticks=my_ticks,
+                              nodes=my_nodes,
+                              title='HTs={:.0f}'.format(ht_name))
+
+        set_weak_scaling_axes(ax=figures['independents']['percent_total'][row_idx].gca(),
+                              x_ticks=my_ticks,
+                              nodes=my_nodes,
+                              title='HTs={:.0f}'.format(ht_name))
+        # ax[plot_idx].set_xlabel("Number of Nodes")
+        # ax[plot_idx].set_xticks(my_ticks)
+        # ax[plot_idx].set_xticklabels(my_nodes, rotation=45)
+        # ax[plot_idx].set_xlim([0.5, my_num_nodes + 1])
+
+        # perc_ax[plot_idx].set_xlabel("Number of Nodes")
+        # perc_ax[plot_idx].set_xticks(my_ticks)
+        # perc_ax[plot_idx].set_xticklabels(my_nodes, rotation=45)
+        # perc_ax[plot_idx].set_xlim([0.5, my_num_nodes + 1])
 
       # plot the titles
       if int(ht_name) == 1:
@@ -611,11 +703,13 @@ def plot_composite_strong(composite_group,
                       fig_size * nhts * fig_size_height_inflation)
 
   axes = dict()
-  axes['raw_data'] = []
-  axes['speedup'] = []
+  figures = dict()
+  axes['raw_data']   = []
+  axes['speedup']    = []
   axes['efficiency'] = []
-  perc_ax = []
-  indep_plot = []
+
+  figures['composite'] = []
+  figures['independent'] = []
 
   for plot_idx in range(0, nhts):
     ax_ = fig.add_subplot(nhts, 2, plot_idx*2 + 1)
