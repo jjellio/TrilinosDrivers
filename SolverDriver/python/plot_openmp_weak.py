@@ -100,7 +100,7 @@ def is_outlier(points, thresh=3.5):
   return modified_z_score > thresh
 
 
-def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups):
+def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, compute_strong_terms=False):
   # Use aggregation. Since the dataset is noisy and we have multiple experiments worth of data
   # This is similar to ensemble type analysis
   # what you could do, is rather than sum, look at the variations between chunks of data and vote
@@ -197,6 +197,18 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups):
   print(plottable_df)
   plottable_df = plottable_df.drop('flat_mpi_factor_min_t', 1)
   plottable_df = plottable_df.drop('flat_mpi_factor_max_t', 1)
+
+  if ~compute_strong_terms:
+    pd.set_option('display.expand_frame_repr', True)
+    return plottable_df
+
+  # compute Speedup and Efficiency. Use Flat MPI as the baseline
+  np1_min = plottable_df.loc[(plottable_df['num_nodes'] == 1), 'flat_mpi_min', 'flat_mpi_numsteps'].min()
+  np1_max = plottable_df.loc[(plottable_df['num_nodes'] == 1), 'flat_mpi_max', 'flat_mpi_numsteps'].max()
+
+  print(np1_min)
+  print(np1_max)
+  exit(-1)
 
   pd.set_option('display.expand_frame_repr', True)
   return plottable_df
@@ -312,6 +324,72 @@ def plot_raw_data(ax, indep_ax, xticks, yvalues, linestyle, label, color):
 
 
 ###############################################################################
+def need_to_replot(simple_fname, subplot_names, ht_names):
+  need_to_replot_ = False
+  my_file = Path("{}.png".format(simple_fname))
+  try:
+    temp = my_file.resolve()
+  except FileNotFoundError or RuntimeError:
+    print("File {}.png does not exist triggering replot".format(simple_fname))
+    need_to_replot_ = True
+
+  for column_name in subplot_names:
+    for ht_name in ht_names:
+      fig_filename = '{base}-{col}-{ht}.png'.format(base=simple_fname, col=column_name, ht=ht_name)
+      my_file = Path(fig_filename)
+      try:
+        temp = my_file.resolve()
+      except FileNotFoundError or RuntimeError:
+        print("File {} does not exist triggering replot".format(fig_filename))
+        need_to_replot_ = True
+
+  return need_to_replot_
+
+
+def add_flat_mpi_data(composite_group,
+                      allow_baseline_override=False):
+  # figure out the flat MPI time
+  # ideally, we would want to query the Serial execution space here... but that is kinda complicated, we likely
+  # need to add an argument that is a serial execution space dataframe, as the groupby logic expects the execution
+  # space to be the same
+  try :
+    flat_mpi_df = composite_group.groupby(['procs_per_node', 'cores_per_proc', 'threads_per_core']).get_group((64,1,1))
+  except KeyError as e:
+    if allow_baseline_override:
+      flat_mpi_df = composite_group.groupby(['procs_per_node', 'cores_per_proc', 'threads_per_core']).get_group((32, 2, 1))
+    else:
+      raise e
+
+  flat_mpi_df.rename(columns={QUANTITY_OF_INTEREST_MIN: 'flat_mpi_min',
+                              QUANTITY_OF_INTEREST_MAX: 'flat_mpi_max',
+                              QUANTITY_OF_INTEREST_MIN_COUNT : 'flat_mpi_min_count',
+                              QUANTITY_OF_INTEREST_MAX_COUNT : 'flat_mpi_max_count',
+                              'numsteps'                     : 'flat_mpi_numsteps'}, inplace=True)
+
+  # make sure this is one value per num_nodes.
+  flat_mpi_df = flat_mpi_df.groupby('num_nodes')[[
+                             'flat_mpi_min',
+                             'flat_mpi_max',
+                             'flat_mpi_min_count',
+                             'flat_mpi_max_count',
+                             'flat_mpi_numsteps']].sum()
+
+  # add the flat mpi times as columns to all decompositions
+  # join on the number of nodes, which will replicate the min/max to each decomposition that used
+  # that number of nodes.
+  composite_group = pd.merge(composite_group,
+                             flat_mpi_df[[
+                                         'flat_mpi_min',
+                                         'flat_mpi_max',
+                                         'flat_mpi_min_count',
+                                         'flat_mpi_max_count',
+                                         'flat_mpi_numsteps']],
+                             how='left',
+                             left_on=['num_nodes'],
+                             right_index=True)
+  return composite_group
+
+###############################################################################
 def plot_composite_weak(composite_group,
                         my_nodes,
                         my_ticks,
@@ -360,38 +438,8 @@ def plot_composite_weak(composite_group,
     if 'show_factor' in kwargs.keys():
       show_factor = kwargs['show_factor']
 
-  # figure out the flat MPI time
-  # ideally, we would want to query the Serial execution space here... but that is kinda complicated, we likely
-  # need to add an argument that is a serial execution space dataframe, as the groupby logic expects the execution
-  # space to be the same
-  flat_mpi_df = composite_group.groupby(['procs_per_node', 'cores_per_proc', 'threads_per_core']).get_group((64,1,1))
-  flat_mpi_df.rename(columns={QUANTITY_OF_INTEREST_MIN: 'flat_mpi_min',
-                              QUANTITY_OF_INTEREST_MAX: 'flat_mpi_max',
-                              QUANTITY_OF_INTEREST_MIN_COUNT : 'flat_mpi_min_count',
-                              QUANTITY_OF_INTEREST_MAX_COUNT : 'flat_mpi_max_count',
-                              'numsteps'                     : 'flat_mpi_numsteps'}, inplace=True)
-
-  # make sure this is one value per num_nodes.
-  flat_mpi_df = flat_mpi_df.groupby('num_nodes')[[
-                             'flat_mpi_min',
-                             'flat_mpi_max',
-                             'flat_mpi_min_count',
-                             'flat_mpi_max_count',
-                             'flat_mpi_numsteps']].sum()
-
-  # add the flat mpi times as columns to all decompositions
-  # join on the number of nodes, which will replicate the min/max to each decomposition that used
-  # that number of nodes.
-  composite_group = pd.merge(composite_group,
-                             flat_mpi_df[[
-                                         'flat_mpi_min',
-                                         'flat_mpi_max',
-                                         'flat_mpi_min_count',
-                                         'flat_mpi_max_count',
-                                         'flat_mpi_numsteps']],
-                             how='left',
-                             left_on=['num_nodes'],
-                             right_index=True)
+  # determine the flat MPI time
+  composite_group = add_flat_mpi_data(composite_group)
 
   decomp_groups = composite_group.groupby(['procs_per_node', 'cores_per_proc'])
   driver_decomp_groups = driver_df.groupby(['procs_per_node', 'cores_per_proc'])
@@ -431,25 +479,7 @@ def plot_composite_weak(composite_group,
 
   # whether we should replot images that already exist.
   if FORCE_REPLOT is False:
-    need_to_replot = False
-    my_file = Path("{}.png".format(simple_fname))
-    try:
-      temp = my_file.resolve()
-    except:
-      print("File {}.png does not exist triggering replot".format(simple_fname))
-      need_to_replot = True
-
-    for column_name in subplot_names:
-      for ht_name in ht_names:
-        fig_filename = '{base}-{col}-{ht}.png'.format(base=simple_fname, col=column_name, ht=ht_name)
-        my_file = Path(fig_filename)
-        try:
-          temp = my_file.resolve()
-        except:
-          print("File {} does not exist triggering replot".format(fig_filename))
-          need_to_replot = True
-
-    if not need_to_replot:
+    if not need_to_replot(simple_fname, subplot_names, ht_names):
       print("Skipping {}.png".format(simple_fname))
       return
 
@@ -605,8 +635,6 @@ def plot_composite_weak(composite_group,
       figures['independent']['flat_mpi_factor'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
       figures['independent']['flat_mpi_factor'][ht_name].gca().set_xlim([0.5, my_num_nodes + 1])
       figures['independent']['flat_mpi_factor'][ht_name].gca().set_title('{}\n(HTs={:.0f})'.format(simple_title, ht_name))
-      #figures['independent']['flat_mpi_factor'][ht_name].gca().yaxis.set_major_formatter(FormatStrFormatter('%3.0f %%'))
-
     axes['raw_data'][ht_name].set_ylabel('Runtime (s)')
     if show_percent_total:
       axes['percent_total'][ht_name].set_ylabel('Percentage of Total Time')
@@ -694,12 +722,12 @@ def plot_composite_weak(composite_group,
 
 ###############################################################################
 def plot_composite_strong(composite_group,
-                          my_nodes,
-                          my_ticks,
-                          driver_df,
-                          average=False,
-                          numbered_plots_idx=-1,
-                          scaling_study_type='strong'):
+                        my_nodes,
+                        my_ticks,
+                        driver_df,
+                        numbered_plots_idx=-1,
+                        scaling_study_type='strong',
+                        kwargs={}):
   """
   Plot all decompositions on a single figure.
 
@@ -718,27 +746,35 @@ def plot_composite_strong(composite_group,
   :param my_nodes:  a list of nodes that will be shared by all plots for the xaxis.
   :param my_ticks: the actual x location for the tick marks, which will be labeled using the node list
   :param driver_df: dataframe containing timers from the driver itself (not Trilinos/kernel timers)
-  :param average: flag that will enable averaging
   :param numbered_plots_idx: if non-negative, then add this number before the filename
   :param scaling_study_type: weak/strong (TODO add onnode)
+  :param kwargs: Optional plotting arguments:
+                 show_percent_total : True/False, plot a column that show the percentage of total time
+                                      Total time is defined by the driver_df, and is expected to be in the columns
+                                      Driver Min and Driver Max.
+                 TODO: add show_factor, which would plot the thread scaling as a ratio of the serial execution space
+                       runtime.
   :return: nothing
   """
+  show_percent_total = False
+  show_speed_up = True
+  show_efficiency = True
+  show_factor = False
 
-  # figure out the flat MPI time
-  # ideally, we would want to query the Serial execution space here... but that is kinda complicated, we likely
-  # need to add an argument that is a serial execution space dataframe, as the groupby logic expects the execution
-  # space to be the same
-  flat_mpi_df = composite_group.groupby(['procs_per_node', 'cores_per_proc', 'threads_per_core']).get_group((64,1,1))
-  flat_mpi_df.rename(columns={QUANTITY_OF_INTEREST_MIN: 'flat_mpi_min',
-                              QUANTITY_OF_INTEREST_MAX: 'flat_mpi_max'}, inplace=True)
+  print(kwargs.keys())
+  if kwargs is not None:
+    if 'show_percent_total' in kwargs.keys():
+      print('in the keys')
+      show_percent_total = kwargs['show_percent_total']
+    if 'show_factor' in kwargs.keys():
+      show_factor = kwargs['show_factor']
+    if 'show_speed_up' in kwargs.keys():
+      show_speed_up = kwargs['show_speed_up']
+    if 'show_efficiency' in kwargs.keys():
+      show_efficiency = kwargs['show_efficiency']
 
-  # add the flat mpi times as columns to all decompositions
-  # the join only uses num_nodes, as the other decomp information is only relevant for hybrid runs
-  composite_group = pd.merge(composite_group, flat_mpi_df[['num_nodes',
-                                                           'flat_mpi_min',
-                                                           'flat_mpi_max']],
-                             how='left',
-                             on=['num_nodes'])
+  # determine the flat MPI time
+  composite_group = add_flat_mpi_data(composite_group, allow_baseline_override=True)
 
   decomp_groups = composite_group.groupby(['procs_per_node', 'cores_per_proc'])
   driver_decomp_groups = driver_df.groupby(['procs_per_node', 'cores_per_proc'])
@@ -755,61 +791,42 @@ def plot_composite_strong(composite_group,
   if numbered_plots_idx >= 0:
     simple_fname = '{}-{}'.format(numbered_plots_idx, simple_fname)
 
-  # whether or not the yaxes should be the same for all HT combos plotted
-  if not HT_CONSISTENT_YAXES:
-    simple_fname = '{fname}-free_yaxis'.format(fname=simple_fname)
-
-  # whether we should replot images that already exist.
-  if not FORCE_REPLOT:
-    my_file = Path("{}.png".format(simple_fname))
-    if my_file.is_file():
-      print("Skipping {}.png".format(simple_fname))
-      return
-
   # if we apply any type of smoothing, then note this in the filename
   if SMOOTH_OUTLIERS:
     simple_fname = '{}-outliers-smoothed'.format(simple_fname)
 
   # the number of HT combos we have
-  nhts = composite_group['threads_per_core'].nunique()
+  ht_names = composite_group['threads_per_core'].sort_values(ascending=True).unique()
   ndecomps = len(decomp_groups)
 
   my_num_nodes = my_nodes.size
 
   fig_size = 5
-  fig_size_height_inflation = 1.2
-  fig_size_width_inflation  = 1.2
-  fig = plt.figure()
-  # width: there are three plots currently for strong scaling plots, we really want the aspect ratio
-  # as close to 1.0 as possible
-  # height: a factor of the number of HTs shown
-  fig.set_size_inches(fig_size * 3.0 * fig_size_width_inflation,
-                      fig_size * nhts * fig_size_height_inflation)
+  fig_size_height_inflation = 1.0
+  fig_size_width_inflation  = 1.0
 
-  axes = dict()
-  figures = dict()
-  axes['raw_data']   = []
-  axes['speedup']    = []
-  axes['efficiency'] = []
+  subplot_names = ['raw_data', 'speed_up', 'efficiency']
 
-  figures['composite'] = []
-  figures['independent'] = []
+  if show_speed_up is False:
+    subplot_names.remove('speed_up')
+  if show_efficiency is False:
+    subplot_names.remove('efficiency')
+  if show_percent_total:
+    subplot_names.append('percent_total')
+  if show_factor:
+    subplot_names.append('flat_mpi_factor')
 
-  for plot_idx in range(0, nhts):
-    ax_ = fig.add_subplot(nhts, 2, plot_idx*2 + 1)
-    perc_ax_ = fig.add_subplot(nhts, 2, plot_idx*2 + 2)
-    perc_ax_.yaxis.set_major_formatter(FormatStrFormatter('%3.0f %%'))
+  # whether we should replot images that already exist.
+  if FORCE_REPLOT is False:
+    if not need_to_replot(simple_fname, subplot_names, ht_names):
+      print("Skipping {}.png".format(simple_fname))
+      return
 
-    temp_fig = plt.figure()
-    temp_fig.set_size_inches(fig_size * fig_size_width_inflation * 1.5,
-                             fig_size * fig_size_height_inflation * 1.5)
-    indep_plot.append(temp_fig)
-    ax.append(ax_)
-    factor_ax.append(ax_.twinx())
-    perc_ax.append(perc_ax_)
-
-  # composite_group['flat_mpi_factor_min'] = composite_group[QUANTITY_OF_INTEREST_MIN] / composite_group['flat_mpi_min']
-  # composite_group['flat_mpi_factor_max'] = composite_group[QUANTITY_OF_INTEREST_MAX] / composite_group['flat_mpi_max']
+  axes, figures = get_figures_and_axes(subplot_names=subplot_names,
+                                       subplot_row_names=ht_names,
+                                       fig_size=fig_size,
+                                       fig_size_width_inflation=fig_size_width_inflation,
+                                       fig_size_height_inflation=fig_size_height_inflation)
 
   for decomp_group_name, decomp_group in decomp_groups:
     procs_per_node = int(decomp_group_name[0])
@@ -821,13 +838,12 @@ def plot_composite_strong(composite_group,
     ht_groups = decomp_group.groupby('threads_per_core')
     driver_ht_groups = driver_decomp_groups.get_group(decomp_group_name).groupby('threads_per_core')
 
-    plot_idx = 0
-    for ht_name, ht_group in ht_groups:
-      threads_per_core = int(ht_name)
-
+    for ht_name in ht_names:
+      ht_group = ht_groups.get_group(ht_name)
       my_agg_times = pd.DataFrame(columns=['num_nodes', 'ticks'], data=np.column_stack((my_nodes, my_ticks)))
 
-      my_agg_times = get_plottable_dataframe(my_agg_times, ht_group, ht_name, driver_ht_groups)
+      my_agg_times = get_plottable_dataframe(my_agg_times, ht_group, ht_name, driver_ht_groups,
+                                             compute_strong_terms=True)
 
       # count the missing values, can use any quantity of interest for this
       num_missing_data_points = my_agg_times[QUANTITY_OF_INTEREST_MIN].isnull().values.ravel().sum()
@@ -839,153 +855,210 @@ def plot_composite_strong(composite_group,
             num_missing_data_points=num_missing_data_points))
 
       print("x={}, y={}, {}x{}x{}".format(my_agg_times['ticks'].count(),
-                                my_agg_times['num_nodes'].count(),
-                                procs_per_node,
-                                cores_per_proc,
-                                ht_name))
+                                          my_agg_times['num_nodes'].count(),
+                                          procs_per_node,
+                                          cores_per_proc,
+                                          ht_name))
 
       if PLOT_ONLY_MIN:
         # plot the data
-        ax[plot_idx].plot(my_agg_times['ticks'], my_agg_times[QUANTITY_OF_INTEREST_MIN],
-                          label='{}'.format(decomp_label), color=DECOMP_COLORS[decomp_label])
+        plot_raw_data(ax=axes['raw_data'][ht_name],
+                      indep_ax=figures['independent']['raw_data'][ht_name].gca(),
+                      xticks=my_agg_times['ticks'],
+                      yvalues=my_agg_times[QUANTITY_OF_INTEREST_MIN],
+                      linestyle='-',
+                      label='{}'.format(decomp_label),
+                      color=DECOMP_COLORS[decomp_label])
       else:
         # plot the data
-        ax[plot_idx].plot(my_agg_times['ticks'], my_agg_times[QUANTITY_OF_INTEREST_MIN],
-                          label='min-{}'.format(decomp_label), color=DECOMP_COLORS[decomp_label],
-                          linestyle=MIN_LINESTYLE)
-        ax[plot_idx].plot(my_agg_times['ticks'], my_agg_times[QUANTITY_OF_INTEREST_MAX],
-                          label='max-{}'.format(decomp_label), color=DECOMP_COLORS[decomp_label],
-                          linestyle=MAX_LINESTYLE)
-      # ax[plot_idx].plot(my_agg_times['ticks'], my_agg_times[QUANTITY_OF_INTEREST_THING],
-      #                   label='meanCT-{}'.format(decomp_label), color=DECOMP_COLORS[decomp_label],
-      #                   marker='o', fillstyle='none', linestyle='none')
-      ax[plot_idx].set_ylabel('Runtime (s)')
+        plot_raw_data(ax=axes['raw_data'][ht_name],
+                      indep_ax=figures['independent']['raw_data'][ht_name].gca(),
+                      xticks=my_agg_times['ticks'],
+                      yvalues=my_agg_times[QUANTITY_OF_INTEREST_MIN],
+                      linestyle=MIN_LINESTYLE,
+                      label='min-{}'.format(decomp_label),
+                      color=DECOMP_COLORS[decomp_label])
 
-      # factor_ax[plot_idx].plot(my_agg_times['ticks'], my_agg_times['flat_mpi_min_factor'],
-      #                          marker='o', fillstyle='none', linestyle='none', color=DECOMP_COLORS[decomp_label])
-      # factor_ax[plot_idx].plot(my_agg_times['ticks'], my_agg_times['flat_mpi_max_factor'],
-      #                          marker='x', fillstyle='none', linestyle='none', color=DECOMP_COLORS[decomp_label])
-      # factor_ax[plot_idx].set_ylabel('Runtime as Factor of Flat MPI')
+        plot_raw_data(ax=axes['raw_data'][ht_name],
+                      indep_ax=figures['independent']['raw_data'][ht_name].gca(),
+                      xticks=my_agg_times['ticks'],
+                      yvalues=my_agg_times[QUANTITY_OF_INTEREST_MAX],
+                      linestyle=MAX_LINESTYLE,
+                      label='max-{}'.format(decomp_label),
+                      color=DECOMP_COLORS[decomp_label])
 
-      # construct the independent figure
-      if PLOT_ONLY_MIN:
-        # plot the data
-        indep_plot[plot_idx].gca().plot(my_agg_times['ticks'], my_agg_times[QUANTITY_OF_INTEREST_MIN],
-                          label='{}'.format(decomp_label), color=DECOMP_COLORS[decomp_label])
-      else:
-        indep_plot[plot_idx].gca().plot(my_agg_times['ticks'], my_agg_times[QUANTITY_OF_INTEREST_MIN],
-                                        label='min-{}'.format(decomp_label), color=DECOMP_COLORS[decomp_label],
-                                        linestyle=MIN_LINESTYLE)
-        indep_plot[plot_idx].gca().plot(my_agg_times['ticks'], my_agg_times[QUANTITY_OF_INTEREST_MAX],
-                                        label='max-{}'.format(decomp_label), color=DECOMP_COLORS[decomp_label],
-                                        linestyle=MAX_LINESTYLE)
-      indep_plot[plot_idx].gca().set_ylabel('Runtime (s)')
-      indep_plot[plot_idx].gca().set_xlabel('Number of Nodes')
-      indep_plot[plot_idx].gca().set_xticks(my_ticks)
-      indep_plot[plot_idx].gca().set_xticklabels(my_nodes, rotation=45)
-      indep_plot[plot_idx].gca().set_xlim([0.5, my_num_nodes + 1])
-      indep_plot[plot_idx].gca().set_title('{}\n(HTs={:.0f})'.format(simple_title, ht_name))
+      if show_percent_total:
+        if PLOT_ONLY_MIN:
+          # plot the data
+          plot_raw_data(ax=axes['percent_total'][ht_name],
+                        indep_ax=figures['independent']['percent_total'][ht_name].gca(),
+                        xticks=my_agg_times['ticks'],
+                        yvalues=my_agg_times['min_percent'],
+                        linestyle='-',
+                        label='{}'.format(decomp_label),
+                        color=DECOMP_COLORS[decomp_label])
+        else:
+          # plot the data
+          plot_raw_data(ax=axes['percent_total'][ht_name],
+                        indep_ax=figures['independent']['percent_total'][ht_name].gca(),
+                        xticks=my_agg_times['ticks'],
+                        yvalues=my_agg_times['min_percent'],
+                        linestyle=MIN_LINESTYLE,
+                        label='min-{}'.format(decomp_label),
+                        color=DECOMP_COLORS[decomp_label])
 
-      if PLOT_ONLY_MIN:
-        # plot the min/max percentage of total time
-        perc_ax[plot_idx].plot(my_agg_times['ticks'], my_agg_times['min_percent'],
-                          label='{}'.format(decomp_label), color=DECOMP_COLORS[decomp_label])
-      else:
-        # plot the min/max percentage of total time
-        perc_ax[plot_idx].plot(my_agg_times['ticks'], my_agg_times['min_percent'],
-                               label='min-{}'.format(decomp_label), color=DECOMP_COLORS[decomp_label])
-        perc_ax[plot_idx].plot(my_agg_times['ticks'], my_agg_times['max_percent'],
-                               label='max-{}'.format(decomp_label), color=DECOMP_COLORS[decomp_label],
-                               linestyle=':')
+          plot_raw_data(ax=axes['percent_total'][ht_name],
+                        indep_ax=figures['independent']['percent_total'][ht_name].gca(),
+                        xticks=my_agg_times['ticks'],
+                        yvalues=my_agg_times['max_percent'],
+                        linestyle=MAX_LINESTYLE,
+                        label='max-{}'.format(decomp_label),
+                        color=DECOMP_COLORS[decomp_label])
+      if show_factor:
+        if PLOT_ONLY_MIN:
+          # plot the data
+          plot_raw_data(ax=axes['flat_mpi_factor'][ht_name],
+                        indep_ax=figures['independent']['flat_mpi_factor'][ht_name].gca(),
+                        xticks=my_agg_times['ticks'],
+                        yvalues=my_agg_times['flat_mpi_factor_min'],
+                        linestyle='-',
+                        label='{}'.format(decomp_label),
+                        color=DECOMP_COLORS[decomp_label])
+        else:
+          # plot the data
+          plot_raw_data(ax=axes['flat_mpi_factor'][ht_name],
+                        indep_ax=figures['independent']['flat_mpi_factor'][ht_name].gca(),
+                        xticks=my_agg_times['ticks'],
+                        yvalues=my_agg_times['flat_mpi_factor_min'],
+                        linestyle=MIN_LINESTYLE,
+                        label='min-{}'.format(decomp_label),
+                        color=DECOMP_COLORS[decomp_label])
 
-      perc_ax[plot_idx].set_ylabel('Percentage of Total Time')
+          plot_raw_data(ax=axes['flat_mpi_factor'][ht_name],
+                        indep_ax=figures['independent']['flat_mpi_factor'][ht_name].gca(),
+                        xticks=my_agg_times['ticks'],
+                        yvalues=my_agg_times['flat_mpi_factor_max'],
+                        linestyle=MAX_LINESTYLE,
+                        label='max-{}'.format(decomp_label),
+                        color=DECOMP_COLORS[decomp_label])
 
-      if int(ht_name) != 1:
-        ax[plot_idx].set_xlabel("Number of Nodes")
-        ax[plot_idx].set_xticks(my_ticks)
-        ax[plot_idx].set_xticklabels(my_nodes, rotation=45)
-        ax[plot_idx].set_xlim([0.5, my_num_nodes + 1])
+  # configure the axes for the plotted data
+  for row_idx in range(0, len(ht_names)):
+    ht_name = ht_names[row_idx]
+    # for independent plots (e.g., the subplot plotted separately) we show all axes labels
+    ## raw data
+    figures['independent']['raw_data'][ht_name].gca().set_ylabel('Runtime (s)')
+    figures['independent']['raw_data'][ht_name].gca().set_xlabel('Number of Nodes')
+    figures['independent']['raw_data'][ht_name].gca().set_xticks(my_ticks)
+    figures['independent']['raw_data'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
+    figures['independent']['raw_data'][ht_name].gca().set_xlim([0.5, my_num_nodes + 1])
+    figures['independent']['raw_data'][ht_name].gca().set_title('{}\n(HTs={:.0f})'.format(simple_title, ht_name))
+    ## percentages
+    if show_percent_total:
+      figures['independent']['percent_total'][ht_name].gca().set_ylabel('Percentage of Total Time')
+      figures['independent']['percent_total'][ht_name].gca().set_xlabel('Number of Nodes')
+      figures['independent']['percent_total'][ht_name].gca().set_xticks(my_ticks)
+      figures['independent']['percent_total'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
+      figures['independent']['percent_total'][ht_name].gca().set_xlim([0.5, my_num_nodes + 1])
+      figures['independent']['percent_total'][ht_name].gca().set_title('{}\n(HTs={:.0f})'.format(simple_title, ht_name))
+      figures['independent']['percent_total'][ht_name].gca().yaxis.set_major_formatter(FormatStrFormatter('%3.0f %%'))
+    ## factors
+    if show_factor:
+      figures['independent']['flat_mpi_factor'][ht_name].gca().set_ylabel('Ratio (smaller is better)')
+      figures['independent']['flat_mpi_factor'][ht_name].gca().set_xlabel('Number of Nodes')
+      figures['independent']['flat_mpi_factor'][ht_name].gca().set_xticks(my_ticks)
+      figures['independent']['flat_mpi_factor'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
+      figures['independent']['flat_mpi_factor'][ht_name].gca().set_xlim([0.5, my_num_nodes + 1])
+      figures['independent']['flat_mpi_factor'][ht_name].gca().set_title('{}\n(HTs={:.0f})'.format(simple_title, ht_name))
+    axes['raw_data'][ht_name].set_ylabel('Runtime (s)')
+    if show_percent_total:
+      axes['percent_total'][ht_name].set_ylabel('Percentage of Total Time')
+      axes['percent_total'][ht_name].yaxis.set_major_formatter(FormatStrFormatter('%3.0f %%'))
+    if show_factor:
+      axes['flat_mpi_factor'][ht_name].set_ylabel('Ratio of Runtime to Flat MPI Time')
 
-        perc_ax[plot_idx].set_xlabel("Number of Nodes")
-        perc_ax[plot_idx].set_xticks(my_ticks)
-        perc_ax[plot_idx].set_xticklabels(my_nodes, rotation=45)
-        perc_ax[plot_idx].set_xlim([0.5, my_num_nodes + 1])
+    # if this is the last row, then display x axes labels
+    if row_idx == (len(ht_names) - 1):
+      axes['raw_data'][ht_name].set_xlabel("Number of Nodes")
+      axes['raw_data'][ht_name].set_xticks(my_ticks)
+      axes['raw_data'][ht_name].set_xticklabels(my_nodes, rotation=45)
+      axes['raw_data'][ht_name].set_xlim([0.5, my_num_nodes + 1])
+      axes['raw_data'][ht_name].set_title('HTs={:.0f}'.format(ht_name))
+      if show_percent_total:
+        axes['percent_total'][ht_name].set_xlabel("Number of Nodes")
+        axes['percent_total'][ht_name].set_xticks(my_ticks)
+        axes['percent_total'][ht_name].set_xticklabels(my_nodes, rotation=45)
+        axes['percent_total'][ht_name].set_xlim([0.5, my_num_nodes + 1])
+        axes['percent_total'][ht_name].set_title('HTs={:.0f}'.format(ht_name))
+      if show_factor:
+        axes['flat_mpi_factor'][ht_name].set_xlabel("Number of Nodes")
+        axes['flat_mpi_factor'][ht_name].set_xticks(my_ticks)
+        axes['flat_mpi_factor'][ht_name].set_xticklabels(my_nodes, rotation=45)
+        axes['flat_mpi_factor'][ht_name].set_xlim([0.5, my_num_nodes + 1])
+        axes['flat_mpi_factor'][ht_name].set_title('HTs={:.0f}'.format(ht_name))
 
-      # plot the titles
-      if int(ht_name) == 1:
-        ax[plot_idx].set_title('Raw Data\n(HTs={:.0f})'.format(ht_name))
-        perc_ax[plot_idx].set_title('Percentage of Total Time\n(HTs={:.0f})'.format(ht_name))
-        perc_ax[plot_idx].set_xticks([])
-        ax[plot_idx].set_xticks([])
-      else:
-        ax[plot_idx].set_title('HTs={:.0f}'.format(ht_name))
-        perc_ax[plot_idx].set_title('HTs={:.0f}'.format(ht_name))
+    # if this is the first row, display the full title, e.g., 'Foo \n Ht = {}'
+    elif row_idx == 0:
+      axes['raw_data'][ht_name].set_title('Raw Data\n(HTs={:.0f})'.format(ht_name))
+      if show_percent_total:
+        axes['percent_total'][ht_name].set_title('Percentage of Total Time\n(HTs={:.0f})'.format(ht_name))
+      if show_factor:
+        axes['flat_mpi_factor'][ht_name].set_title('Ratio of Runtime to Flat MPI Time\n(HTs={:.0f})'.format(ht_name))
+      # delete the xticks, because we do not want any x axis labels
+      axes['raw_data'][ht_name].set_xticks([])
+      if show_percent_total:
+        axes['percent_total'][ht_name].set_xticks([])
+    # otherwise, this is a middle plot, show a truncated title
+    else:
+      axes['raw_data'][ht_name].set_title('HTs={:.0f}'.format(ht_name))
+      if show_percent_total:
+        axes['percent_total'][ht_name].set_title('HTs={:.0f}'.format(ht_name))
+      if show_factor:
+        axes['flat_mpi_factor'][ht_name].set_title('HTs={:.0f}')
+      # delete the xticks, because we do not want any x axis labels
+      axes['raw_data'][ht_name].set_xticks([])
+      if show_percent_total:
+        axes['percent_total'][ht_name].set_xticks([])
+      if show_factor:
+        axes['flat_mpi_factor'][ht_name].set_xticks([])
 
-      plot_idx = plot_idx + 1
-
-  if HT_CONSISTENT_YAXES:
-    best_ylims = [np.inf, -np.inf]
-    for axis in ax:
-      ylims = axis.get_ylim()
-      best_ylims[0] = min(best_ylims[0], ylims[0])
-      best_ylims[1] = max(best_ylims[1], ylims[1])
-
-    # nothing below zero
-    best_ylims[0] = max(best_ylims[0], 0.0)
-    for axis in ax:
-      axis.set_ylim(best_ylims)
-
-    for figure in indep_plot:
-      figure.gca().set_ylim(best_ylims)
-
-    best_ylims = [np.inf, -np.inf]
-    for axis in perc_ax:
-      ylims = axis.get_ylim()
-      best_ylims[0] = min(best_ylims[0], ylims[0])
-      best_ylims[1] = max(best_ylims[1], ylims[1])
-
-    for axis in perc_ax:
-      axis.set_ylim(best_ylims)
-
-  x=1
-  for figure in indep_plot:
-    handles, labels = figure.gca().get_legend_handles_labels()
-    lgd = figure.legend(handles, labels,
-               title="Procs per Node x Cores per Proc",
-               loc='lower center', ncol=ndecomps, bbox_to_anchor=(0.5, 0.0))
-    #figure.tight_layout()
-    figure.subplots_adjust(bottom=0.20)
-    try:
-      figure.savefig("{}-{}.png".format(simple_fname, x), format='png', dpi=180)
-      print("Wrote: {}-{}.png".format(simple_fname, x))
-    except:
-      print("FAILED writing {}-{}.png".format(simple_fname, x))
-      raise
-    x = x + 1
-    plt.close(figure)
-
-  handles, labels = ax[0].get_legend_handles_labels()
-  fig.legend(handles, labels,
-             title="Procs per Node x Cores per Proc",
-             loc='lower center', ncol=ndecomps, bbox_to_anchor=(0.5, 0.0))
-
-  fig.suptitle(simple_title, fontsize=18)
-  # plt.subplots_adjust(top=0.9, hspace=0.2)
-  fig.tight_layout()
+  # add a suptitle and configure the legend for each figure
+  figures['composite'].suptitle(simple_title, fontsize=18)
+  # we plot in a deterministic fashion, and so the order is consistent among all
+  # axes plotted. This allows a single legend that is compatible with all plots.
+  handles, labels = axes['raw_data'][ht_names[0]].get_legend_handles_labels()
+  figures['composite'].legend(handles, labels,
+                              title="Procs per Node x Cores per Proc",
+                              loc='lower center', ncol=ndecomps, bbox_to_anchor=(0.5, 0.0))
+  figures['composite'].tight_layout()
   # this must be called after tight layout
-  plt.subplots_adjust(top=0.85, bottom=0.15)
-  try:
-    fig.savefig("{}.png".format(simple_fname), format='png', dpi=180)
-    print("Wrote: {}.png".format(simple_fname))
-  except:
-    print("FAILED writing {}.png".format(simple_fname))
-    raise
+  figures['composite'].subplots_adjust(top=0.85, bottom=0.15)
 
-  plt.close(fig)
+  for column_name in figures['independent']:
+    for fig_name, fig in figures['independent'][column_name].items():
+      fig.legend(handles, labels,
+                 title="Procs per Node x Cores per Proc",
+                 loc='lower center', ncol=ndecomps, bbox_to_anchor=(0.5, 0.0))
+      # add space since the titles are typically large
+      fig.subplots_adjust(bottom=0.20)
+
+  # save the free axis version of the figures
+  save_figures(figures,
+               filename='{basename}-free-yaxis'.format(basename=simple_fname),
+               close_figure=False)
+
+  # if we want consistent axes by column, then enforce that here.
+  if HT_CONSISTENT_YAXES:
+    enforce_consistent_ylims(figures, axes)
+
+  # save the figures with the axes shared
+  save_figures(figures, filename=simple_fname, close_figure=True)
 
 
 ###############################################################################
-def load_dataset(dataset_filename):
+def load_dataset(dataset_filename,
+                 min_num_nodes=MIN_NUM_NODES,
+                 max_num_nodes=MAX_NUM_NODES):
   """
   Load a CSV datafile. This assumes the data was parsed from YAML using the parser in this directory
 
@@ -996,6 +1069,8 @@ def load_dataset(dataset_filename):
   The loaded data is verified using pandas index and sorted by the index
 
   :param dataset_filename: path/filename to load
+  :param min_num_nodes:
+  :param max_num_nodes:
   :return: two pandas dataframes: timer_dataset and driver_dataset
            timer_dataset contains data for the actual timers inside Trilinos functions
            driver_dataset contains data generated by the driver which includes total time,
@@ -1030,8 +1105,8 @@ def load_dataset(dataset_filename):
                       '(num_nodes >= {min_num_nodes}) & ' \
                       '(num_nodes <= {max_num_nodes}) & ' \
                       '(prec_attributes != \"-no-repartition\")' \
-                      ''.format(min_num_nodes=MIN_NUM_NODES,
-                                max_num_nodes=MAX_NUM_NODES)
+                      ''.format(min_num_nodes=min_num_nodes,
+                                max_num_nodes=max_num_nodes)
 
   dataset = dataset.query(restriction_query)
   print('Restricted dataset')
@@ -1301,13 +1376,20 @@ def plot_dataset(dataset,
 def main(dataset_filename,
          scaling_study_type):
   print(dataset_filename)
-  dataset, driver_dataset = load_dataset(dataset_filename=dataset_filename)
+
+  if scaling_study_type == 'weak':
+    dataset, driver_dataset = load_dataset(dataset_filename=dataset_filename)
+  else:
+    dataset, driver_dataset = load_dataset(dataset_filename=dataset_filename,
+                                           min_num_nodes=0,
+                                           max_num_nodes=64)
 
   # obtain a list of timer names ordered the aggregate time spent in each
   ordered_timers = get_ordered_timers(dataset=dataset,
                                       rank_by_column_name=QUANTITY_OF_INTEREST)
 
-  study_type = "muelu_constructor"
+  #study_type = "muelu_constructor"
+  study_type = ''
 
   if study_type == 'muelu_constructor':
     plot_dataset(dataset=dataset,
