@@ -198,17 +198,25 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
   plottable_df = plottable_df.drop('flat_mpi_factor_min_t', 1)
   plottable_df = plottable_df.drop('flat_mpi_factor_max_t', 1)
 
-  if ~compute_strong_terms:
+  if compute_strong_terms is False:
     pd.set_option('display.expand_frame_repr', True)
     return plottable_df
 
   # compute Speedup and Efficiency. Use Flat MPI as the baseline
-  np1_min = plottable_df.loc[(plottable_df['num_nodes'] == 1), 'flat_mpi_min', 'flat_mpi_numsteps'].min()
-  np1_max = plottable_df.loc[(plottable_df['num_nodes'] == 1), 'flat_mpi_max', 'flat_mpi_numsteps'].max()
+  np1_min = plottable_df.loc[(plottable_df['num_nodes'] == 1), ['flat_mpi_min', 'flat_mpi_numsteps']].min()
+  np1_max = plottable_df.loc[(plottable_df['num_nodes'] == 1), ['flat_mpi_max', 'flat_mpi_numsteps']].max()
 
-  print(np1_min)
-  print(np1_max)
-  exit(-1)
+  plottable_df['speedup_min'] = (np1_min['flat_mpi_min'] / np1_min['flat_mpi_numsteps']) /\
+                                (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df['numsteps'])
+
+  plottable_df['speedup_max'] = (np1_max['flat_mpi_max'] / np1_max['flat_mpi_numsteps']) /\
+                                (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df['numsteps'])
+
+  plottable_df['efficiency_min'] = plottable_df['speedup_min'] * 100.0 / plottable_df['num_nodes']
+
+  plottable_df['efficiency_max'] = plottable_df['speedup_max'] * 100.0 / plottable_df['num_nodes']
+
+  plottable_df.to_csv('plottable.csv')
 
   pd.set_option('display.expand_frame_repr', True)
   return plottable_df
@@ -805,10 +813,10 @@ def plot_composite_strong(composite_group,
   fig_size_height_inflation = 1.0
   fig_size_width_inflation  = 1.0
 
-  subplot_names = ['raw_data', 'speed_up', 'efficiency']
+  subplot_names = ['raw_data', 'speedup', 'efficiency']
 
   if show_speed_up is False:
-    subplot_names.remove('speed_up')
+    subplot_names.remove('speedup')
   if show_efficiency is False:
     subplot_names.remove('efficiency')
   if show_percent_total:
@@ -828,6 +836,7 @@ def plot_composite_strong(composite_group,
                                        fig_size_width_inflation=fig_size_width_inflation,
                                        fig_size_height_inflation=fig_size_height_inflation)
 
+  # TODO: track 'best'
   for decomp_group_name, decomp_group in decomp_groups:
     procs_per_node = int(decomp_group_name[0])
     cores_per_proc = int(decomp_group_name[1])
@@ -887,6 +896,62 @@ def plot_composite_strong(composite_group,
                       label='max-{}'.format(decomp_label),
                       color=DECOMP_COLORS[decomp_label])
 
+      if show_speed_up:
+        if PLOT_ONLY_MIN:
+          # plot the data
+          plot_raw_data(ax=axes['speedup'][ht_name],
+                        indep_ax=figures['independent']['speedup'][ht_name].gca(),
+                        xticks=my_agg_times['ticks'],
+                        yvalues=my_agg_times['speedup_min'],
+                        linestyle='-',
+                        label='{}'.format(decomp_label),
+                        color=DECOMP_COLORS[decomp_label])
+        else:
+          # plot the data
+          plot_raw_data(ax=axes['speedup'][ht_name],
+                        indep_ax=figures['independent']['speedup'][ht_name].gca(),
+                        xticks=my_agg_times['ticks'],
+                        yvalues=my_agg_times['speedup_min'],
+                        linestyle=MIN_LINESTYLE,
+                        label='min-{}'.format(decomp_label),
+                        color=DECOMP_COLORS[decomp_label])
+
+          plot_raw_data(ax=axes['speedup'][ht_name],
+                        indep_ax=figures['independent']['speedup'][ht_name].gca(),
+                        xticks=my_agg_times['ticks'],
+                        yvalues=my_agg_times['speedup_max'],
+                        linestyle=MAX_LINESTYLE,
+                        label='max-{}'.format(decomp_label),
+                        color=DECOMP_COLORS[decomp_label])
+
+      if show_efficiency:
+        if PLOT_ONLY_MIN:
+          # plot the data
+          plot_raw_data(ax=axes['efficiency'][ht_name],
+                        indep_ax=figures['independent']['efficiency'][ht_name].gca(),
+                        xticks=my_agg_times['ticks'],
+                        yvalues=my_agg_times['efficiency_min'],
+                        linestyle='-',
+                        label='{}'.format(decomp_label),
+                        color=DECOMP_COLORS[decomp_label])
+        else:
+          # plot the data
+          plot_raw_data(ax=axes['efficiency'][ht_name],
+                        indep_ax=figures['independent']['efficiency'][ht_name].gca(),
+                        xticks=my_agg_times['ticks'],
+                        yvalues=my_agg_times['efficiency_min'],
+                        linestyle=MIN_LINESTYLE,
+                        label='min-{}'.format(decomp_label),
+                        color=DECOMP_COLORS[decomp_label])
+
+          plot_raw_data(ax=axes['efficiency'][ht_name],
+                        indep_ax=figures['independent']['efficiency'][ht_name].gca(),
+                        xticks=my_agg_times['ticks'],
+                        yvalues=my_agg_times['efficiency_max'],
+                        linestyle=MAX_LINESTYLE,
+                        label='max-{}'.format(decomp_label),
+                        color=DECOMP_COLORS[decomp_label])
+
       if show_percent_total:
         if PLOT_ONLY_MIN:
           # plot the data
@@ -943,6 +1008,7 @@ def plot_composite_strong(composite_group,
                         color=DECOMP_COLORS[decomp_label])
 
   # configure the axes for the plotted data
+  # TODO, for speedup add YMIN/YMAX and plot in base2.
   for row_idx in range(0, len(ht_names)):
     ht_name = ht_names[row_idx]
     # for independent plots (e.g., the subplot plotted separately) we show all axes labels
@@ -953,6 +1019,23 @@ def plot_composite_strong(composite_group,
     figures['independent']['raw_data'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
     figures['independent']['raw_data'][ht_name].gca().set_xlim([0.5, my_num_nodes + 1])
     figures['independent']['raw_data'][ht_name].gca().set_title('{}\n(HTs={:.0f})'.format(simple_title, ht_name))
+    ## speedup
+    if show_speed_up:
+      figures['independent']['speedup'][ht_name].gca().set_ylabel('Speedup Relative to Flat MPI')
+      figures['independent']['speedup'][ht_name].gca().set_xlabel('Number of Nodes')
+      figures['independent']['speedup'][ht_name].gca().set_xticks(my_ticks)
+      figures['independent']['speedup'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
+      figures['independent']['speedup'][ht_name].gca().set_xlim([0.5, my_num_nodes + 1])
+      figures['independent']['speedup'][ht_name].gca().set_title('{}\n(HTs={:.0f})'.format(simple_title, ht_name))
+    ## efficiency
+    if show_efficiency:
+      figures['independent']['efficiency'][ht_name].gca().set_ylabel('Efficiency')
+      figures['independent']['efficiency'][ht_name].gca().set_xlabel('Number of Nodes')
+      figures['independent']['efficiency'][ht_name].gca().set_xticks(my_ticks)
+      figures['independent']['efficiency'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
+      figures['independent']['efficiency'][ht_name].gca().set_xlim([0.5, my_num_nodes + 1])
+      figures['independent']['efficiency'][ht_name].gca().set_title('{}\n(HTs={:.0f})'.format(simple_title, ht_name))
+      figures['independent']['efficiency'][ht_name].gca().yaxis.set_major_formatter(FormatStrFormatter('%3.0f %%'))
     ## percentages
     if show_percent_total:
       figures['independent']['percent_total'][ht_name].gca().set_ylabel('Percentage of Total Time')
@@ -970,6 +1053,7 @@ def plot_composite_strong(composite_group,
       figures['independent']['flat_mpi_factor'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
       figures['independent']['flat_mpi_factor'][ht_name].gca().set_xlim([0.5, my_num_nodes + 1])
       figures['independent']['flat_mpi_factor'][ht_name].gca().set_title('{}\n(HTs={:.0f})'.format(simple_title, ht_name))
+
     axes['raw_data'][ht_name].set_ylabel('Runtime (s)')
     if show_percent_total:
       axes['percent_total'][ht_name].set_ylabel('Percentage of Total Time')
@@ -984,6 +1068,21 @@ def plot_composite_strong(composite_group,
       axes['raw_data'][ht_name].set_xticklabels(my_nodes, rotation=45)
       axes['raw_data'][ht_name].set_xlim([0.5, my_num_nodes + 1])
       axes['raw_data'][ht_name].set_title('HTs={:.0f}'.format(ht_name))
+
+      if show_speed_up:
+        axes['speedup'][ht_name].set_xlabel("Number of Nodes")
+        axes['speedup'][ht_name].set_xticks(my_ticks)
+        axes['speedup'][ht_name].set_xticklabels(my_nodes, rotation=45)
+        axes['speedup'][ht_name].set_xlim([0.5, my_num_nodes + 1])
+        axes['speedup'][ht_name].set_title('HTs={:.0f}'.format(ht_name))
+
+      if show_efficiency:
+        axes['efficiency'][ht_name].set_xlabel("Number of Nodes")
+        axes['efficiency'][ht_name].set_xticks(my_ticks)
+        axes['efficiency'][ht_name].set_xticklabels(my_nodes, rotation=45)
+        axes['efficiency'][ht_name].set_xlim([0.5, my_num_nodes + 1])
+        axes['efficiency'][ht_name].set_title('HTs={:.0f}'.format(ht_name))
+
       if show_percent_total:
         axes['percent_total'][ht_name].set_xlabel("Number of Nodes")
         axes['percent_total'][ht_name].set_xticks(my_ticks)
@@ -1000,23 +1099,39 @@ def plot_composite_strong(composite_group,
     # if this is the first row, display the full title, e.g., 'Foo \n Ht = {}'
     elif row_idx == 0:
       axes['raw_data'][ht_name].set_title('Raw Data\n(HTs={:.0f})'.format(ht_name))
-      if show_percent_total:
-        axes['percent_total'][ht_name].set_title('Percentage of Total Time\n(HTs={:.0f})'.format(ht_name))
-      if show_factor:
-        axes['flat_mpi_factor'][ht_name].set_title('Ratio of Runtime to Flat MPI Time\n(HTs={:.0f})'.format(ht_name))
       # delete the xticks, because we do not want any x axis labels
       axes['raw_data'][ht_name].set_xticks([])
+      if show_speed_up:
+        axes['speedup'][ht_name].set_title('Speed Up\n(HTs={:.0f})'.format(ht_name))
+        axes['speedup'][ht_name].set_xticks([])
+      if show_efficiency:
+        axes['efficiency'][ht_name].set_title('Efficiency\n(HTs={:.0f})'.format(ht_name))
+        axes['efficiency'][ht_name].set_xticks([])
       if show_percent_total:
+        axes['percent_total'][ht_name].set_title('Percentage of Total Time\n(HTs={:.0f})'.format(ht_name))
         axes['percent_total'][ht_name].set_xticks([])
+      if show_factor:
+        axes['flat_mpi_factor'][ht_name].set_title('Ratio of Runtime to Flat MPI Time\n(HTs={:.0f})'.format(ht_name))
+        axes['flat_mpi_factor'][ht_name].set_xticks([])
+
     # otherwise, this is a middle plot, show a truncated title
     else:
       axes['raw_data'][ht_name].set_title('HTs={:.0f}'.format(ht_name))
+      if show_speed_up:
+        axes['speedup'][ht_name].set_title('HTs={:.0f}'.format(ht_name))
+      if show_efficiency:
+        axes['efficiency'][ht_name].set_title('HTs={:.0f}'.format(ht_name))
       if show_percent_total:
         axes['percent_total'][ht_name].set_title('HTs={:.0f}'.format(ht_name))
       if show_factor:
-        axes['flat_mpi_factor'][ht_name].set_title('HTs={:.0f}')
+        axes['flat_mpi_factor'][ht_name].set_title('HTs={:.0f}'.format(ht_name))
+
       # delete the xticks, because we do not want any x axis labels
       axes['raw_data'][ht_name].set_xticks([])
+      if show_speed_up:
+        axes['speedup'][ht_name].set_xticks([])
+      if show_efficiency:
+        axes['efficiency'][ht_name].set_xticks([])
       if show_percent_total:
         axes['percent_total'][ht_name].set_xticks([])
       if show_factor:
