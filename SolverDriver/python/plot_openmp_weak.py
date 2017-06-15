@@ -2,13 +2,14 @@
 """plotter.py
 
 Usage:
-  plotter.py [-d DATASET -s STUDY]
+  plotter.py [--dataset=DATASET --study=STUDY --force_replot]
   plotter.py (-h | --help)
 
 Options:
-  -h --help                      Show this screen.
-  -d DATASET --dataset=DATASET   Input file [default: all_data.csv]
-  -s STUDY --study=STUDY         Type of analysis, weak/strong [default: strong]
+  -h --help           Show this screen.
+  --dataset=DATASET   Input file [default: all_data.csv]
+  --study=STUDY       Type of analysis, weak/strong [default: strong]
+  --force_replot      Force replotting of existing data [default: False]
 """
 
 from docopt import docopt
@@ -314,21 +315,24 @@ def get_figures_and_axes(subplot_names,
   return axes, figures
 
 
-def plot_raw_data(ax, indep_ax, xticks, yvalues, linestyle, label, color):
+def plot_raw_data(ax, indep_ax, xvalues, yvalues, linestyle, label, color,
+                  **kwargs):
 
   # plot the data
-  ax.plot(xticks,
+  ax.plot(xvalues,
           yvalues,
           label=label,
           color=color,
-          linestyle=linestyle)
+          linestyle=linestyle,
+          **kwargs)
 
   if indep_ax:
-    indep_ax.plot(xticks,
+    indep_ax.plot(xvalues,
                   yvalues,
                   label=label,
                   color=color,
-                  linestyle=linestyle)
+                  linestyle=linestyle,
+                  **kwargs)
 
 
 ###############################################################################
@@ -532,7 +536,7 @@ def plot_composite_weak(composite_group,
         # plot the data
         plot_raw_data(ax=axes['raw_data'][ht_name],
                       indep_ax=figures['independent']['raw_data'][ht_name].gca(),
-                      xticks=my_agg_times['ticks'],
+                      xvalues=my_agg_times['ticks'],
                       yvalues=my_agg_times[QUANTITY_OF_INTEREST_MIN],
                       linestyle='-',
                       label='{}'.format(decomp_label),
@@ -541,7 +545,7 @@ def plot_composite_weak(composite_group,
         # plot the data
         plot_raw_data(ax=axes['raw_data'][ht_name],
                       indep_ax=figures['independent']['raw_data'][ht_name].gca(),
-                      xticks=my_agg_times['ticks'],
+                      xvalues=my_agg_times['ticks'],
                       yvalues=my_agg_times[QUANTITY_OF_INTEREST_MIN],
                       linestyle=MIN_LINESTYLE,
                       label='min-{}'.format(decomp_label),
@@ -549,7 +553,7 @@ def plot_composite_weak(composite_group,
 
         plot_raw_data(ax=axes['raw_data'][ht_name],
                       indep_ax=figures['independent']['raw_data'][ht_name].gca(),
-                      xticks=my_agg_times['ticks'],
+                      xvalues=my_agg_times['ticks'],
                       yvalues=my_agg_times[QUANTITY_OF_INTEREST_MAX],
                       linestyle=MAX_LINESTYLE,
                       label='max-{}'.format(decomp_label),
@@ -565,7 +569,7 @@ def plot_composite_weak(composite_group,
           # plot the data
           plot_raw_data(ax=axes['percent_total'][ht_name],
                         indep_ax=figures['independent']['percent_total'][ht_name].gca(),
-                        xticks=my_agg_times['ticks'],
+                        xvalues=my_agg_times['ticks'],
                         yvalues=my_agg_times['min_percent'],
                         linestyle='-',
                         label='{}'.format(decomp_label),
@@ -574,7 +578,7 @@ def plot_composite_weak(composite_group,
           # plot the data
           plot_raw_data(ax=axes['percent_total'][ht_name],
                         indep_ax=figures['independent']['percent_total'][ht_name].gca(),
-                        xticks=my_agg_times['ticks'],
+                        xvalues=my_agg_times['ticks'],
                         yvalues=my_agg_times['min_percent'],
                         linestyle=MIN_LINESTYLE,
                         label='min-{}'.format(decomp_label),
@@ -582,7 +586,7 @@ def plot_composite_weak(composite_group,
 
           plot_raw_data(ax=axes['percent_total'][ht_name],
                         indep_ax=figures['independent']['percent_total'][ht_name].gca(),
-                        xticks=my_agg_times['ticks'],
+                        xvalues=my_agg_times['ticks'],
                         yvalues=my_agg_times['max_percent'],
                         linestyle=MAX_LINESTYLE,
                         label='max-{}'.format(decomp_label),
@@ -592,7 +596,7 @@ def plot_composite_weak(composite_group,
           # plot the data
           plot_raw_data(ax=axes['flat_mpi_factor'][ht_name],
                         indep_ax=figures['independent']['flat_mpi_factor'][ht_name].gca(),
-                        xticks=my_agg_times['ticks'],
+                        xvalues=my_agg_times['ticks'],
                         yvalues=my_agg_times['flat_mpi_factor_min'],
                         linestyle='-',
                         label='{}'.format(decomp_label),
@@ -601,7 +605,7 @@ def plot_composite_weak(composite_group,
           # plot the data
           plot_raw_data(ax=axes['flat_mpi_factor'][ht_name],
                         indep_ax=figures['independent']['flat_mpi_factor'][ht_name].gca(),
-                        xticks=my_agg_times['ticks'],
+                        xvalues=my_agg_times['ticks'],
                         yvalues=my_agg_times['flat_mpi_factor_min'],
                         linestyle=MIN_LINESTYLE,
                         label='min-{}'.format(decomp_label),
@@ -609,7 +613,7 @@ def plot_composite_weak(composite_group,
 
           plot_raw_data(ax=axes['flat_mpi_factor'][ht_name],
                         indep_ax=figures['independent']['flat_mpi_factor'][ht_name].gca(),
-                        xticks=my_agg_times['ticks'],
+                        xvalues=my_agg_times['ticks'],
                         yvalues=my_agg_times['flat_mpi_factor_max'],
                         linestyle=MAX_LINESTYLE,
                         label='max-{}'.format(decomp_label),
@@ -728,6 +732,137 @@ def plot_composite_weak(composite_group,
   save_figures(figures, filename=simple_fname, close_figure=True)
 
 
+def axes_to_df(ax, ax_id):
+  import re
+
+  label_pattern = re.compile('(min|max)-\d+x\d+')
+
+  # most axes have min and max data points
+  # track each separately
+  all_data = pd.DataFrame(columns=['type', 'ax_id', 'x', 'label', 'y'])
+
+  for line in ax.lines:
+    label = line.get_label()
+
+    m = label_pattern.match(label)
+    if m:
+      if m.group(1) == 'min':
+        data_type = 'min'
+        label = label.replace('min-', '', 1)
+      elif m.group(1) == 'max':
+        data_type = 'max'
+        label = label.replace('max-', '', 1)
+    else:
+      continue
+
+    df = pd.DataFrame(columns=['type', 'ax_id', 'x', 'label', 'y'])
+    df['x'] = line.get_xdata()
+    df['y'] = line.get_ydata()
+    df['label'] = label
+    df['type']  = data_type
+    df['ax_id'] = ax_id
+    all_data = pd.concat([all_data, df])
+
+  all_data = all_data.set_index(['type', 'ax_id', 'x', 'label'], drop=False)
+  print(all_data)
+  return all_data
+
+
+def annotate_best(ax, ax_id, objective='min'):
+  df = axes_to_df(ax, ax_id)
+  PLOT_BEST_MIN_ONLY=True
+  df['ax_id'] = df['ax_id'].astype(np.int32)
+
+  if objective == 'min':
+    best_overall = df.loc[df.groupby(['type','x'])['y'].idxmin()].groupby('type')
+    best_by_id   = df.loc[df.groupby(['type','ax_id', 'x'])['y'].idxmin()].groupby(['type','ax_id'])
+  elif objective == 'max':
+    best_overall = df.loc[df.groupby(['type','x'])['y'].idxmax()].groupby('type')
+    best_by_id   = df.loc[df.groupby(['type','ax_id', 'x'])['y'].idxmax()].groupby(['type','ax_id'])
+  else:
+    raise ValueError('objective must be min or max.')
+
+  linestyles = dict()
+  linestyles['min'] = 'o'
+  linestyles['max'] = '+'
+
+  # plot the new data
+  for plot_type, df in best_overall:
+    if plot_type != objective:
+      continue
+
+    # label the times
+    data_labels = ['{decomp}x{ht}'.format(decomp=row['label'], ht=row['ax_id']) for index, row in df.iterrows()]
+
+    x_offset = 40
+    y_offset = 20
+    for label, x, y in zip(data_labels, df['x'], df['y']):
+      ax.annotate(
+        label,
+        xy=(x, y), xytext=(x_offset, y_offset),
+        textcoords='offset points', ha='right', va='bottom',
+        bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),
+        arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
+
+
+def flatten_axes_to_best(ax, all_data, objective='min'):
+  PLOT_BEST_MIN_ONLY=True
+  all_data['ax_id'] = all_data['ax_id'].astype(np.int32)
+  print(all_data.dtypes)
+
+  if objective == 'min':
+    best_overall = all_data.loc[all_data.groupby(['type','x'])['y'].idxmin()].groupby('type')
+    best_by_id   = all_data.loc[all_data.groupby(['type','ax_id', 'x'])['y'].idxmin()].groupby(['type','ax_id'])
+  elif objective == 'max':
+    best_overall = all_data.loc[all_data.groupby(['type','x'])['y'].idxmax()].groupby('type')
+    best_by_id   = all_data.loc[all_data.groupby(['type','ax_id', 'x'])['y'].idxmax()].groupby(['type','ax_id'])
+  else:
+    raise ValueError('objective must be min or max.')
+
+  # delete the lines on the ax
+  ax.lines = []
+
+  linestyles = dict()
+  linestyles['min'] = 'o'
+  linestyles['max'] = '+'
+
+  # plot the new data
+  for plot_type, df in best_overall:
+    if PLOT_BEST_MIN_ONLY and plot_type != 'min':
+      continue
+
+    print('plot_type', plot_type)
+    label = 'best-{}'.format(plot_type)
+    kwargs = dict(marker=linestyles[plot_type],
+                  markersize=8,
+                  fillstyle='none')
+
+    for index, row in df.iterrows():
+
+      plot_raw_data(ax=ax,
+                    indep_ax=None,
+                    xvalues=row['x'],
+                    yvalues=row['y'],
+                    linestyle=None,
+                    label=label,
+                    color=DECOMP_COLORS[row['label']],
+                    **kwargs)
+      label = None
+
+    # label the times
+    data_labels = ['{decomp}x{ht}'.format(decomp=row['label'], ht=row['ax_id']) for index, row in df.iterrows()]
+    bad_value = False
+    x_offset = 40 if plot_type == 'min' else -20
+    y_offset = 20 if plot_type == 'min' else 20
+    for label, x, y in zip(data_labels, df['x'], df['y']):
+      ax.annotate(
+        label,
+        xy=(x, y), xytext=(x_offset, y_offset),
+        textcoords='offset points', ha='right', va='bottom',
+        bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),
+        arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
+
+
 ###############################################################################
 def plot_composite_strong(composite_group,
                         my_nodes,
@@ -809,6 +944,9 @@ def plot_composite_strong(composite_group,
 
   my_num_nodes = my_nodes.size
 
+  SPEEDUP_YMAX = (my_nodes[-1] * 2) * 0.75
+  SPEEDUP_YMIN = 0.75
+
   fig_size = 5
   fig_size_height_inflation = 1.0
   fig_size_width_inflation  = 1.0
@@ -873,7 +1011,7 @@ def plot_composite_strong(composite_group,
         # plot the data
         plot_raw_data(ax=axes['raw_data'][ht_name],
                       indep_ax=figures['independent']['raw_data'][ht_name].gca(),
-                      xticks=my_agg_times['ticks'],
+                      xvalues=my_agg_times['ticks'],
                       yvalues=my_agg_times[QUANTITY_OF_INTEREST_MIN],
                       linestyle='-',
                       label='{}'.format(decomp_label),
@@ -882,7 +1020,7 @@ def plot_composite_strong(composite_group,
         # plot the data
         plot_raw_data(ax=axes['raw_data'][ht_name],
                       indep_ax=figures['independent']['raw_data'][ht_name].gca(),
-                      xticks=my_agg_times['ticks'],
+                      xvalues=my_agg_times['ticks'],
                       yvalues=my_agg_times[QUANTITY_OF_INTEREST_MIN],
                       linestyle=MIN_LINESTYLE,
                       label='min-{}'.format(decomp_label),
@@ -890,18 +1028,27 @@ def plot_composite_strong(composite_group,
 
         plot_raw_data(ax=axes['raw_data'][ht_name],
                       indep_ax=figures['independent']['raw_data'][ht_name].gca(),
-                      xticks=my_agg_times['ticks'],
+                      xvalues=my_agg_times['ticks'],
                       yvalues=my_agg_times[QUANTITY_OF_INTEREST_MAX],
                       linestyle=MAX_LINESTYLE,
                       label='max-{}'.format(decomp_label),
                       color=DECOMP_COLORS[decomp_label])
 
       if show_speed_up:
+        # plot a straight line
+        plot_raw_data(ax=axes['speedup'][ht_name],
+                      indep_ax=figures['independent']['speedup'][ht_name].gca(),
+                      xvalues=my_agg_times['num_nodes'],
+                      yvalues=my_agg_times['num_nodes'],
+                      linestyle='-',
+                      label=None,
+                      color='black')
         if PLOT_ONLY_MIN:
           # plot the data
+          # for speed up the xvalues are the actual node counts.
           plot_raw_data(ax=axes['speedup'][ht_name],
                         indep_ax=figures['independent']['speedup'][ht_name].gca(),
-                        xticks=my_agg_times['ticks'],
+                        xvalues=my_agg_times['num_nodes'],
                         yvalues=my_agg_times['speedup_min'],
                         linestyle='-',
                         label='{}'.format(decomp_label),
@@ -910,7 +1057,7 @@ def plot_composite_strong(composite_group,
           # plot the data
           plot_raw_data(ax=axes['speedup'][ht_name],
                         indep_ax=figures['independent']['speedup'][ht_name].gca(),
-                        xticks=my_agg_times['ticks'],
+                        xvalues=my_agg_times['num_nodes'],
                         yvalues=my_agg_times['speedup_min'],
                         linestyle=MIN_LINESTYLE,
                         label='min-{}'.format(decomp_label),
@@ -918,7 +1065,7 @@ def plot_composite_strong(composite_group,
 
           plot_raw_data(ax=axes['speedup'][ht_name],
                         indep_ax=figures['independent']['speedup'][ht_name].gca(),
-                        xticks=my_agg_times['ticks'],
+                        xvalues=my_agg_times['num_nodes'],
                         yvalues=my_agg_times['speedup_max'],
                         linestyle=MAX_LINESTYLE,
                         label='max-{}'.format(decomp_label),
@@ -929,7 +1076,7 @@ def plot_composite_strong(composite_group,
           # plot the data
           plot_raw_data(ax=axes['efficiency'][ht_name],
                         indep_ax=figures['independent']['efficiency'][ht_name].gca(),
-                        xticks=my_agg_times['ticks'],
+                        xvalues=my_agg_times['ticks'],
                         yvalues=my_agg_times['efficiency_min'],
                         linestyle='-',
                         label='{}'.format(decomp_label),
@@ -938,7 +1085,7 @@ def plot_composite_strong(composite_group,
           # plot the data
           plot_raw_data(ax=axes['efficiency'][ht_name],
                         indep_ax=figures['independent']['efficiency'][ht_name].gca(),
-                        xticks=my_agg_times['ticks'],
+                        xvalues=my_agg_times['ticks'],
                         yvalues=my_agg_times['efficiency_min'],
                         linestyle=MIN_LINESTYLE,
                         label='min-{}'.format(decomp_label),
@@ -946,7 +1093,7 @@ def plot_composite_strong(composite_group,
 
           plot_raw_data(ax=axes['efficiency'][ht_name],
                         indep_ax=figures['independent']['efficiency'][ht_name].gca(),
-                        xticks=my_agg_times['ticks'],
+                        xvalues=my_agg_times['ticks'],
                         yvalues=my_agg_times['efficiency_max'],
                         linestyle=MAX_LINESTYLE,
                         label='max-{}'.format(decomp_label),
@@ -957,7 +1104,7 @@ def plot_composite_strong(composite_group,
           # plot the data
           plot_raw_data(ax=axes['percent_total'][ht_name],
                         indep_ax=figures['independent']['percent_total'][ht_name].gca(),
-                        xticks=my_agg_times['ticks'],
+                        xvalues=my_agg_times['ticks'],
                         yvalues=my_agg_times['min_percent'],
                         linestyle='-',
                         label='{}'.format(decomp_label),
@@ -966,7 +1113,7 @@ def plot_composite_strong(composite_group,
           # plot the data
           plot_raw_data(ax=axes['percent_total'][ht_name],
                         indep_ax=figures['independent']['percent_total'][ht_name].gca(),
-                        xticks=my_agg_times['ticks'],
+                        xvalues=my_agg_times['ticks'],
                         yvalues=my_agg_times['min_percent'],
                         linestyle=MIN_LINESTYLE,
                         label='min-{}'.format(decomp_label),
@@ -974,7 +1121,7 @@ def plot_composite_strong(composite_group,
 
           plot_raw_data(ax=axes['percent_total'][ht_name],
                         indep_ax=figures['independent']['percent_total'][ht_name].gca(),
-                        xticks=my_agg_times['ticks'],
+                        xvalues=my_agg_times['ticks'],
                         yvalues=my_agg_times['max_percent'],
                         linestyle=MAX_LINESTYLE,
                         label='max-{}'.format(decomp_label),
@@ -984,7 +1131,7 @@ def plot_composite_strong(composite_group,
           # plot the data
           plot_raw_data(ax=axes['flat_mpi_factor'][ht_name],
                         indep_ax=figures['independent']['flat_mpi_factor'][ht_name].gca(),
-                        xticks=my_agg_times['ticks'],
+                        xvalues=my_agg_times['ticks'],
                         yvalues=my_agg_times['flat_mpi_factor_min'],
                         linestyle='-',
                         label='{}'.format(decomp_label),
@@ -993,7 +1140,7 @@ def plot_composite_strong(composite_group,
           # plot the data
           plot_raw_data(ax=axes['flat_mpi_factor'][ht_name],
                         indep_ax=figures['independent']['flat_mpi_factor'][ht_name].gca(),
-                        xticks=my_agg_times['ticks'],
+                        xvalues=my_agg_times['ticks'],
                         yvalues=my_agg_times['flat_mpi_factor_min'],
                         linestyle=MIN_LINESTYLE,
                         label='min-{}'.format(decomp_label),
@@ -1001,14 +1148,13 @@ def plot_composite_strong(composite_group,
 
           plot_raw_data(ax=axes['flat_mpi_factor'][ht_name],
                         indep_ax=figures['independent']['flat_mpi_factor'][ht_name].gca(),
-                        xticks=my_agg_times['ticks'],
+                        xvalues=my_agg_times['ticks'],
                         yvalues=my_agg_times['flat_mpi_factor_max'],
                         linestyle=MAX_LINESTYLE,
                         label='max-{}'.format(decomp_label),
                         color=DECOMP_COLORS[decomp_label])
 
   # configure the axes for the plotted data
-  # TODO, for speedup add YMIN/YMAX and plot in base2.
   for row_idx in range(0, len(ht_names)):
     ht_name = ht_names[row_idx]
     # for independent plots (e.g., the subplot plotted separately) we show all axes labels
@@ -1023,10 +1169,18 @@ def plot_composite_strong(composite_group,
     if show_speed_up:
       figures['independent']['speedup'][ht_name].gca().set_ylabel('Speedup Relative to Flat MPI')
       figures['independent']['speedup'][ht_name].gca().set_xlabel('Number of Nodes')
-      figures['independent']['speedup'][ht_name].gca().set_xticks(my_ticks)
-      figures['independent']['speedup'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
-      figures['independent']['speedup'][ht_name].gca().set_xlim([0.5, my_num_nodes + 1])
       figures['independent']['speedup'][ht_name].gca().set_title('{}\n(HTs={:.0f})'.format(simple_title, ht_name))
+      figures['independent']['speedup'][ht_name].gca().set_yscale('log', basey=2)
+      figures['independent']['speedup'][ht_name].gca().set_xscale('log', basex=2)
+
+      figures['independent']['speedup'][ht_name].gca().set_yticks(my_nodes)
+      figures['independent']['speedup'][ht_name].gca().set_yticklabels(my_nodes)
+
+      figures['independent']['speedup'][ht_name].gca().set_xticks(my_nodes)
+      figures['independent']['speedup'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
+
+      figures['independent']['speedup'][ht_name].gca().set_xlim([SPEEDUP_YMIN, SPEEDUP_YMAX])
+      figures['independent']['speedup'][ht_name].gca().set_ylim([SPEEDUP_YMIN, SPEEDUP_YMAX])
     ## efficiency
     if show_efficiency:
       figures['independent']['efficiency'][ht_name].gca().set_ylabel('Efficiency')
@@ -1071,10 +1225,19 @@ def plot_composite_strong(composite_group,
 
       if show_speed_up:
         axes['speedup'][ht_name].set_xlabel("Number of Nodes")
-        axes['speedup'][ht_name].set_xticks(my_ticks)
-        axes['speedup'][ht_name].set_xticklabels(my_nodes, rotation=45)
-        axes['speedup'][ht_name].set_xlim([0.5, my_num_nodes + 1])
         axes['speedup'][ht_name].set_title('HTs={:.0f}'.format(ht_name))
+
+        axes['speedup'][ht_name].set_yscale('log', basey=2)
+        axes['speedup'][ht_name].set_xscale('log', basex=2)
+
+        axes['speedup'][ht_name].set_yticks(my_nodes)
+        axes['speedup'][ht_name].set_yticklabels(my_nodes)
+
+        axes['speedup'][ht_name].set_xticks(my_nodes)
+        axes['speedup'][ht_name].set_xticklabels(my_nodes, rotation=45)
+
+        axes['speedup'][ht_name].set_xlim([SPEEDUP_YMIN, SPEEDUP_YMAX])
+        axes['speedup'][ht_name].set_ylim([SPEEDUP_YMIN, SPEEDUP_YMAX])
 
       if show_efficiency:
         axes['efficiency'][ht_name].set_xlabel("Number of Nodes")
@@ -1103,7 +1266,21 @@ def plot_composite_strong(composite_group,
       axes['raw_data'][ht_name].set_xticks([])
       if show_speed_up:
         axes['speedup'][ht_name].set_title('Speed Up\n(HTs={:.0f})'.format(ht_name))
+
+        axes['speedup'][ht_name].set_yscale('log', basey=2)
+        axes['speedup'][ht_name].set_xscale('log', basex=2)
+
+        axes['speedup'][ht_name].set_yticks(my_nodes)
+        axes['speedup'][ht_name].set_yticklabels(my_nodes)
+
+        axes['speedup'][ht_name].set_xticks(my_nodes)
+        axes['speedup'][ht_name].set_xticklabels(my_nodes, rotation=45)
+        # force a redraw
         axes['speedup'][ht_name].set_xticks([])
+
+        axes['speedup'][ht_name].set_xlim([SPEEDUP_YMIN, SPEEDUP_YMAX])
+        axes['speedup'][ht_name].set_ylim([SPEEDUP_YMIN, SPEEDUP_YMAX])
+
       if show_efficiency:
         axes['efficiency'][ht_name].set_title('Efficiency\n(HTs={:.0f})'.format(ht_name))
         axes['efficiency'][ht_name].set_xticks([])
@@ -1114,27 +1291,36 @@ def plot_composite_strong(composite_group,
         axes['flat_mpi_factor'][ht_name].set_title('Ratio of Runtime to Flat MPI Time\n(HTs={:.0f})'.format(ht_name))
         axes['flat_mpi_factor'][ht_name].set_xticks([])
 
-    # otherwise, this is a middle plot, show a truncated title
     else:
+      # otherwise, this is a middle plot, show a truncated title
       axes['raw_data'][ht_name].set_title('HTs={:.0f}'.format(ht_name))
-      if show_speed_up:
-        axes['speedup'][ht_name].set_title('HTs={:.0f}'.format(ht_name))
-      if show_efficiency:
-        axes['efficiency'][ht_name].set_title('HTs={:.0f}'.format(ht_name))
-      if show_percent_total:
-        axes['percent_total'][ht_name].set_title('HTs={:.0f}'.format(ht_name))
-      if show_factor:
-        axes['flat_mpi_factor'][ht_name].set_title('HTs={:.0f}'.format(ht_name))
-
       # delete the xticks, because we do not want any x axis labels
       axes['raw_data'][ht_name].set_xticks([])
+
       if show_speed_up:
+        axes['speedup'][ht_name].set_title('HTs={:.0f}'.format(ht_name))
+
+        axes['speedup'][ht_name].set_yscale('log', basey=2)
+        axes['speedup'][ht_name].set_xscale('log', basex=2)
+
+        axes['speedup'][ht_name].set_yticks(my_nodes)
+        axes['speedup'][ht_name].set_yticklabels(my_nodes)
+
+        axes['speedup'][ht_name].set_xticks(my_nodes)
+        axes['speedup'][ht_name].set_xticklabels(my_nodes, rotation=45)
+
+        axes['speedup'][ht_name].set_xlim([SPEEDUP_YMIN, SPEEDUP_YMAX])
+        axes['speedup'][ht_name].set_ylim([SPEEDUP_YMIN, SPEEDUP_YMAX])
+        # force a redraw
         axes['speedup'][ht_name].set_xticks([])
       if show_efficiency:
+        axes['efficiency'][ht_name].set_title('HTs={:.0f}'.format(ht_name))
         axes['efficiency'][ht_name].set_xticks([])
       if show_percent_total:
+        axes['percent_total'][ht_name].set_title('HTs={:.0f}'.format(ht_name))
         axes['percent_total'][ht_name].set_xticks([])
       if show_factor:
+        axes['flat_mpi_factor'][ht_name].set_title('HTs={:.0f}'.format(ht_name))
         axes['flat_mpi_factor'][ht_name].set_xticks([])
 
   # add a suptitle and configure the legend for each figure
@@ -1151,6 +1337,15 @@ def plot_composite_strong(composite_group,
 
   for column_name in figures['independent']:
     for fig_name, fig in figures['independent'][column_name].items():
+      if column_name == 'speedup' or column_name == 'efficiency':
+        annotate_best(ax=fig.gca(),
+                      ax_id=fig_name,
+                      objective='max')
+      else:
+        annotate_best(ax=fig.gca(),
+                      ax_id=fig_name,
+                      objective='min')
+
       fig.legend(handles, labels,
                  title="Procs per Node x Cores per Proc",
                  loc='lower center', ncol=ndecomps, bbox_to_anchor=(0.5, 0.0))
@@ -1167,7 +1362,30 @@ def plot_composite_strong(composite_group,
     enforce_consistent_ylims(figures, axes)
 
   # save the figures with the axes shared
-  save_figures(figures, filename=simple_fname, close_figure=True)
+  save_figures(figures, filename=simple_fname)
+  #
+  # for column_name in figures['independent']:
+  #   print('Plot Column: {}'.format(column_name))
+  #   handles, labels = figures['independent'][column_name][ht_names[0]].gca().get_legend_handles_labels()
+  #
+  #   tmp_df = pd.DataFrame()
+  #   for fig_name, fig in figures['independent'][column_name].items():
+  #     df = axes_to_df(fig.gca(), fig_name)
+  #     tmp_df = pd.concat([df, tmp_df])
+  #
+  #   if column_name == 'speedup' or column_name == 'efficiency':
+  #     flatten_axes_to_best(figures['independent'][column_name][ht_names[0]].gca(), tmp_df, objective='max')
+  #   else:
+  #     flatten_axes_to_best(figures['independent'][column_name][ht_names[0]].gca(), tmp_df)
+  #
+  #   fig.legend(handles, labels,
+  #              title="Best",
+  #              loc='lower center', ncol=ndecomps, bbox_to_anchor=(0.5, 0.0))
+  #   # add space since the titles are typically large
+  #   fig.subplots_adjust(bottom=0.20)
+  #
+  # # save the figures with the axes shared
+  # save_figures(figures, filename='{}-best'.format(simple_fname), close_figure=True)
 
 
 ###############################################################################
@@ -1197,21 +1415,21 @@ def load_dataset(dataset_filename,
 
   print('Read csv complete')
 
-  integral_columns = SFP.getIndexColumns(execspace_name='OpenMP')
-  non_integral_names = ['Timer Name',
-                           'problem_type',
-                           'solver_name',
-                           'solver_attributes',
-                           'prec_name',
-                           'prec_attributes',
-                           'execspace_name',
-                           'execspace_attributes']
+  # integral_columns = SFP.getIndexColumns(execspace_name='OpenMP')
+  # non_integral_names = ['Timer Name',
+  #                          'problem_type',
+  #                          'solver_name',
+  #                          'solver_attributes',
+  #                          'prec_name',
+  #                          'prec_attributes',
+  #                          'execspace_name',
+  #                          'execspace_attributes']
   # integral_columns = list(set(integral_columns).difference(set(non_integral_names)))
   # dataset[integral_columns] = dataset[integral_columns].astype(np.int32)
 
   # set the index, verify it, and sort
-  dataset.set_index(keys=SFP.getIndexColumns(execspace_name='OpenMP'),
-                    drop=False, inplace=True, verify_integrity=True)
+  dataset = dataset.set_index(keys=SFP.getIndexColumns(execspace_name='OpenMP'),
+                              drop=False, verify_integrity=True)
   print('Verified index')
 
   # optionally restrict the data processed
@@ -1226,12 +1444,12 @@ def load_dataset(dataset_filename,
   dataset = dataset.query(restriction_query)
   print('Restricted dataset')
 
-  dataset.fillna(value='None', inplace=True)
+  dataset = dataset.fillna(value='None')
 
   # sort
   # dataset.sort_values(inplace=True,
   #                     by=SFP.getIndexColumns(execspace_name='OpenMP'))
-  dataset.sort_index(inplace=True)
+  dataset = dataset.sort_index()
   print('Sorted')
 
   # remove the timers the driver adds
@@ -1254,10 +1472,13 @@ def load_dataset(dataset_filename,
 
   # reindex
   # set the index, verify it, and sort
-  dataset.set_index(keys=SFP.getIndexColumns(execspace_name='OpenMP'),
-                    drop=False, inplace=True, verify_integrity=True)
-  driver_dataset.set_index(keys=SFP.getIndexColumns(execspace_name='OpenMP'),
-                    drop=False, inplace=True, verify_integrity=True)
+  dataset = dataset.set_index(keys=SFP.getIndexColumns(execspace_name='OpenMP'),
+                              drop=False,
+                              verify_integrity=True)
+
+  driver_dataset = driver_dataset.set_index(keys=SFP.getIndexColumns(execspace_name='OpenMP'),
+                                            drop=False,
+                                            verify_integrity=True)
   print('Rebuilt truncated index')
 
   return dataset, driver_dataset
@@ -1331,7 +1552,7 @@ def get_aggregate_groups(dataset, scaling_type,
   spmv_groupby_columns.remove('prec_attributes')
 
   spmv_only_data = dataset[dataset['Timer Name'].str.match(timer_name_re_str)]
-  spmv_only_data['Timer Name'] = timer_name_rename
+  spmv_only_data.loc[:, 'Timer Name'] = timer_name_rename
 
   spmv_agg_groups = spmv_only_data.groupby(spmv_groupby_columns)
   return spmv_agg_groups
@@ -1533,6 +1754,7 @@ if __name__ == '__main__':
 
   _arg_dataset_filename  = _arg_options['--dataset']
   _arg_study_type        = _arg_options['--study']
+  FORCE_REPLOT           = _arg_options['--force_replot']
 
   main(dataset_filename=_arg_dataset_filename,
        scaling_study_type=_arg_study_type)
