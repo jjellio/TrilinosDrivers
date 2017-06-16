@@ -102,32 +102,41 @@ def is_outlier(points, thresh=3.5):
 
 
 def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, compute_strong_terms=False):
-  # Use aggregation. Since the dataset is noisy and we have multiple experiments worth of data
-  # This is similar to ensemble type analysis
-  # what you could do, is rather than sum, look at the variations between chunks of data and vote
-  # on outliers/anomalous values.
+
+  print(data_name)
+  data_group.to_csv('plottable-{}.csv'.format(data_name))
+
+  # Use aggregation. This typically will do nothing, but in some cases there are many data points
+  # per node count, and we need some way to flatten that data.  This assumes that experiments performed were the same
+  # which is how the groupby() logic works  at the highest level. For strong scaling problem_type, problem size (global)
+  # , solver and prec options are forced to be the same.
+  # The real challenge is how to handle multiple datapoints. For the most part, we do this by dividing by the number
+  # of samples taken (numsteps). This assumes that the basic experiment (a step) was the same in all cases.
   timings = data_group.groupby('num_nodes', as_index=False)[[QUANTITY_OF_INTEREST_MIN,
                                                              QUANTITY_OF_INTEREST_MIN_COUNT,
                                                              QUANTITY_OF_INTEREST_MAX,
                                                              QUANTITY_OF_INTEREST_MAX_COUNT,
                                                              QUANTITY_OF_INTEREST_THING,
                                                              QUANTITY_OF_INTEREST_THING_COUNT,
-                                                             'numsteps',
-                                                             'flat_mpi_min',
-                                                             'flat_mpi_max',
-                                                             'flat_mpi_min_count',
-                                                             'flat_mpi_max_count',
-                                                             'flat_mpi_numsteps']].sum()
+                                                             'numsteps']].sum()
+
+  flat_mpi_timings = data_group.groupby('num_nodes', as_index=False)[['flat_mpi_min',
+                                                                      'flat_mpi_max',
+                                                                      'flat_mpi_min_count',
+                                                                      'flat_mpi_max_count',
+                                                                      'flat_mpi_numsteps']].first()
+  timings = pd.merge(timings, flat_mpi_timings,
+                     how='left',
+                     on='num_nodes')
 
   driver_timings = driver_groups.get_group(data_name).groupby('num_nodes',
-                                                               as_index=False)[
-    [QUANTITY_OF_INTEREST_MIN,
-     QUANTITY_OF_INTEREST_MIN_COUNT,
-     QUANTITY_OF_INTEREST_MAX,
-     QUANTITY_OF_INTEREST_MAX_COUNT,
-     QUANTITY_OF_INTEREST_THING,
-     QUANTITY_OF_INTEREST_THING_COUNT,
-     'numsteps']].sum()
+                                                               as_index=False)[ [QUANTITY_OF_INTEREST_MIN,
+                                                                                 QUANTITY_OF_INTEREST_MIN_COUNT,
+                                                                                 QUANTITY_OF_INTEREST_MAX,
+                                                                                 QUANTITY_OF_INTEREST_MAX_COUNT,
+                                                                                 QUANTITY_OF_INTEREST_THING,
+                                                                                 QUANTITY_OF_INTEREST_THING_COUNT,
+                                                                                 'numsteps']].sum()
 
   driver_timings = driver_timings[['num_nodes',
                                    QUANTITY_OF_INTEREST_MIN,
@@ -138,6 +147,7 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
                                    QUANTITY_OF_INTEREST_THING_COUNT,
                                    'numsteps']]
 
+  # rename the driver timings to indicate they were from the driver
   driver_timings.rename(columns={QUANTITY_OF_INTEREST_MIN         : 'driver_min',
                                  QUANTITY_OF_INTEREST_MIN_COUNT   : 'driver_min_count',
                                  QUANTITY_OF_INTEREST_MAX         : 'driver_max',
@@ -148,6 +158,7 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
 
   pd.set_option('display.expand_frame_repr', False)
   print(plottable_df)
+  # merge the driver
   plottable_df = plottable_df.merge(timings, on='num_nodes', how='left')
   print(plottable_df)
   plottable_df = plottable_df.merge(driver_timings, on='num_nodes', how='left')
@@ -166,36 +177,47 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
     # my_agg_times[(my_agg_times['max_is_outlier'] == True), QUANTITY_OF_INTEREST_MAX] = np.NAN
     # print(my_agg_times)
 
-  # scale by 100 so these can be formatted as percentages
-  # make sure the numsteps parameter is the same, otherwise scale the data appropriately
-  plottable_df['max_percent_t'] = plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df['driver_max'] * 100.00
-  plottable_df['min_percent_t'] = plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df['driver_min'] * 100.00
+  if ASSUME_AVERAGED:
+    # scale by 100 so these can be formatted as percentages
+    # make sure the numsteps parameter is the same, otherwise scale the data appropriately
+    plottable_df['min_percent_t'] = plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df['driver_min'] * 100.00
+    plottable_df['max_percent_t'] = plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df['driver_max'] * 100.00
 
-  print(plottable_df)
+  else:
+    # for the data that have a different number of numsteps than the driver, scale the data appropriately
+    plottable_df['min_percent_t'] = (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df['numsteps']) \
+                                        / (plottable_df['driver_min'] / plottable_df['driver_numsteps']) * 100.00
 
-  plottable_df.loc[~(plottable_df['numsteps'] == plottable_df['driver_numsteps']), 'max_percent_t'] = \
-    (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df['numsteps']) \
-                   / (plottable_df['driver_max'] / plottable_df['driver_numsteps']) * 100.00
+    plottable_df['max_percent_t'] = (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df['numsteps']) \
+                                        / (plottable_df['driver_max'] / plottable_df['driver_numsteps']) * 100.00
 
-  plottable_df.loc[~(plottable_df['numsteps'] == plottable_df['driver_numsteps']), 'min_percent_t'] = \
-    (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df['numsteps']) \
-                   / (plottable_df['driver_max'] / plottable_df['driver_numsteps']) * 100.00
-
+  # this is a bit iffy. It depends on what you choose to divide by above. Should the 'min' in the data
+  # be hardcoded to be the minOverProcs values, or does 'min' mean the conceptual minimum of the data.
+  # I take the latter as the definition since this data is a summary of experiments.
   plottable_df['min_percent'] = plottable_df[['max_percent_t', 'min_percent_t']].min(axis=1)
   plottable_df['max_percent'] = plottable_df[['max_percent_t', 'min_percent_t']].max(axis=1)
-  print(plottable_df)
+
+  # drop the temporary columns
   plottable_df = plottable_df.drop('min_percent_t', 1)
   plottable_df = plottable_df.drop('max_percent_t', 1)
 
-  plottable_df['flat_mpi_factor_min_t'] = (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df['numsteps']) \
-                                      / (plottable_df['flat_mpi_min'] / plottable_df['flat_mpi_numsteps'])
+  if ASSUME_AVERAGED:
+    # similar approach as above.
+    plottable_df['flat_mpi_factor_min_t'] = plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df['flat_mpi_min']
 
-  plottable_df['flat_mpi_factor_max_t'] = (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df['numsteps']) \
-                                      / (plottable_df['flat_mpi_max'] / plottable_df['flat_mpi_numsteps'])
+    plottable_df['flat_mpi_factor_max_t'] = plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df['flat_mpi_max']
+
+  else:
+    # similar approach as above.
+    plottable_df['flat_mpi_factor_min_t'] = (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df['numsteps']) \
+                                        / (plottable_df['flat_mpi_min'] / plottable_df['flat_mpi_numsteps'])
+
+    plottable_df['flat_mpi_factor_max_t'] = (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df['numsteps']) \
+                                        / (plottable_df['flat_mpi_max'] / plottable_df['flat_mpi_numsteps'])
 
   plottable_df['flat_mpi_factor_min'] = plottable_df[['flat_mpi_factor_max_t', 'flat_mpi_factor_min_t']].min(axis=1)
   plottable_df['flat_mpi_factor_max'] = plottable_df[['flat_mpi_factor_max_t', 'flat_mpi_factor_min_t']].max(axis=1)
-  print(plottable_df)
+
   plottable_df = plottable_df.drop('flat_mpi_factor_min_t', 1)
   plottable_df = plottable_df.drop('flat_mpi_factor_max_t', 1)
 
@@ -204,21 +226,54 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
     return plottable_df
 
   # compute Speedup and Efficiency. Use Flat MPI as the baseline
-  np1_min = plottable_df.loc[(plottable_df['num_nodes'] == 1), ['flat_mpi_min', 'flat_mpi_numsteps']].min()
-  np1_max = plottable_df.loc[(plottable_df['num_nodes'] == 1), ['flat_mpi_max', 'flat_mpi_numsteps']].max()
+  if ASSUME_AVERAGED:
+    np1_min = plottable_df.loc[(plottable_df['num_nodes'] == 1), 'flat_mpi_min'].min()
+    np1_max = plottable_df.loc[(plottable_df['num_nodes'] == 1), 'flat_mpi_max'].max()
 
-  plottable_df['speedup_min'] = (np1_min['flat_mpi_min'] / np1_min['flat_mpi_numsteps']) /\
-                                (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df['numsteps'])
+    print(np1_min, np1_max)
 
-  plottable_df['speedup_max'] = (np1_max['flat_mpi_max'] / np1_max['flat_mpi_numsteps']) /\
-                                (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df['numsteps'])
+    plottable_df['speedup_min_t'] = np1_min / plottable_df[QUANTITY_OF_INTEREST_MIN]
+    plottable_df['speedup_max_t'] = np1_max / plottable_df[QUANTITY_OF_INTEREST_MAX]
 
-  plottable_df['efficiency_min'] = plottable_df['speedup_min'] * 100.0 / plottable_df['num_nodes']
+    plottable_df['speedup_min'] = plottable_df[['speedup_max_t', 'speedup_min_t']].min(axis=1)
+    plottable_df['speedup_max'] = plottable_df[['speedup_max_t', 'speedup_min_t']].max(axis=1)
+    # drop the temporary columns
+    plottable_df = plottable_df.drop('speedup_min_t', 1)
+    plottable_df = plottable_df.drop('speedup_max_t', 1)
 
-  plottable_df['efficiency_max'] = plottable_df['speedup_max'] * 100.0 / plottable_df['num_nodes']
+  else:
+    np1_min = plottable_df.loc[(plottable_df['num_nodes'] == 1), ['flat_mpi_min', 'flat_mpi_numsteps']].min()
+    np1_max = plottable_df.loc[(plottable_df['num_nodes'] == 1), ['flat_mpi_max', 'flat_mpi_numsteps']].max()
+
+    plottable_df['speedup_min_t'] = (np1_min['flat_mpi_min'] / np1_min['flat_mpi_numsteps']) /\
+                                  (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df['numsteps'])
+
+    plottable_df['speedup_max_t'] = (np1_max['flat_mpi_max'] / np1_max['flat_mpi_numsteps']) /\
+                                  (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df['numsteps'])
+
+    # this will ensure that the 'max' as plotted is the max value, not necessarily the maxOverProcs value
+    # In most cases, for speedup, the max is the minOverProcs, and the min is the maxOverProcs.
+    # but because we had to choose which value to consider base line (np1) value, this can cause a mess if
+    # trying to stick to the TeuchosTimer notion of min and max.  Here, we report the minimum values and the maximum
+    # values we observe.
+    plottable_df['speedup_min'] = plottable_df[['speedup_max_t', 'speedup_min_t']].min(axis=1)
+    plottable_df['speedup_max'] = plottable_df[['speedup_max_t', 'speedup_min_t']].max(axis=1)
+
+    # drop the temporary columns
+    plottable_df = plottable_df.drop('speedup_min_t', 1)
+    plottable_df = plottable_df.drop('speedup_max_t', 1)
+
+  plottable_df['efficiency_min_t'] = plottable_df['speedup_min'] * 100.0 / plottable_df['num_nodes']
+
+  plottable_df['efficiency_max_t'] = plottable_df['speedup_max'] * 100.0 / plottable_df['num_nodes']
+
+  plottable_df['efficiency_min'] = plottable_df[['efficiency_max_t', 'efficiency_min_t']].min(axis=1)
+  plottable_df['efficiency_max'] = plottable_df[['efficiency_max_t', 'efficiency_min_t']].max(axis=1)
+
+  plottable_df = plottable_df.drop('efficiency_min_t', 1)
+  plottable_df = plottable_df.drop('efficiency_max_t', 1)
 
   plottable_df.to_csv('plottable.csv')
-
   pd.set_option('display.expand_frame_repr', True)
   return plottable_df
 
@@ -244,34 +299,53 @@ def enforce_consistent_ylims(figures, axes):
         fig.gca().set_ylim(best_ylims)
 
 
-def save_figures(figures, filename, close_figure=False):
-  try:
-    figures['composite'].savefig('{}.png'.format(filename),
-                                 format='png',
-                                 dpi=180)
-    print('Wrote: {}.png'.format(filename))
-  except:
-    print('FAILED writing {}.png'.format(filename))
-    raise
+def save_figures(figures,
+                 filename,
+                 close_figure=False,
+                 composite=True,
+                 independent=True,
+                 independent_names=None):
 
-  if close_figure:
-    plt.close(figures['composite'])
+  if composite:
+    try:
+      figures['composite'].savefig('{}.png'.format(filename),
+                                   format='png',
+                                   dpi=180)
+      print('Wrote: {}.png'.format(filename))
+    except:
+      print('FAILED writing {}.png'.format(filename))
+      raise
 
-  for column_name in figures['independent']:
-    for ht_name in figures['independent'][column_name]:
-      fig_filename = '{base}-{col}-{ht}.png'.format(base=filename, col=column_name, ht=ht_name)
+    if close_figure:
+      plt.close(figures['composite'])
 
-      try:
-        figures['independent'][column_name][ht_name].savefig(fig_filename,
-                                                             format='png',
-                                                             dpi=180)
-        print('Wrote: {}.png'.format(fig_filename))
-      except:
-        print('FAILED writing {}.png'.format(fig_filename))
-        raise
+  if independent:
+    if independent_names is None:
+      fig_names = None
+    elif isinstance(independent_names, str):
+      fig_names = [independent_names]
+    else:
+      fig_names = independent_names
 
-      if close_figure:
-        plt.close(figures['independent'][column_name][ht_name])
+    for column_name in figures['independent']:
+
+      if fig_names is None:
+        fig_names = figures['independent'][column_name].keys()
+
+      for ht_name in fig_names:
+        fig_filename = '{base}-{col}-{ht}.png'.format(base=filename, col=column_name, ht=ht_name)
+
+        try:
+          figures['independent'][column_name][ht_name].savefig(fig_filename,
+                                                               format='png',
+                                                               dpi=180)
+          print('Wrote: {}.png'.format(fig_filename))
+        except:
+          print('FAILED writing {}.png'.format(fig_filename))
+          raise
+
+        if close_figure:
+          plt.close(figures['independent'][column_name][ht_name])
 
 
 def get_figures_and_axes(subplot_names,
@@ -379,6 +453,7 @@ def add_flat_mpi_data(composite_group,
                               'numsteps'                     : 'flat_mpi_numsteps'}, inplace=True)
 
   # make sure this is one value per num_nodes.
+  # this is a real pest.
   flat_mpi_df = flat_mpi_df.groupby('num_nodes')[[
                              'flat_mpi_min',
                              'flat_mpi_max',
@@ -902,7 +977,7 @@ def plot_composite_strong(composite_group,
   show_percent_total = False
   show_speed_up = True
   show_efficiency = True
-  show_factor = False
+  show_factor = True
 
   print(kwargs.keys())
   if kwargs is not None:
