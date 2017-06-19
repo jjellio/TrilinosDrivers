@@ -126,6 +126,8 @@ class ScalingFileNameParser:
 
     my_tokens = yaml_matches.groupdict()
 
+    execspace_dict = None
+
     # from the general tokens, gather specific information
     if my_tokens['execspace_name'] == 'OpenMP':
       execspace_matches = self.execspace_openmp_re.match(my_tokens['execspace_attributes'])
@@ -141,7 +143,8 @@ class ScalingFileNameParser:
       print("Unknown Execspace Name: '{}' This is a bug. "
             "execspace_name is a predefined match in execspace re.".format(my_tokens['execspace_name']))
 
-    my_tokens.update(execspace_dict)
+    if execspace_dict:
+      my_tokens.update(execspace_dict)
 
     for key, value in my_tokens.items():
       if value is not None:
@@ -474,7 +477,7 @@ class ScalingFileNameParser:
 
     timer_name = scaling_dict_terms['Timer Name']
     flat_timer_name = re.sub(r'[: &]', '-', timer_name)
-    flat_timer_name = re.sub(r"[',%#@!()/\\\"*?<>|]", '', flat_timer_name)
+    flat_timer_name = re.sub(r"[',%#@!^{}()/\\\"*?<>|]", '', flat_timer_name)
     flat_timer_name = re.sub('=+', '-', flat_timer_name)
     flat_timer_name = re.sub(r'(?P<symbol>-|_){2,}', '\g<symbol>', flat_timer_name)
     scaling_dict_terms['flat_timer_name'] = flat_timer_name
@@ -523,7 +526,7 @@ class ScalingFileNameParser:
       if weak:
         my_fmt_string += "_{weak_prob_token}".format(**self.fmt_strs)
         my_fmt_string += my_solver_token
-        my_fmt_string += "_{execspace_name}"
+        #my_fmt_string += "_{execspace_name}"
         if composite == False:
           my_fmt_string += "_{steps_token}" \
                            "_{scaling_np_token}" \
@@ -533,7 +536,7 @@ class ScalingFileNameParser:
       elif strong or onnode:
         my_fmt_string += "_{problem_token}".format(**self.fmt_strs)
         my_fmt_string += my_solver_token
-        my_fmt_string += "_{execspace_name}"
+        #my_fmt_string += "_{execspace_name}"
         if composite == False:
           my_fmt_string += "_{steps_token}" \
                            "_{scaling_np_token}" \
