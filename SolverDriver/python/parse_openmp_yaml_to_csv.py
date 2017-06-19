@@ -21,6 +21,16 @@ from pathlib import Path
 import re
 import ScalingFilenameParser as SFP
 
+
+def file_len(PathLibFilename):
+  i = 0
+
+  with PathLibFilename.open() as f:
+    for i, l in enumerate(f):
+      pass
+  return i + 1
+
+
 # affinity_files have the name:
 # affinity_dir/Laplace3D-BS-1-1240x1240x1240_OpenMP-threads-16_np-2048_decomp-128x16x4x1_affinity.csv
 # Tokenized:
@@ -40,14 +50,33 @@ def parse_affinity_data(affinity_path, tokens):
   #  print('Missing Affinity File: {}'.format(affinity_filename))
   #  print(my_file.stat())
   #  return
+  file_lines = file_len(affinity_file_abs)
 
-  df = pd.read_csv(affinity_file_abs,
-                   parse_dates=True,
-                   skipinitialspace=True,
-                   low_memory=False)
+  # 0,64,64,0,"nid02623","5-11-2017 21:02:30.900965",0,0|68|136|204
+  expected_lines = tokens['num_nodes'] \
+                 * tokens['procs_per_node'] \
+                 * tokens['cores_per_proc'] \
+                 * tokens['threads_per_core'] \
+                 + 1
+  if expected_lines != file_lines:
+    import re
 
-  hostnames = ','.join(df['hostname'].unique())
-  timestamp = df['Timestamp'].max()
+    print('{fname}: has {num} lines, expected {exp}'.format(fname=affinity_filename,
+                                                            num=file_lines,
+                                                            exp=expected_lines))
+    #line_re = r'\d+,\d+,\d+,\d+,"\w+","[0-9- :.]+",\d+,\d+|\d+|\d+|\d\d\d'
+    hostnames = 'unknown'
+    timestamp = 'unknown'
+
+  else:
+    # use pandas to read the CSV
+    df = pd.read_csv(affinity_file_abs,
+                     parse_dates=True,
+                     skipinitialspace=True,
+                     low_memory=False)
+
+    hostnames = ','.join(df['hostname'].unique())
+    timestamp = df['Timestamp'].max()
 
   tokens['nodes'] = hostnames
   tokens['timestamp'] = timestamp

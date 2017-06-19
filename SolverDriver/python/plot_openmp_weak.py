@@ -49,7 +49,9 @@ DECOMP_COLORS = {
   '16x4'      : 'xkcd:amber',
   '8x8'       : 'xkcd:faded green',
   '4x16'      : 'xkcd:dusty purple',
-  'flat_mpi'  : 'xkcd:salmon'
+  'flat_mpi'  : 'xkcd:salmon',
+  'best'      : 'xkcd:salmon',
+  'worst'     : 'xkcd:greyish'
 }
 
 
@@ -102,9 +104,31 @@ def is_outlier(points, thresh=3.5):
 
 
 def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, compute_strong_terms=False):
+  """
+  Given a dataframe that is designed to be plotted. That is, it should have the appropriate x ticks as a column
+  as well as a column to join on.  This is implemented as xticks and num_nodes. The purpose is that we want to handle
+  missing data. By joining to this dataframe, we will obtain empty entries if the data is missing. This also guarantees
+  that the plotted data all have the same shape.
 
-  print(data_name)
-  data_group.to_csv('datagroup-{}.csv'.format(data_name))
+  :param plottable_df: dataframe with num_nodes as a column
+  :param data_group: a datagroup that is suitable to aggregate and plot. For timing/count data, this runtime will sum()
+                     all entries grouped by the number of of nodes.
+  :param data_name: the group lookup tuple used to obtain this datagroup. We will use this looked tuple to find the
+                    related data in the driver_groups data group.
+  :param driver_groups: Data grouped identically to the data_group, but this is all groups.
+                        TODO: possibly pass in the driver_group directly and avoid the need for the data_name
+  :param compute_strong_terms: Compute speedup and efficiency
+  :return: plottable_df, populated with quantities of interest aggregated and various measures computed from those
+           aggregates.
+  """
+  DEBUG_plottable_dataframe = False
+  DIVIDE_BY_CALLCOUNTS = False
+  DIVIDE_BY_NUMSTEPS = True
+
+  if DEBUG_plottable_dataframe:
+    pd.set_option('display.expand_frame_repr', False)
+    print(data_name)
+    data_group.to_csv('datagroup-{}.csv'.format(data_name))
 
   # Use aggregation. This typically will do nothing, but in some cases there are many data points
   # per node count, and we need some way to flatten that data.  This assumes that experiments performed were the same
@@ -156,13 +180,17 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
                                  QUANTITY_OF_INTEREST_THING_COUNT : 'driver_thing',
                                  'numsteps'                       : 'driver_numsteps'}, inplace=True)
 
-  pd.set_option('display.expand_frame_repr', False)
-  print(plottable_df)
-  # merge the driver
+  if DEBUG_plottable_dataframe: print(plottable_df)
+
+  # merge the kernels timings
   plottable_df = plottable_df.merge(timings, on='num_nodes', how='left')
-  print(plottable_df)
+
+  if DEBUG_plottable_dataframe: print(plottable_df)
+
+  # merge the driver timings
   plottable_df = plottable_df.merge(driver_timings, on='num_nodes', how='left')
-  print(plottable_df)
+
+  if DEBUG_plottable_dataframe: print(plottable_df)
 
   # attempt to deal with the outliers
   # this is risky, because there is no promise there are the same number of data points for every node count
@@ -185,11 +213,30 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
   # This gets messy for MueLu stuff. The root of the problem is that we are trying to compare different decomposition
   # runs. We also have more data for some points than others. Plotting raw data can also be influenced by this.
   # a total mess.
-  plottable_df['min_percent_t'] = (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df[QUANTITY_OF_INTEREST_MIN_COUNT]) \
-                                      / (plottable_df['driver_min'] / plottable_df['driver_min_count']) * 100.00
+  if DIVIDE_BY_CALLCOUNTS:
+    plottable_df['min_percent_t'] = \
+                              (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df[QUANTITY_OF_INTEREST_MIN_COUNT]) \
+                            / (plottable_df['driver_min'] / plottable_df['driver_min_count']) * 100.00
 
-  plottable_df['max_percent_t'] = (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df[QUANTITY_OF_INTEREST_MAX_COUNT]) \
-                                      / (plottable_df['driver_max'] / plottable_df['driver_max_count']) * 100.00
+    plottable_df['max_percent_t'] =\
+                              (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df[QUANTITY_OF_INTEREST_MAX_COUNT]) \
+                            / (plottable_df['driver_max'] / plottable_df['driver_max_count']) * 100.00
+  elif DIVIDE_BY_NUMSTEPS:
+    plottable_df['min_percent_t'] = \
+                              (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df['numsteps']) \
+                            / (plottable_df['driver_min'] / plottable_df['driver_numsteps']) * 100.00
+
+    plottable_df['max_percent_t'] =\
+                              (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df['numsteps']) \
+                            / (plottable_df['driver_max'] / plottable_df['driver_numsteps']) * 100.00
+  else:
+    plottable_df['min_percent_t'] = \
+                              (plottable_df[QUANTITY_OF_INTEREST_MIN]) \
+                            / (plottable_df['driver_min']) * 100.00
+
+    plottable_df['max_percent_t'] =\
+                              (plottable_df[QUANTITY_OF_INTEREST_MAX]) \
+                            / (plottable_df['driver_max']) * 100.00
 
   # this is a bit iffy. It depends on what you choose to divide by above. Should the 'min' in the data
   # be hardcoded to be the minOverProcs values, or does 'min' mean the conceptual minimum of the data.
@@ -202,11 +249,30 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
   plottable_df = plottable_df.drop('max_percent_t', 1)
 
   # similar approach as above.
-  plottable_df['flat_mpi_factor_min_t'] = (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df[QUANTITY_OF_INTEREST_MIN_COUNT]) \
-                                      / (plottable_df['flat_mpi_min'] / plottable_df['flat_mpi_min_count'])
+  if DIVIDE_BY_CALLCOUNTS:
+    plottable_df['flat_mpi_factor_min_t'] = \
+                              (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df[QUANTITY_OF_INTEREST_MIN_COUNT]) \
+                            / (plottable_df['flat_mpi_min'] / plottable_df['flat_mpi_min_count'])
 
-  plottable_df['flat_mpi_factor_max_t'] = (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df[QUANTITY_OF_INTEREST_MAX_COUNT]) \
-                                      / (plottable_df['flat_mpi_max'] / plottable_df['flat_mpi_max_count'])
+    plottable_df['flat_mpi_factor_max_t'] = \
+                              (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df[QUANTITY_OF_INTEREST_MAX_COUNT]) \
+                            / (plottable_df['flat_mpi_max'] / plottable_df['flat_mpi_max_count'])
+  elif DIVIDE_BY_NUMSTEPS:
+    plottable_df['flat_mpi_factor_min_t'] = \
+                              (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df['numsteps']) \
+                            / (plottable_df['flat_mpi_min'] / plottable_df['flat_mpi_numsteps'])
+
+    plottable_df['flat_mpi_factor_max_t'] = \
+                              (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df['numsteps']) \
+                            / (plottable_df['flat_mpi_max'] / plottable_df['flat_mpi_numsteps'])
+  else:
+    plottable_df['flat_mpi_factor_min_t'] = \
+                              (plottable_df[QUANTITY_OF_INTEREST_MIN]) \
+                            / (plottable_df['flat_mpi_min'])
+
+    plottable_df['flat_mpi_factor_max_t'] = \
+                              (plottable_df[QUANTITY_OF_INTEREST_MAX]) \
+                            / (plottable_df['flat_mpi_max'])
 
   plottable_df['flat_mpi_factor_min'] = plottable_df[['flat_mpi_factor_max_t', 'flat_mpi_factor_min_t']].min(axis=1)
   plottable_df['flat_mpi_factor_max'] = plottable_df[['flat_mpi_factor_max_t', 'flat_mpi_factor_min_t']].max(axis=1)
@@ -215,7 +281,7 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
   plottable_df = plottable_df.drop('flat_mpi_factor_max_t', 1)
 
   if compute_strong_terms is False:
-    pd.set_option('display.expand_frame_repr', True)
+    if DEBUG_plottable_dataframe: pd.set_option('display.expand_frame_repr', True)
     return plottable_df
 
   # compute Speedup and Efficiency. Use Flat MPI as the baseline
@@ -223,17 +289,38 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
   np1_max_row = plottable_df.loc[plottable_df.loc[(plottable_df['num_nodes'] == 1), ['flat_mpi_max']].idxmax()]
 
   # normalize by call count
-  np1_min = (np1_min_row['flat_mpi_min'] / np1_min_row['flat_mpi_min_count']).values
-  np1_max = (np1_max_row['flat_mpi_min'] / np1_min_row['flat_mpi_min_count']).values
-  print(np1_min, np1_max)
+  if DIVIDE_BY_CALLCOUNTS:
+    np1_min = (np1_min_row['flat_mpi_min'] / np1_min_row['flat_mpi_min_count']).values
+    np1_max = (np1_max_row['flat_mpi_min'] / np1_min_row['flat_mpi_min_count']).values
+  elif DIVIDE_BY_NUMSTEPS:
+    np1_min = (np1_min_row['flat_mpi_min'] / np1_min_row['flat_mpi_numsteps']).values
+    np1_max = (np1_max_row['flat_mpi_min'] / np1_min_row['flat_mpi_numsteps']).values
+  else:
+    np1_min = (np1_min_row['flat_mpi_min']).values
+    np1_max = (np1_max_row['flat_mpi_min']).values
 
-  plottable_df['speedup_min_t'] = np1_min /\
-                                (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df[QUANTITY_OF_INTEREST_MIN_COUNT])
+  if DEBUG_plottable_dataframe: print(np1_min, np1_max)
 
-  plottable_df['speedup_max_t'] = np1_max /\
-                                (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df[QUANTITY_OF_INTEREST_MAX_COUNT])
+  if DIVIDE_BY_CALLCOUNTS:
+    plottable_df['speedup_min_t'] = np1_min /\
+                              (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df[QUANTITY_OF_INTEREST_MIN_COUNT])
 
-  print(plottable_df)
+    plottable_df['speedup_max_t'] = np1_max /\
+                              (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df[QUANTITY_OF_INTEREST_MAX_COUNT])
+  elif DIVIDE_BY_NUMSTEPS:
+    plottable_df['speedup_min_t'] = np1_min /\
+                              (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df['numsteps'])
+
+    plottable_df['speedup_max_t'] = np1_max /\
+                              (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df['numsteps'])
+  else:
+    plottable_df['speedup_min_t'] = np1_min /\
+                              (plottable_df[QUANTITY_OF_INTEREST_MIN])
+
+    plottable_df['speedup_max_t'] = np1_max /\
+                              (plottable_df[QUANTITY_OF_INTEREST_MAX])
+
+  if DEBUG_plottable_dataframe: print(plottable_df)
   # this will ensure that the 'max' as plotted is the max value, not necessarily the maxOverProcs value
   # In most cases, for speedup, the max is the minOverProcs, and the min is the maxOverProcs.
   # but because we had to choose which value to consider base line (np1) value, this can cause a mess if
@@ -256,12 +343,23 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
   plottable_df = plottable_df.drop('efficiency_min_t', 1)
   plottable_df = plottable_df.drop('efficiency_max_t', 1)
 
-  plottable_df.to_csv('plottable-{}.csv'.format(data_name))
-  pd.set_option('display.expand_frame_repr', True)
+  if DEBUG_plottable_dataframe:
+    plottable_df.to_csv('plottable-{}.csv'.format(data_name))
+    pd.set_option('display.expand_frame_repr', True)
+
   return plottable_df
 
 
 def enforce_consistent_ylims(figures, axes):
+  """
+  Given the matplotlib figure and axes handles, determine global y limits
+
+  :param figures: dict of dict of dict of figures
+                  figures should be the independent figures, constructed as
+                  independent:column_name:row_name
+  :param axes: Handles for all axes that are part of the composite plot. e.g., axes[column_name][row_name]
+  :return: Nothing
+  """
   # if we want consistent axes by column, then enforce that here.
   if HT_CONSISTENT_YAXES:
     for column_name, column_map in axes.items():
@@ -288,6 +386,20 @@ def save_figures(figures,
                  composite=True,
                  independent=True,
                  independent_names=None):
+  """
+  Helper to save figures. Plots the composite figure, as well as the independent figures.
+
+  :param figures: dict of figures. composite => figure,
+                                   independent => column_name => row_name => figure
+  :param filename: the base filename to use
+  :param close_figure: boolean, whether to close the figures after saving
+  :param composite: boolean, save the composite figure
+  :param independent: boolean, save the independent figures
+  :param independent_names: list or string, save specific row names only.
+                            This is mainly used when we destructively modify the figures to annotate and collapse
+                            them into a 'best' figure.
+  :return:
+  """
 
   if composite:
     try:
@@ -305,10 +417,10 @@ def save_figures(figures,
   if independent:
     if independent_names is None:
       fig_names = None
-    elif isinstance(independent_names, str):
-      fig_names = [independent_names]
-    else:
+    elif isinstance(independent_names, list):
       fig_names = independent_names
+    else:
+      fig_names = [independent_names]
 
     for column_name in figures['independent']:
 
@@ -351,7 +463,7 @@ def get_figures_and_axes(subplot_names,
   # width: there are two plots currently, currently I make these with a 'wide' aspect ratio
   # height: a factor of the number of HTs shown
   figures['composite'].set_size_inches(fig_size * num_plots_per_row * fig_size_width_inflation,
-                      fig_size * num_plots_per_col * fig_size_height_inflation)
+                                       fig_size * num_plots_per_col * fig_size_height_inflation)
 
   for row_idx in range(0, num_plots_per_col):
     subplot_row_name = subplot_row_names[row_idx]
@@ -394,6 +506,18 @@ def plot_raw_data(ax, indep_ax, xvalues, yvalues, linestyle, label, color,
 
 ###############################################################################
 def need_to_replot(simple_fname, subplot_names, ht_names):
+  """
+  determine if a set of files exist.
+
+  This turned out to be error prone. The issues seem to arrise when you work in a directory that is actually a symbolic
+  Link from another filesystem, and then use relative paths. The trick appears to be to resolve the path. Simply
+  testing if the file is a file can fail in odd ways.
+
+  :param simple_fname: Base name to test
+  :param subplot_names: The names of subplots (e.g., column names)
+  :param ht_names:  The row labels for the plots (e.g., the ht names)
+  :return: Nothing
+  """
   need_to_replot_ = False
   my_file = Path("{}.png".format(simple_fname))
   try:
@@ -415,8 +539,22 @@ def need_to_replot(simple_fname, subplot_names, ht_names):
   return need_to_replot_
 
 
+###############################################################################
 def add_flat_mpi_data(composite_group,
                       allow_baseline_override=False):
+  """
+  Given a group of data that hopefully contains *both* Serial and OpenMP datapoints, create a 'flat_mpi' set of columns.
+
+  This means we must aggregate this flat MPI information. We sum() all values.
+  If no serial data is available, then we look for single threaded OpenMP data.
+
+  :param composite_group: Grouped data that makes sense to compare. It should make sense to aggregate data in this group
+                          by decomposition type when grouped by the number of nodes used. E.g., sum all flat_mpi data
+  :param allow_baseline_override: Allow the use of OpenMP threaded data as a baseline. E.g., use 32x2.
+  :return: composite_group with flat mpi columns added
+  """
+  # TODO: convey information to the plotter that Serial or OpenMP data was used.
+
   # figure out the flat MPI time
   # ideally, we would want to query the Serial execution space here... but that is kinda complicated, we likely
   # need to add an argument that is a serial execution space dataframe, as the groupby logic expects the execution
@@ -424,13 +562,14 @@ def add_flat_mpi_data(composite_group,
   serial_data = composite_group[composite_group['execspace_name'] == 'Serial']
   if serial_data.empty:
     # try to use OpenMP instead
+    groupby_cols = ['procs_per_node', 'cores_per_proc', 'threads_per_core']
     try:
       # first try for the 64x1x1, this would need to be adjusted for other architectures
-      flat_mpi_df = composite_group.groupby(['procs_per_node', 'cores_per_proc', 'threads_per_core']).get_group((64,1,1))
+      flat_mpi_df = composite_group.groupby(groupby_cols).get_group((64,1,1))
     except KeyError as e:
       if allow_baseline_override:
         # if that fails, and we allow it, then downgrade to 32x2x1
-        flat_mpi_df = composite_group.groupby(['procs_per_node', 'cores_per_proc', 'threads_per_core']).get_group((32, 2, 1))
+        flat_mpi_df = composite_group.groupby(groupby_cols).get_group((32, 2, 1))
       else:
         raise e
   else:
@@ -733,7 +872,9 @@ def plot_composite_weak(composite_group,
       figures['independent']['flat_mpi_factor'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
       figures['independent']['flat_mpi_factor'][ht_name].gca().set_xlim([0.5, my_num_nodes + 1])
       figures['independent']['flat_mpi_factor'][ht_name].gca().set_title('{}\n(HTs={:.0f})'.format(simple_title, ht_name))
+
     axes['raw_data'][ht_name].set_ylabel('Runtime (s)')
+
     if show_percent_total:
       axes['percent_total'][ht_name].set_ylabel('Percentage of Total Time')
       axes['percent_total'][ht_name].yaxis.set_major_formatter(FormatStrFormatter('%3.0f %%'))
@@ -830,6 +971,19 @@ def plot_composite_weak(composite_group,
   # save the figures with the axes shared
   save_figures(figures, filename=simple_fname, close_figure=True)
 
+  for column_name in figures['independent']:
+    if column_name == 'speedup' or column_name == 'efficiency':
+      annotate_best_column(figures=figures['independent'][column_name],
+                           axes_name_to_destroy=ht_names[0],
+                           objective='min')
+
+  # save the figures with the axes shared
+  save_figures(figures,
+               filename='{fname}-overall'.format(fname=simple_fname),
+               composite=False,
+               independent=True,
+               independent_names=ht_names[0])
+
 
 def axes_to_df(ax, ax_id):
   import re
@@ -865,6 +1019,108 @@ def axes_to_df(ax, ax_id):
   all_data = all_data.set_index(['type', 'ax_id', 'x', 'label'], drop=False)
   print(all_data)
   return all_data
+
+
+def annotate_best_column(figures, axes_name_to_destroy, objective='min'):
+  import re
+
+  df = pd.DataFrame()
+  for fig_name, fig in figures.items():
+    tmp_df = axes_to_df(fig.gca(), fig_name)
+    df = pd.concat([df, tmp_df])
+
+  df['ax_id'] = df['ax_id'].astype(np.int32)
+
+  if objective == 'min':
+    try:
+      best_overall = df.loc[df.groupby(['type','x'])['y'].idxmin()].groupby('type')
+      worst_overall = df.loc[df.groupby(['type','x'])['y'].idxmax()].groupby('type')
+    except:
+      print('Had a problem annotating the best. Skipping this axes')
+      return
+  elif objective == 'max':
+    try:
+      best_overall = df.loc[df.groupby(['type','x'])['y'].idxmax()].groupby('type')
+      worst_overall = df.loc[df.groupby(['type', 'x'])['y'].idxmin()].groupby('type')
+    except:
+      print('Had a problem annotating the best. Skipping this axes')
+      return
+  else:
+    raise ValueError('objective must be min or max.')
+
+  ax = figures[axes_name_to_destroy].gca()
+  # wipe out the lines
+  ax.lines = []
+  ax.texts = []
+  # destroy the legend
+  for l in figures[axes_name_to_destroy].legends:
+    l.remove()
+
+  current_title = ax.get_title()
+  current_title = re.sub(r"\(?HTs=\d\)?", "", current_title)
+  ax.set_title(current_title)
+
+  linestyles = dict()
+  linestyles['min'] = MIN_LINESTYLE
+  linestyles['max'] = MAX_LINESTYLE
+
+  # plot the new data
+  for plot_type, df in best_overall:
+    # if plot_type != objective:
+    #   continue
+
+    if plot_type == objective:
+      ax.plot(df['x'], df['y'], linestyle='solid', label='best-{}'.format(plot_type), color=DECOMP_COLORS['best'])
+    else:
+      ax.plot(df['x'], df['y'], linestyle='dotted', label='best-{}'.format(plot_type), color=DECOMP_COLORS['best'])
+      # do not add data labels
+      continue
+
+    # label the times
+    data_labels = ['{decomp}x{ht}'.format(decomp=row['label'], ht=row['ax_id']) if row['label'] != 'flat_mpi' else '{decomp}'.format(decomp=row['label']) for index, row in df.iterrows()]
+
+    x_offset = 40
+    y_offset = 20
+    for label, x, y in zip(data_labels, df['x'], df['y']):
+      ax.annotate(
+        label,
+        xy=(x, y), xytext=(x_offset, y_offset),
+        textcoords='offset points', ha='right', va='bottom',
+        bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),
+        arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
+
+  # plot the new data
+  for plot_type, df in worst_overall:
+    # if plot_type == objective:
+    #   continue
+
+    if plot_type != objective:
+      ax.plot(df['x'], df['y'], linestyle='solid', label='worst-{}'.format(plot_type), color=DECOMP_COLORS['worst'])
+    else:
+      ax.plot(df['x'], df['y'], linestyle='dotted', label='worst-{}'.format(plot_type), color=DECOMP_COLORS['worst'])
+      # do not add data labels
+      continue
+
+    #ax.plot(df['x'], df['y'], linestyle=linestyles[plot_type], label='worst-{}'.format(plot_type))
+
+    # label the times
+    data_labels = ['{decomp}x{ht}'.format(decomp=row['label'], ht=row['ax_id']) if row['label'] != 'flat_mpi' else '{decomp}'.format(decomp=row['label']) for index, row in df.iterrows()]
+
+    x_offset = 40
+    y_offset = 20
+    for label, x, y in zip(data_labels, df['x'], df['y']):
+      ax.annotate(
+        label,
+        xy=(x, y), xytext=(x_offset, y_offset),
+        textcoords='offset points', ha='right', va='bottom',
+        bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),
+        arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'))
+
+  handles, labels = ax.get_legend_handles_labels()
+  ax.legend(handles, labels)
+  ax.relim()
+  ax.autoscale()
+  figures[axes_name_to_destroy].tight_layout()
 
 
 def annotate_best(ax, ax_id, objective='min'):
@@ -1459,7 +1715,9 @@ def plot_composite_strong(composite_group,
   handles, labels = axes['raw_data'][ht_names[0]].get_legend_handles_labels()
   figures['composite'].legend(handles, labels,
                               title="Procs per Node x Cores per Proc",
-                              loc='lower center', ncol=ndecomps, bbox_to_anchor=(0.5, 0.0))
+                              loc='lower center',
+                              ncol=ndecomps,
+                              bbox_to_anchor=(0.5, 0.0))
   figures['composite'].tight_layout()
   # this must be called after tight layout
   figures['composite'].subplots_adjust(top=0.85, bottom=0.15)
@@ -1467,6 +1725,7 @@ def plot_composite_strong(composite_group,
   # add legends
   for column_name in figures['independent']:
     for fig_name, fig in figures['independent'][column_name].items():
+      #handles, labels = fig.gca().get_legend_handles_labels()
       fig.legend(handles, labels,
                  title="Procs per Node x Cores per Proc",
                  loc='lower center', ncol=ndecomps, bbox_to_anchor=(0.5, 0.0))
@@ -1500,29 +1759,23 @@ def plot_composite_strong(composite_group,
 
   # save the figures with the axes shared
   save_figures(figures, filename=simple_fname)
-  #
-  # for column_name in figures['independent']:
-  #   print('Plot Column: {}'.format(column_name))
-  #   handles, labels = figures['independent'][column_name][ht_names[0]].gca().get_legend_handles_labels()
-  #
-  #   tmp_df = pd.DataFrame()
-  #   for fig_name, fig in figures['independent'][column_name].items():
-  #     df = axes_to_df(fig.gca(), fig_name)
-  #     tmp_df = pd.concat([df, tmp_df])
-  #
-  #   if column_name == 'speedup' or column_name == 'efficiency':
-  #     flatten_axes_to_best(figures['independent'][column_name][ht_names[0]].gca(), tmp_df, objective='max')
-  #   else:
-  #     flatten_axes_to_best(figures['independent'][column_name][ht_names[0]].gca(), tmp_df)
-  #
-  #   fig.legend(handles, labels,
-  #              title="Best",
-  #              loc='lower center', ncol=ndecomps, bbox_to_anchor=(0.5, 0.0))
-  #   # add space since the titles are typically large
-  #   fig.subplots_adjust(bottom=0.20)
-  #
-  # # save the figures with the axes shared
-  # save_figures(figures, filename='{}-best'.format(simple_fname), close_figure=True)
+
+  for column_name in figures['independent']:
+    if column_name == 'speedup' or column_name == 'efficiency':
+      annotate_best_column(figures=figures['independent'][column_name],
+                           axes_name_to_destroy=ht_names[0],
+                           objective='max')
+    else:
+      annotate_best_column(figures=figures['independent'][column_name],
+                           axes_name_to_destroy=ht_names[0],
+                           objective='min')
+
+  # save the figures with the axes shared
+  save_figures(figures,
+               filename='{fname}-overall'.format(fname=simple_fname),
+               composite=False,
+               independent=True,
+               independent_names=ht_names[0])
 
 
 ###############################################################################
