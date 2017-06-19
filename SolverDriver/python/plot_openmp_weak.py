@@ -467,6 +467,7 @@ def add_flat_mpi_data(composite_group,
                              right_index=True)
   return composite_group
 
+
 ###############################################################################
 def plot_composite_weak(composite_group,
                         my_nodes,
@@ -872,11 +873,19 @@ def annotate_best(ax, ax_id, objective='min'):
   df['ax_id'] = df['ax_id'].astype(np.int32)
 
   if objective == 'min':
-    best_overall = df.loc[df.groupby(['type','x'])['y'].idxmin()].groupby('type')
-    best_by_id   = df.loc[df.groupby(['type','ax_id', 'x'])['y'].idxmin()].groupby(['type','ax_id'])
+    try:
+      best_overall = df.loc[df.groupby(['type','x'])['y'].idxmin()].groupby('type')
+      best_by_id   = df.loc[df.groupby(['type','ax_id', 'x'])['y'].idxmin()].groupby(['type','ax_id'])
+    except:
+      print('Had a problem annotating the best. Skipping this axes')
+      return
   elif objective == 'max':
-    best_overall = df.loc[df.groupby(['type','x'])['y'].idxmax()].groupby('type')
-    best_by_id   = df.loc[df.groupby(['type','ax_id', 'x'])['y'].idxmax()].groupby(['type','ax_id'])
+    try:
+      best_overall = df.loc[df.groupby(['type','x'])['y'].idxmax()].groupby('type')
+      best_by_id   = df.loc[df.groupby(['type','ax_id', 'x'])['y'].idxmax()].groupby(['type','ax_id'])
+    except:
+      print('Had a problem annotating the best. Skipping this axes')
+      return
   else:
     raise ValueError('objective must be min or max.')
 
