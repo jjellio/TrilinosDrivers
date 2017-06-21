@@ -21,6 +21,9 @@ from pathlib import Path
 import re
 import ScalingFilenameParser as SFP
 
+# this is used to preallocate the dataframe. It does not need to be perfect, simply large enough
+MAX_NUM_TIMERS = 1024
+
 
 def file_len(PathLibFilename):
   i = 0
@@ -178,8 +181,11 @@ if __name__ == '__main__':
       # dtypes = SFP.getColumnsDTypes(execspace_name='OpenMP')
       # print(dtypes)
 
-      dataset = pd.DataFrame(columns=list(timer_data), index=np.arange(num_timers*num_files*4))
+      dataset = pd.DataFrame(columns=list(timer_data), index=np.arange(MAX_NUM_TIMERS*num_files*4))
 
+    #timer_data = timer_data.reindex_like(dataset)
+
+    #dataset = pd.concat([dataset, timer_data])
     for index, row in timer_data.iterrows():
       df_idx += 1
       dataset.loc[df_idx] = row[:]
