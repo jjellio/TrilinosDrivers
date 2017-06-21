@@ -296,6 +296,7 @@ class ScalingFileNameParser:
                 'execspace_name',
                 'prec_name',
                 'prec_attributes',
+                'numsteps',
                 # number of MPI procs is not constant
                 # order matters here, we want things sorted how we group/analyze data
                 'procs_per_node',
@@ -310,6 +311,7 @@ class ScalingFileNameParser:
                 'execspace_name',
                 'prec_name',
                 'prec_attributes',
+                'numsteps',
                 # number of MPI procs is not constant
                 # order matters here, we want things sorted how we group/analyze data
                 'procs_per_node',
@@ -328,6 +330,7 @@ class ScalingFileNameParser:
                 # don't group by execspace attributes
                 'prec_name',
                 'prec_attributes',
+                'numsteps',
                 # number of MPI procs is not constant
                 'procs_per_node',
                 'cores_per_proc',
@@ -342,6 +345,7 @@ class ScalingFileNameParser:
                 # don't group by execspace attributes
                 'prec_name',
                 'prec_attributes',
+                'numsteps',
                 # number of MPI procs is not constant
                 'procs_per_node',
                 'cores_per_proc',
@@ -527,19 +531,19 @@ class ScalingFileNameParser:
         my_fmt_string += "_{weak_prob_token}".format(**self.fmt_strs)
         my_fmt_string += my_solver_token
         #my_fmt_string += "_{execspace_name}"
+        my_fmt_string += "_{steps_token}".format(**self.fmt_strs)
         if composite == False:
-          my_fmt_string += "_{steps_token}" \
-                           "_{scaling_np_token}" \
+          my_fmt_string += "_{scaling_np_token}" \
                            "_{scaling_decomp_token}".format(**self.fmt_strs)
         else:
           my_fmt_string += "_{min_num_nodes}-{max_num_nodes}-composite"
       elif strong or onnode:
         my_fmt_string += "_{problem_token}".format(**self.fmt_strs)
         my_fmt_string += my_solver_token
+        my_fmt_string += "_{steps_token}".format(**self.fmt_strs)
         #my_fmt_string += "_{execspace_name}"
         if composite == False:
-          my_fmt_string += "_{steps_token}" \
-                           "_{scaling_np_token}" \
+          my_fmt_string += "_{scaling_np_token}" \
                            "_{scaling_decomp_token}".format(**self.fmt_strs)
         else:
           my_fmt_string += "_{min_num_nodes}-{max_num_nodes}-composite"
@@ -547,16 +551,17 @@ class ScalingFileNameParser:
       if weak:
         my_fmt_string += "_{weak_prob_token}".format(**self.fmt_strs)
         my_fmt_string += my_solver_token
+        my_fmt_string += "_{steps_token}".format(**self.fmt_strs)
         my_fmt_string += "_{execspace_name}"
         if composite == False:
-          my_fmt_string += "_{steps_token}" \
-                           "_{scaling_np_token}" \
+          my_fmt_string += "_{scaling_np_token}" \
                            "_{scaling_decomp_token}".format(**self.fmt_strs)
         else:
           my_fmt_string += "_{min_num_nodes}-{max_num_nodes}-composite"
       elif strong:
         my_fmt_string += "_{problem_token}".format(**self.fmt_strs)
         my_fmt_string += my_solver_token
+        my_fmt_string += "_{steps_token}".format(**self.fmt_strs)
         my_fmt_string += "_{execspace_name}"
         if composite == False:
           my_fmt_string += "_{steps_token}" \
