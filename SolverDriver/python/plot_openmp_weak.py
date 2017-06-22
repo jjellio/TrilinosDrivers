@@ -2,7 +2,7 @@
 """plotter.py
 
 Usage:
-  plotter.py [--dataset=DATASET --study=STUDY_TYPE --scaling=SCALING_TYPE --force_replot]
+  plotter.py [--dataset=DATASET --study=STUDY_TYPE --scaling=SCALING_TYPE --force_replot --max_nodes=NUM --min_nodes=NUM]
   plotter.py (-h | --help)
 
 Options:
@@ -11,7 +11,11 @@ Options:
   --study=STUDY_TYPE       muelu_constructor, muelu_prec, solvers
   --scaling=SCALING_TYPE   Type of analysis, weak/strong [default: strong]
   --force_replot           Force replotting of existing data [default: False]
+  --max_nodes=NUM          Fix the number of nodes [default: 100000]
+  --min_nodes=NUM          Fix the number of nodes [default: 1]
 """
+import matplotlib as mpl
+mpl.use('TkAgg')
 
 from docopt import docopt
 import matplotlib.pyplot as plt
@@ -42,6 +46,7 @@ MAX_LINESTYLE = 'solid'
 PLOT_ONLY_MIN       = False
 SMOOTH_OUTLIERS     = False
 HT_CONSISTENT_YAXES = True
+ANNOTATE_BEST       = False
 
 # define the colors used for each deomp type
 DECOMP_COLORS = {
@@ -163,6 +168,7 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
                                                                                  QUANTITY_OF_INTEREST_THING,
                                                                                  QUANTITY_OF_INTEREST_THING_COUNT,
                                                                                  'numsteps']].sum()
+  driver_groups.get_group(data_name).to_csv('driver_timings-{}.csv'.format(magic))
 
   driver_timings = driver_timings[['num_nodes',
                                    QUANTITY_OF_INTEREST_MIN,
@@ -289,8 +295,8 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
   plottable_df = plottable_df.drop('flat_mpi_factor_min_t', 1)
   plottable_df = plottable_df.drop('flat_mpi_factor_max_t', 1)
 
-  # plottable_df.to_csv('plottable-{timer}-{d}.csv'.format(timer=data_group['Timer Name'].unique(),
-  #                                                        d=magic))
+  plottable_df.to_csv('plottable-{timer}-{d}.csv'.format(timer=data_group['Timer Name'].unique(),
+                                                         d=magic))
   if compute_strong_terms is False:
     if DEBUG_plottable_dataframe: pd.set_option('display.expand_frame_repr', True)
     return plottable_df
@@ -1080,16 +1086,17 @@ def plot_composite_weak(composite_group,
                     longtable=True)
 
   # add labels for the best
-  for column_name in figures['independent']:
-    for fig_name, fig in figures['independent'][column_name].items():
-      annotate_best(ax=fig.gca(),
-                    ax_id=fig_name,
-                    objective='min')
+  if ANNOTATE_BEST:
+    for column_name in figures['independent']:
+      for fig_name, fig in figures['independent'][column_name].items():
+        annotate_best(ax=fig.gca(),
+                      ax_id=fig_name,
+                      objective='min')
 
-  # save the free axis version of the figures
-  save_figures(figures,
-               filename='{basename}-free-yaxis-best'.format(basename=simple_fname),
-               close_figure=False)
+    # save the free axis version of the figures
+    save_figures(figures,
+                 filename='{basename}-free-yaxis-best'.format(basename=simple_fname),
+                 close_figure=False)
 
   # if we want consistent axes by column, then enforce that here.
   if HT_CONSISTENT_YAXES:
@@ -1098,18 +1105,19 @@ def plot_composite_weak(composite_group,
   # save the figures with the axes shared
   save_figures(figures, filename=simple_fname, close_figure=True)
 
-  for column_name in figures['independent']:
-    if column_name == 'speedup' or column_name == 'efficiency':
-      annotate_best_column(figures=figures['independent'][column_name],
-                           axes_name_to_destroy=ht_names[0],
-                           objective='min')
+  if ANNOTATE_BEST:
+    for column_name in figures['independent']:
+      if column_name == 'speedup' or column_name == 'efficiency':
+        annotate_best_column(figures=figures['independent'][column_name],
+                             axes_name_to_destroy=ht_names[0],
+                             objective='min')
 
-  # save the figures with the axes shared
-  save_figures(figures,
-               filename='{fname}-overall'.format(fname=simple_fname),
-               composite=False,
-               independent=True,
-               independent_names=ht_names[0])
+    # save the figures with the axes shared
+    save_figures(figures,
+                 filename='{fname}-overall'.format(fname=simple_fname),
+                 composite=False,
+                 independent=True,
+                 independent_names=ht_names[0])
 
 
 def axes_to_df(ax, ax_id):
@@ -2246,12 +2254,16 @@ def plot_dataset(dataset,
 ###############################################################################
 def main(dataset_filename,
          scaling_study_type,
-         study_type):
+         study_type,
+         min_num_nodes=MIN_NUM_NODES,
+         max_num_nodes=MAX_NUM_NODES):
 
   print(dataset_filename)
 
   if scaling_study_type == 'weak':
-    dataset, driver_dataset = load_dataset(dataset_filename=dataset_filename)
+    dataset, driver_dataset = load_dataset(dataset_filename=dataset_filename,
+                                           min_num_nodes=min_num_nodes,
+                                           max_num_nodes=max_num_nodes)
   else:
     dataset, driver_dataset = load_dataset(dataset_filename=dataset_filename,
                                            min_num_nodes=0,
@@ -2303,13 +2315,18 @@ if __name__ == '__main__':
 
   _arg_dataset_filename  = _arg_options['--dataset']
   _arg_study_type        = _arg_options['--study']
+  MAX_NUM_NODES          = _arg_options['--max_nodes']
+  MIN_NUM_NODES          = _arg_options['--min_nodes']
   _arg_scaling_type      = _arg_options['--scaling']
   FORCE_REPLOT           = _arg_options['--force_replot']
 
   print('study: {study}\nscaling_type: {scaling}\ndataset: {data}'.format(study=_arg_study_type,
                                                                           scaling=_arg_scaling_type,
                                                                           data=_arg_dataset_filename))
+  print('Max Nodes: {max}\mMin Nodes: {min}'.format(max=MAX_NUM_NODES, min=MIN_NUM_NODES))
 
   main(dataset_filename=_arg_dataset_filename,
        study_type=_arg_study_type,
-       scaling_study_type=_arg_scaling_type)
+       scaling_study_type=_arg_scaling_type,
+       min_num_nodes=MIN_NUM_NODES,
+       max_num_nodes=MAX_NUM_NODES)
