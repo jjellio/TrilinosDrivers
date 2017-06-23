@@ -640,7 +640,6 @@ def update_decomp_dataframe(decomp_dataframe,
   keys.remove('prec_attributes')
   keys.remove('solver_name')
   keys.remove('solver_attributes')
-  keys.remove('execspace_name')
 
   tmp_df = my_agg_times.merge(ht_group[keys], on='num_nodes', how='left')
   del tmp_df['ticks']
@@ -672,8 +671,17 @@ def update_decomp_dataframe(decomp_dataframe,
 
   tmp_df = tmp_df.rename(columns={'num_mpi_procs': 'MPI Procs'})
   keys[keys.index('num_mpi_procs')] = 'MPI Procs'
-  tmp_df['procs_per_node'] = procs_per_node
-  tmp_df['cores_per_proc'] = cores_per_proc
+
+  tmp_df = tmp_df.rename(columns={'execspace_name': 'ExecSpace'})
+  keys[keys.index('execspace_name')] = 'ExecSpace'
+  execspace = [x for x in tmp_df['ExecSpace'].unique() if str(x) != 'nan'][0]
+  tmp_df['ExecSpace'] = execspace
+
+  tmp_df['PPN'] = procs_per_node
+  keys[keys.index('procs_per_node')] = 'PPN'
+  tmp_df['CPP'] = cores_per_proc
+  keys[keys.index('cores_per_proc')] = 'CPP'
+
   tmp_df['HTs'] = ht_name
   tmp_df['MPI Procs'] = tmp_df['nodes'] * procs_per_node
 
@@ -688,26 +696,29 @@ def update_decomp_dataframe(decomp_dataframe,
             'flat_mpi_factor_min',
             'flat_mpi_factor_max',
             'min_percent',
-            'max_percent']].apply(lambda x: pd.Series.round(x, 3))
+            'max_percent']].apply(lambda x: pd.Series.round(x, 2))
 
   tmp_df = tmp_df.drop_duplicates()
   tmp_df[['MPI Procs',
           'nodes',
-          'procs_per_node',
-          'cores_per_proc',
+          'PPN',
+          'CPP',
           'HTs']] = tmp_df[['MPI Procs',
                             'nodes',
-                            'procs_per_node',
-                            'cores_per_proc',
+                            'PPN',
+                            'CPP',
                             'HTs']].astype(np.int32)
-
+  print(keys)
   tmp_df = tmp_df.set_index(keys=keys,
                             drop=True,
                             verify_integrity=True)
 
   # tmp_df.to_csv('tmp.csv', index=True)
-
   decomp_dataframe = pd.concat([decomp_dataframe, tmp_df])
+  
+  decomp_dataframe = decomp_dataframe.set_index(keys=keys,
+                                                drop=True,
+                                                verify_integrity=True)
   return decomp_dataframe
 
 ###############################################################################
@@ -857,7 +868,7 @@ def plot_composite_weak(composite_group,
       my_agg_times = get_plottable_dataframe(my_agg_times, ht_group, ht_name, driver_ht_groups, magic=magic_str)
 
       # this assumes that idx=0 is an SpMV aggregate figure, which appears to be worthless.
-      if numbered_plots_idx > 0:
+      if numbered_plots_idx > 0 and plot_row == ht_name:
         total_df = update_decomp_dataframe(total_df,
                                            my_agg_times,
                                            ht_group,
