@@ -730,7 +730,6 @@ def update_decomp_dataframe(decomp_dataframe,
   tmp_df = tmp_df.drop_duplicates()
   tmp_df[['MPI Procs',
           'nodes',
-
           'procs_per_node',
           'cores_per_proc',
           HYPER_THREAD_LABEL]] = tmp_df[['MPI Procs',
@@ -745,10 +744,13 @@ def update_decomp_dataframe(decomp_dataframe,
 
   # tmp_df.to_csv('tmp.csv', index=True)
   decomp_dataframe = pd.concat([decomp_dataframe, tmp_df])
-  
-  decomp_dataframe = decomp_dataframe.set_index(keys=keys,
-                                                drop=True,
-                                                verify_integrity=True)
+  try:
+    decomp_dataframe = decomp_dataframe.set_index(keys=keys,
+                                                  drop=True,
+                                                  verify_integrity=True)
+  except:
+    pass
+
   return decomp_dataframe
 
 ###############################################################################
@@ -902,7 +904,7 @@ def plot_composite_weak(composite_group,
       my_agg_times = get_plottable_dataframe(my_agg_times, ht_group, ht_name, driver_ht_groups, magic=magic_str)
 
       # this assumes that idx=0 is an SpMV aggregate figure, which appears to be worthless.
-      if numbered_plots_idx > 0 and plot_row == ht_name:
+      if numbered_plots_idx > -1 and plot_row == ht_name:
         total_df = update_decomp_dataframe(total_df,
                                            my_agg_times,
                                            ht_group,
@@ -1569,7 +1571,7 @@ def plot_composite_strong(composite_group,
         plot_raw_data(ax=axes['raw_data'][plot_row],
                       indep_ax=figures['independent']['raw_data'][plot_row].gca(),
                       xvalues=my_agg_times['ticks'],
-                      yvalues=my_agg_times[QUANTITY_OF_INTEREST_MIN],
+                      yvalues=my_agg_times[QUANTITY_OF_INTEREST_MAX],
                       linestyle='-',
                       label='{}'.format(decomp_label),
                       color=DECOMP_COLORS[decomp_label])
@@ -1903,21 +1905,22 @@ def plot_composite_strong(composite_group,
                filename='{basename}-free-yaxis'.format(basename=simple_fname),
                close_figure=False)
 
-  for column_name in figures['independent']:
-    for fig_name, fig in figures['independent'][column_name].items():
-      if column_name == 'speedup' or column_name == 'efficiency':
-        annotate_best(ax=fig.gca(),
-                      ax_id=fig_name,
-                      objective='max')
-      else:
-        annotate_best(ax=fig.gca(),
-                      ax_id=fig_name,
-                      objective='min')
+  if ANNOTATE_BEST:
+    for column_name in figures['independent']:
+      for fig_name, fig in figures['independent'][column_name].items():
+        if column_name == 'speedup' or column_name == 'efficiency':
+          annotate_best(ax=fig.gca(),
+                        ax_id=fig_name,
+                        objective='max')
+        else:
+          annotate_best(ax=fig.gca(),
+                        ax_id=fig_name,
+                        objective='min')
 
-  # save the free axis version of the figures
-  save_figures(figures,
-               filename='{basename}-free-yaxis-best'.format(basename=simple_fname),
-               close_figure=False)
+    # save the free axis version of the figures
+    save_figures(figures,
+                 filename='{basename}-free-yaxis-best'.format(basename=simple_fname),
+                 close_figure=False)
 
   # if we want consistent axes by column, then enforce that here.
   if HT_CONSISTENT_YAXES:
@@ -1926,22 +1929,23 @@ def plot_composite_strong(composite_group,
   # save the figures with the axes shared
   save_figures(figures, filename=simple_fname)
 
-  for column_name in figures['independent']:
-    if column_name == 'speedup' or column_name == 'efficiency':
-      annotate_best_column(figures=figures['independent'][column_name],
-                           axes_name_to_destroy=ht_names[0],
-                           objective='max')
-    else:
-      annotate_best_column(figures=figures['independent'][column_name],
-                           axes_name_to_destroy=ht_names[0],
-                           objective='min')
+  if ANNOTATE_BEST:
+    for column_name in figures['independent']:
+      if column_name == 'speedup' or column_name == 'efficiency':
+        annotate_best_column(figures=figures['independent'][column_name],
+                             axes_name_to_destroy=ht_names[0],
+                             objective='max')
+      else:
+        annotate_best_column(figures=figures['independent'][column_name],
+                             axes_name_to_destroy=ht_names[0],
+                             objective='min')
 
-  # save the figures with the axes shared
-  save_figures(figures,
-               filename='{fname}-overall'.format(fname=simple_fname),
-               composite=False,
-               independent=True,
-               independent_names=ht_names[0])
+    # save the figures with the axes shared
+    save_figures(figures,
+                 filename='{fname}-overall'.format(fname=simple_fname),
+                 composite=False,
+                 independent=True,
+                 independent_names=ht_names[0])
 
 
 ###############################################################################
