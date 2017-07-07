@@ -389,6 +389,294 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
   return plottable_df
 
 
+###########################################################################################
+def compute_scaling_metrics(plottable_df,
+                            dataset,
+                            total_time_dataset,
+                            decomp_label,
+                            compute_strong_terms=False):
+  """
+  Given a dataframe that is designed to be plotted. That is, it should have the appropriate x ticks as a column
+  as well as a column to join on.  This is implemented as xticks and num_nodes. The purpose is that we want to handle
+  missing data. By joining to this dataframe, we will obtain empty entries if the data is missing. This also guarantees
+  that the plotted data all have the same shape.
+
+  :param plottable_df: dataframe with num_nodes as a column
+  :param data_group: a datagroup that is suitable to aggregate and plot. For timing/count data, this runtime will sum()
+                     all entries grouped by the number of of nodes.
+  :param data_name: the group lookup tuple used to obtain this datagroup. We will use this looked tuple to find the
+                    related data in the driver_groups data group.
+  :param driver_groups: Data grouped identically to the data_group, but this is all groups.
+                        TODO: possibly pass in the driver_group directly and avoid the need for the data_name
+  :param compute_strong_terms: Compute speedup and efficiency
+  :return: plottable_df, populated with quantities of interest aggregated and various measures computed from those
+           aggregates.
+  """
+  DEBUG_plottable_dataframe = False
+  DIVIDE_BY_CALLCOUNTS = False
+  DIVIDE_BY_NUMSTEPS = True
+  TAKE_COLUMNWISE_MINMAX = False
+
+  if DEBUG_plottable_dataframe:
+    pd.set_option('display.expand_frame_repr', False)
+    print(decomp_label)
+    dataset.to_csv('datagroup-{}.csv'.format(decomp_label))
+
+  # Use aggregation. This typically will do nothing, but in some cases there are many data points
+  # per node count, and we need some way to flatten that data.  This assumes that experiments performed were the same
+  # which is how the groupby() logic works  at the highest level. For strong scaling problem_type, problem size (global)
+  # , solver and prec options are forced to be the same.
+  # The real challenge is how to handle multiple datapoints. For the most part, we do this by dividing by the number
+  # of samples taken (numsteps). This assumes that the basic experiment (a step) was the same in all cases.
+  datum_count_by_node_count = dataset.groupby('num_nodes').size()
+  if DEBUG_plottable_dataframe:
+    if datum_count_by_node_count.nunique() > 1:
+      print('Data points used for aggregate timing:')
+      print(datum_count_by_node_count)
+    else:
+      print('Using {} datapoints per node count'.format(datum_count_by_node_count.first))
+
+  timings = dataset.groupby('num_nodes', as_index=False)[[QUANTITY_OF_INTEREST_MIN,
+                                                             QUANTITY_OF_INTEREST_MIN_COUNT,
+                                                             QUANTITY_OF_INTEREST_MAX,
+                                                             QUANTITY_OF_INTEREST_MAX_COUNT,
+                                                             QUANTITY_OF_INTEREST_THING,
+                                                             QUANTITY_OF_INTEREST_THING_COUNT,
+                                                             'numsteps']].sum()
+
+  flat_mpi_timings = dataset.groupby('num_nodes', as_index=False)[[ 'flat_mpi_min',
+                                                                    'flat_mpi_max',
+                                                                    'flat_mpi_min_count',
+                                                                    'flat_mpi_max_count',
+                                                                    'flat_mpi_numsteps']].first()
+  timings = pd.merge(timings, flat_mpi_timings,
+                     how='left',
+                     on='num_nodes')
+
+  total_time_timings = total_time_dataset.groupby('num_nodes',
+                                                   as_index=False)[ [QUANTITY_OF_INTEREST_MIN,
+                                                                     QUANTITY_OF_INTEREST_MIN_COUNT,
+                                                                     QUANTITY_OF_INTEREST_MAX,
+                                                                     QUANTITY_OF_INTEREST_MAX_COUNT,
+                                                                     QUANTITY_OF_INTEREST_THING,
+                                                                     QUANTITY_OF_INTEREST_THING_COUNT,
+                                                                     'numsteps']].sum()
+
+  if DEBUG_plottable_dataframe:
+    total_time_dataset.to_csv('driver_timings-{timer}-{d}.csv'.format(
+      timer=total_time_dataset['Timer Name'].unique(),
+      d=decomp_label))
+
+  total_time_timings = total_time_timings[['num_nodes',
+                                           QUANTITY_OF_INTEREST_MIN,
+                                           QUANTITY_OF_INTEREST_MIN_COUNT,
+                                           QUANTITY_OF_INTEREST_MAX,
+                                           QUANTITY_OF_INTEREST_MAX_COUNT,
+                                           QUANTITY_OF_INTEREST_THING,
+                                           QUANTITY_OF_INTEREST_THING_COUNT,
+                                           'numsteps']]
+
+  # rename the driver timings to indicate they were from the driver
+  total_time_timings.rename(columns={QUANTITY_OF_INTEREST_MIN         : 'driver_min',
+                                     QUANTITY_OF_INTEREST_MIN_COUNT   : 'driver_min_count',
+                                     QUANTITY_OF_INTEREST_MAX         : 'driver_max',
+                                     QUANTITY_OF_INTEREST_MAX_COUNT   : 'driver_max_count',
+                                     QUANTITY_OF_INTEREST_THING       : 'driver_thing',
+                                     QUANTITY_OF_INTEREST_THING_COUNT : 'driver_thing',
+                                     'numsteps'                       : 'driver_numsteps'}, inplace=True)
+
+  if DEBUG_plottable_dataframe: print(plottable_df)
+
+  print('Decomp: {magic}:\n\t\tnumsteps:: data: {numsteps} driver: {numsteps_d}\n\t\tcallCounts:: data: {cc} driver: {cc_d}'.format(
+    magic=decomp_label,
+    numsteps=timings['numsteps'].unique(),
+    numsteps_d=total_time_timings['driver_numsteps'].unique(),
+    cc=timings[QUANTITY_OF_INTEREST_MIN_COUNT].unique(),
+    cc_d=total_time_timings['driver_min_count'].unique()))
+
+  # merge the kernels timings
+  plottable_df = plottable_df.merge(timings, on='num_nodes', how='left')
+
+  if DEBUG_plottable_dataframe: print(plottable_df)
+
+  # merge the driver timings
+  plottable_df = plottable_df.merge(total_time_timings, on='num_nodes', how='left')
+
+  if DEBUG_plottable_dataframe: print(plottable_df)
+
+  # attempt to deal with the outliers
+  # this is risky, because there is no promise there are the same number of data points for every node count
+  # Perhaps, normalize by the aggregate call count, which should be consistent for a specific decomp at a specific node
+  # count
+  if SMOOTH_OUTLIERS:
+    plottable_df['max_is_outlier'] = is_outlier(plottable_df[QUANTITY_OF_INTEREST_MAX].values, thresh=3.0)
+    plottable_df['min_is_outlier'] = is_outlier(plottable_df[QUANTITY_OF_INTEREST_MIN].values, thresh=3.0)
+    # print(my_agg_times)
+    # df['flag'][df.name.str.contains('e$')] = 'Blue'
+    plottable_df[QUANTITY_OF_INTEREST_MAX][(plottable_df['max_is_outlier'] is True)] = plottable_df[
+      QUANTITY_OF_INTEREST_MAX].median()
+    plottable_df[QUANTITY_OF_INTEREST_MIN][(plottable_df['min_is_outlier'] is True)] = plottable_df[
+      QUANTITY_OF_INTEREST_MIN].median()
+    # my_agg_times[(my_agg_times['max_is_outlier'] == True), QUANTITY_OF_INTEREST_MAX] = np.NAN
+    # print(my_agg_times)
+
+  # divide by the call count.
+  # The hope is that the call count will be consistent for a specific decomposition
+  # This gets messy for MueLu stuff. The root of the problem is that we are trying to compare different decomposition
+  # runs. We also have more data for some points than others. Plotting raw data can also be influenced by this.
+  # a total mess.
+  if DIVIDE_BY_CALLCOUNTS:
+    plottable_df['min_percent_t'] = \
+                              (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df[QUANTITY_OF_INTEREST_MIN_COUNT]) \
+                            / (plottable_df['driver_min'] / plottable_df['driver_min_count']) * 100.00
+
+    plottable_df['max_percent_t'] =\
+                              (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df[QUANTITY_OF_INTEREST_MAX_COUNT]) \
+                            / (plottable_df['driver_max'] / plottable_df['driver_max_count']) * 100.00
+  elif DIVIDE_BY_NUMSTEPS:
+    plottable_df['min_percent_t'] = \
+                              (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df['numsteps']) \
+                            / (plottable_df['driver_min'] / plottable_df['driver_numsteps']) * 100.00
+
+    plottable_df['max_percent_t'] =\
+                              (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df['numsteps']) \
+                            / (plottable_df['driver_max'] / plottable_df['driver_numsteps']) * 100.00
+  else:
+    plottable_df['min_percent_t'] = \
+                              (plottable_df[QUANTITY_OF_INTEREST_MIN]) \
+                            / (plottable_df['driver_min']) * 100.00
+
+    plottable_df['max_percent_t'] =\
+                              (plottable_df[QUANTITY_OF_INTEREST_MAX]) \
+                            / (plottable_df['driver_max']) * 100.00
+
+  if TAKE_COLUMNWISE_MINMAX:
+    # this is a bit iffy. It depends on what you choose to divide by above. Should the 'min' in the data
+    # be hardcoded to be the minOverProcs values, or does 'min' mean the conceptual minimum of the data.
+    # I take the latter as the definition since this data is a summary of experiments.
+    plottable_df['min_percent'] = plottable_df[['max_percent_t', 'min_percent_t']].min(axis=1)
+    plottable_df['max_percent'] = plottable_df[['max_percent_t', 'min_percent_t']].max(axis=1)
+
+    # drop the temporary columns
+    plottable_df = plottable_df.drop('min_percent_t', 1)
+    plottable_df = plottable_df.drop('max_percent_t', 1)
+  else:
+    plottable_df.rename(columns={'min_percent_t': 'min_percent',
+                                 'max_percent_t': 'max_percent'}, inplace=True)
+
+  plottable_df['min_percent'] = plottable_df['min_percent'].round(1)
+  plottable_df['max_percent'] = plottable_df['max_percent'].round(1)
+
+  # similar approach as above.
+  if DIVIDE_BY_CALLCOUNTS:
+    plottable_df['flat_mpi_factor_min_t'] = \
+                              (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df[QUANTITY_OF_INTEREST_MIN_COUNT]) \
+                            / (plottable_df['flat_mpi_min'] / plottable_df['flat_mpi_min_count'])
+
+    plottable_df['flat_mpi_factor_max_t'] = \
+                              (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df[QUANTITY_OF_INTEREST_MAX_COUNT]) \
+                            / (plottable_df['flat_mpi_max'] / plottable_df['flat_mpi_max_count'])
+  elif DIVIDE_BY_NUMSTEPS:
+    plottable_df['flat_mpi_factor_min_t'] = \
+                              (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df['numsteps']) \
+                            / (plottable_df['flat_mpi_min'] / plottable_df['flat_mpi_numsteps'])
+
+    plottable_df['flat_mpi_factor_max_t'] = \
+                              (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df['numsteps']) \
+                            / (plottable_df['flat_mpi_max'] / plottable_df['flat_mpi_numsteps'])
+  else:
+    plottable_df['flat_mpi_factor_min_t'] = \
+                              (plottable_df[QUANTITY_OF_INTEREST_MIN]) \
+                            / (plottable_df['flat_mpi_min'])
+
+    plottable_df['flat_mpi_factor_max_t'] = \
+                              (plottable_df[QUANTITY_OF_INTEREST_MAX]) \
+                            / (plottable_df['flat_mpi_max'])
+
+  if TAKE_COLUMNWISE_MINMAX:
+    plottable_df['flat_mpi_factor_min'] = plottable_df[['flat_mpi_factor_max_t', 'flat_mpi_factor_min_t']].min(axis=1)
+    plottable_df['flat_mpi_factor_max'] = plottable_df[['flat_mpi_factor_max_t', 'flat_mpi_factor_min_t']].max(axis=1)
+
+    plottable_df = plottable_df.drop('flat_mpi_factor_min_t', 1)
+    plottable_df = plottable_df.drop('flat_mpi_factor_max_t', 1)
+
+  else:
+    plottable_df.rename(columns={'flat_mpi_factor_min_t': 'flat_mpi_factor_min',
+                                 'flat_mpi_factor_max_t': 'flat_mpi_factor_max'}, inplace=True)
+  if DEBUG_plottable_dataframe:
+    plottable_df.to_csv('plottable-{timer}-{d}.csv'.format(timer=dataset['Timer Name'].unique(),
+                                                           d=decomp_label))
+
+  if compute_strong_terms is False:
+    if DEBUG_plottable_dataframe: pd.set_option('display.expand_frame_repr', True)
+    return plottable_df
+
+  # compute Speedup and Efficiency. Use Flat MPI as the baseline
+  np1_min_row = plottable_df.loc[plottable_df.loc[(plottable_df['num_nodes'] == 1), ['flat_mpi_min']].idxmin()]
+  np1_max_row = plottable_df.loc[plottable_df.loc[(plottable_df['num_nodes'] == 1), ['flat_mpi_max']].idxmax()]
+
+  # normalize by call count
+  if DIVIDE_BY_CALLCOUNTS:
+    np1_min = (np1_min_row['flat_mpi_min'] / np1_min_row['flat_mpi_min_count']).values
+    np1_max = (np1_max_row['flat_mpi_min'] / np1_min_row['flat_mpi_min_count']).values
+  elif DIVIDE_BY_NUMSTEPS:
+    np1_min = (np1_min_row['flat_mpi_min'] / np1_min_row['flat_mpi_numsteps']).values
+    np1_max = (np1_max_row['flat_mpi_min'] / np1_min_row['flat_mpi_numsteps']).values
+  else:
+    np1_min = (np1_min_row['flat_mpi_min']).values
+    np1_max = (np1_max_row['flat_mpi_min']).values
+
+  if DEBUG_plottable_dataframe: print(np1_min, np1_max)
+
+  if DIVIDE_BY_CALLCOUNTS:
+    plottable_df['speedup_min_t'] = np1_min /\
+                              (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df[QUANTITY_OF_INTEREST_MIN_COUNT])
+
+    plottable_df['speedup_max_t'] = np1_max /\
+                              (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df[QUANTITY_OF_INTEREST_MAX_COUNT])
+  elif DIVIDE_BY_NUMSTEPS:
+    plottable_df['speedup_min_t'] = np1_min /\
+                              (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df['numsteps'])
+
+    plottable_df['speedup_max_t'] = np1_max /\
+                              (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df['numsteps'])
+  else:
+    plottable_df['speedup_min_t'] = np1_min /\
+                              (plottable_df[QUANTITY_OF_INTEREST_MIN])
+
+    plottable_df['speedup_max_t'] = np1_max /\
+                              (plottable_df[QUANTITY_OF_INTEREST_MAX])
+
+  if DEBUG_plottable_dataframe: print(plottable_df)
+  # this will ensure that the 'max' as plotted is the max value, not necessarily the maxOverProcs value
+  # In most cases, for speedup, the max is the minOverProcs, and the min is the maxOverProcs.
+  # but because we had to choose which value to consider base line (np1) value, this can cause a mess if
+  # trying to stick to the TeuchosTimer notion of min and max.  Here, we report the minimum values and the maximum
+  # values we observe.
+  plottable_df['speedup_min'] = plottable_df[['speedup_max_t', 'speedup_min_t']].min(axis=1)
+  plottable_df['speedup_max'] = plottable_df[['speedup_max_t', 'speedup_min_t']].max(axis=1)
+
+  # drop the temporary columns
+  plottable_df = plottable_df.drop('speedup_min_t', 1)
+  plottable_df = plottable_df.drop('speedup_max_t', 1)
+
+  # efficiency
+  plottable_df['efficiency_min_t'] = plottable_df['speedup_min'] * 100.0 / plottable_df['num_nodes']
+  plottable_df['efficiency_max_t'] = plottable_df['speedup_max'] * 100.0 / plottable_df['num_nodes']
+
+  plottable_df['efficiency_min'] = plottable_df[['efficiency_max_t', 'efficiency_min_t']].min(axis=1)
+  plottable_df['efficiency_max'] = plottable_df[['efficiency_max_t', 'efficiency_min_t']].max(axis=1)
+
+  plottable_df = plottable_df.drop('efficiency_min_t', 1)
+  plottable_df = plottable_df.drop('efficiency_max_t', 1)
+
+  if DEBUG_plottable_dataframe:
+    plottable_df.to_csv('plottable-{}.csv'.format(decomp_label))
+    pd.set_option('display.expand_frame_repr', True)
+
+  return plottable_df
+
+
 def enforce_consistent_ylims(figures, axes):
   """
   Given the matplotlib figure and axes handles, determine global y limits
@@ -2145,6 +2433,130 @@ def plot_composite(composite_group,
 
 
 ###############################################################################
+def get_plottable_dataset(full_dataset,
+                          total_time_dataset,
+                          comparable_timers,
+                          scaling_type,
+                          expected_nodes):
+  if scaling_type == 'strong':
+    compute_strong_scaling_terms = True
+  else:
+    compute_strong_scaling_terms = False
+
+  # we use the expected nodes and ticks to ensure all plots have the same axes
+  my_ticks = np.arange(start=1, stop=len(expected_nodes) + 1, step=1, dtype=int)
+
+  # group by timer and attributes, but keep all decomps together
+  omp_groupby_columns = SFP.getMasterGroupBy(execspace_name='OpenMP', scaling_type=scaling_type)
+  omp_groupby_columns.remove('procs_per_node')
+  omp_groupby_columns.remove('cores_per_proc')
+  # be very careful, there will be duplicate decomp groups
+  omp_groupby_columns.remove('execspace_name')
+
+  # find the index of the Timer Name field in the groupBy clause
+  timer_name_index = omp_groupby_columns.index('Timer Name')
+
+  result_df = pd.DataFrame()
+
+  try:
+    if isinstance(comparable_timers, str):
+      dataset = full_dataset[full_dataset['Timer Name'] == comparable_timers]
+    else:
+      dataset = full_dataset[full_dataset['Timer Name'].isin(comparable_timers)]
+  except:
+    import sys
+    print('Failed to gather comparable_timers', sys.exc_info()[0])
+    return result_df
+
+  dataset = dataset.reset_index(drop=True)
+  total_time_dataset = total_time_dataset.reset_index(drop=True)
+
+  # group data into comparable chunks
+  composite_groups = dataset.groupby(omp_groupby_columns)
+  # be very careful, there will be duplicate decomp groups
+  omp_groupby_columns.remove('Timer Name')
+  total_time_dataset_composite_groups = total_time_dataset.groupby(omp_groupby_columns)
+
+  total_time_timer_names = total_time_dataset['Timer Name'].unique()
+
+  if len(total_time_timer_names) > 1:
+    raise(ValueError(
+      'Total time dataset contains too many timers. We expect only one. Timers present:{}'.format(
+        ','.join(total_time_timer_names))))
+
+  # process each comparable chunk:
+  for composite_group_name, composite_group in composite_groups:
+    # determine the flat MPI time
+    tmp_df = add_flat_mpi_data(composite_group, allow_baseline_override=True)
+
+    # construct an index into the driver_df by changing the timer label to match the driver's
+    # global total label
+    total_time_composite_group_name = list(composite_group_name)
+    # delete the timer name, it is indexed by the order of the groupby clause
+    del total_time_composite_group_name[timer_name_index]
+    # query the matching data
+    total_time_dataset_composite_group = total_time_dataset_composite_groups.get_group(
+      tuple(total_time_composite_group_name))
+
+    decomp_groups = tmp_df.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
+    total_time_dataset_decomp_groups = total_time_dataset_composite_group.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
+
+    # the number of HT combos we have
+    ht_names = tmp_df['threads_per_core'].sort_values(ascending=True).unique()
+
+    for decomp_group_name, decomp_group in decomp_groups:
+      procs_per_node = int(decomp_group_name[0])
+      cores_per_proc = int(decomp_group_name[1])
+      execution_space = decomp_group_name[2]
+
+      # iterate over HTs
+      ht_groups = decomp_group.groupby('threads_per_core')
+      # look up this decomp in the total_time dataset
+      total_time_dataset_ht_groups = total_time_dataset_decomp_groups.get_group(decomp_group_name).groupby('threads_per_core')
+
+      for ht_name in ht_names:
+
+        if execution_space == 'Serial':
+          if ht_name == ht_names[0]:
+            # no HT for serial
+            total_time_dataset_ht_group = total_time_dataset_ht_groups.get_group(ht_name)
+          else:
+            continue
+        else:
+          total_time_dataset_ht_group = total_time_dataset_ht_groups.get_group(ht_name)
+
+        # label this decomp
+        if execution_space == 'OpenMP':
+          decomp_label = "{procs_per_node}x{cores_per_proc}x{HT}".format(procs_per_node=procs_per_node,
+                                                                         cores_per_proc=cores_per_proc,
+                                                                         HT=ht_name)
+        elif execution_space == 'Serial':
+          decomp_label = 'flat_mpi'
+
+        ht_group = ht_groups.get_group(ht_name)
+
+        my_agg_times = pd.DataFrame(columns=['num_nodes', 'ticks'], data=np.column_stack((expected_nodes, my_ticks)))
+
+        my_agg_times = compute_scaling_metrics(plottable_df=my_agg_times,
+                                               dataset=ht_group,
+                                               total_time_dataset=total_time_dataset_ht_group,
+                                               decomp_label=decomp_label,
+                                               compute_strong_terms=compute_strong_scaling_terms)
+        my_agg_times['procs_per_node'] = procs_per_node
+        my_agg_times['cores_per_proc'] = cores_per_proc
+        my_agg_times['threads_per_core'] = ht_name
+        my_agg_times['execspace_name'] = execution_space
+
+        result_df = pd.concat([result_df, my_agg_times])
+
+  # check the integrity of this aggregate data
+  result_df = result_df.set_index(['num_nodes', 'procs_per_node', 'cores_per_proc', 'threads_per_core', 'execspace_name'],
+                                  drop=True)
+  result_df = result_df.reset_index(drop=False)
+  return result_df
+
+
+###############################################################################
 def plot_dataset(dataset,
                  driver_dataset,
                  ordered_timers,
@@ -2327,6 +2739,12 @@ def main():
                           'prec_name' : 'MueLu',
                           'prec_attributes' : '-repartition'}
 
+    nested_timer_analysis(dataset=dataset,
+                          driver_dataset=driver_dataset,
+                          total_time_key=total_time_key,
+                          scaling_type=scaling_study_type)
+    exit(0)
+
     # obtain a list of timer names ordered the aggregate time spent in each
     ordered_timers = get_ordered_timers(dataset=dataset,
                                         rank_by_column_name=QUANTITY_OF_INTEREST)
@@ -2353,6 +2771,280 @@ def main():
                total_time_key=total_time_key,
                scaling_type=scaling_study_type,
                restriction_tokens=restriction_tokens)
+
+
+def nested_timer_analysis(dataset,
+                          driver_dataset,
+                          total_time_key,
+                          scaling_type):
+  import re
+  import os
+
+  expected_nodes = dataset['num_nodes'].sort_values(ascending=True).unique().tolist()
+
+  # gather all timer labels
+  timer_names = dataset['Timer Name'].sort_values().unique().tolist()
+
+  # examples:
+  # MueLu: AmalgamationFactory: Build (level=[0-9]*)
+  # MueLu: CoalesceDropFactory: Build (level=[0-9]*)
+  # MueLu: CoarseMapFactory: Build (level=[0-9]*)
+  # MueLu: FilteredAFactory: Matrix filtering (level=[0-9]*)
+  # MueLu: NullspaceFactory: Nullspace factory (level=[0-9]*)
+  # MueLu: UncoupledAggregationFactory: Build (level=[0-9]*)
+  # MueLu: CoordinatesTransferFactory: Build (level=[0-9]*)
+  # MueLu: TentativePFactory: Build (level=[0-9]*)
+  # MueLu: Zoltan2Interface: Build (level=[0-9]*)
+  # MueLu: SaPFactory: Prolongator smoothing (level=[0-9]*)
+  # MueLu: SaPFactory: Fused (I-omega\*D\^{-1} A)\*Ptent (sub, total, level=1[0-9]*)
+  # MueLu: RAPFactory: Computing Ac (level=[0-9]*)
+  # MueLu: RAPFactory: MxM: A x P (sub, total, level=[0-9]*)
+  # MueLu: RAPFactory: MxM: P' x (AP) (implicit) (sub, total, level=[0-9]*)
+  # MueLu: RepartitionHeuristicFactory: Build (level=[0-9]*)
+  # MueLu: RebalanceTransferFactory: Build (level=[0-9]*)
+  # MueLu: RebalanceAcFactory: Computing Ac (level=[0-9]*)
+  # MueLu: RebalanceAcFactory: Rebalancing existing Ac (sub, total, level=[0-9]*)
+  #
+  # Do not contain the text total
+  # TpetraExt MueLu::SaP-[0-9]*: Jacobi All I&X
+  # TpetraExt MueLu::SaP-[0-9]*: Jacobi All Multiply
+  # TpetraExt MueLu::A\*P-[0-9]*: MMM All I&X
+  # TpetraExt MueLu::A\*P-[0-9]*: MMM All Multiply
+  # TpetraExt MueLu::R\*(AP)-implicit-[0-9]*: MMM All I&X
+  # TpetraExt MueLu::R\*(AP)-implicit-[0-9]*: MMM All Multiply
+
+  # for now, hard code these.
+  level_timers = [
+    r'(?P<label_prefix>MueLu: AmalgamationFactory: Build)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: CoalesceDropFactory: Build)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: CoarseMapFactory: Build)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: FilteredAFactory: Matrix filtering)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: NullspaceFactory: Nullspace factory)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: UncoupledAggregationFactory: Build)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: CoordinatesTransferFactory: Build)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: TentativePFactory: Build)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: Zoltan2Interface: Build)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: SaPFactory: Prolongator smoothing)\s*\(level=(?P<level_number>[0-9]*)\)',
+    r'(?P<label_prefix>MueLu: SaPFactory: Fused \(I-omega\*D\^{-1} A\)\*Ptent \(sub, total,)\s*level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: RAPFactory: Computing Ac)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: RAPFactory: MxM: A x P \(sub, total,)\s*level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: RAPFactory: MxM: P\' x \(AP\) \(implicit\) \(sub, total,)\s*level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: RepartitionHeuristicFactory: Build)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: RebalanceTransferFactory: Build)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: RebalanceAcFactory: Computing Ac)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: RebalanceAcFactory: Rebalancing existing Ac \(sub, total,)\s*level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    # Do not contain the text total
+    r'(?P<label_prefix>TpetraExt MueLu::SaP)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>Jacobi All I&X)',
+    r'(?P<label_prefix>TpetraExt MueLu::SaP)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>Jacobi All Multiply)',
+    r'(?P<label_prefix>TpetraExt MueLu::A\*P)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All I&X)',
+    r'(?P<label_prefix>TpetraExt MueLu::A\*P)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All Multiply)',
+    r'(?P<label_prefix>TpetraExt MueLu::R\*\(AP\)-implicit)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All I&X)',
+    r'(?P<label_prefix>TpetraExt MueLu::R\*\(AP\)-implicit)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All Multiply)'
+  ]
+
+  level_timers_re = []
+  for re_str in level_timers:
+    level_timers_re.append(re.compile(re_str))
+
+  level_timer_map = {'0': list(),
+                     '1': list(),
+                     '2': list(),
+                     '3': list(),
+                     '4': list(),
+                     '5': list(),
+                     '6': list(),
+                     '7': list(),
+                     '8': list(),
+                     '9': list(),
+                     '10': list(),
+                     'total': list()}
+
+  for level_timer_re in level_timers_re:
+    for timer_name in timer_names:
+      for m in [level_timer_re.search(timer_name)]:
+        if m:
+          level_timer_map[m.group('level_number')].append(timer_name)
+
+  # look for (total) labels
+  for timer_name in timer_names:
+      m = re.search(r'\(\s*total\s*\)', timer_name)
+      if m:
+        level_timer_map['total'].append(timer_name)
+
+  # find the total time key
+  if total_time_key in timer_names:
+    total_time_dataset = dataset[dataset['Timer Name'].isin(total_time_key)]
+  else:
+    if isinstance(total_time_key, str):
+      total_time_dataset = driver_dataset[driver_dataset['Timer Name'] == total_time_key]
+    else:
+      total_time_dataset = driver_dataset[driver_dataset['Timer Name'].isin(total_time_key)]
+
+  # find all timer labels that look like 'foo (total)'
+  master_timer_labels_re = re.compile(r'^(?P<timer_label>.*?)\s*\(total\)$')
+  master_timer_labels  = [m.group('timer_label') for t in timer_names for m in [master_timer_labels_re.match(t)] if m]
+  print(master_timer_labels)
+
+  annotated_df = pd.DataFrame()
+  try:
+    import pathlib
+    # attempt to address the file
+    temp = Path('muelu_constructor_annotated_data.csv').resolve()
+    # throws if the file does not exist
+
+    annotated_df = pd.read_csv('muelu_constructor_annotated_data.csv', low_memory=False)
+    annotated_df = annotated_df.set_index(['Timer Name',
+                                           'num_nodes',
+                                           'procs_per_node',
+                                           'cores_per_proc',
+                                           'threads_per_core',
+                                           'execspace_name'],
+                                          drop=True,
+                                          verify_integrity=True)
+    annotated_df = annotated_df.reset_index()
+  except FileNotFoundError or RuntimeError:
+    x = 0
+    for timer_name in timer_names:
+      # find all timer labels that start with the master label
+      plottable_df = get_plottable_dataset(full_dataset=dataset,
+                                           total_time_dataset=total_time_dataset,
+                                           comparable_timers=timer_name,
+                                           scaling_type=scaling_type,
+                                           expected_nodes=expected_nodes)
+
+      plottable_df.to_csv('{}.csv'.format(re.sub(r'[ :]', '_', timer_name)))
+      plottable_df['Timer Name'] = timer_name
+      annotated_df = pd.concat([annotated_df, plottable_df])
+      x += 1
+      print('{} / {} = {}%'.format(x, len(timer_names), x * 100.0 / len(timer_names)))
+
+    annotated_df = annotated_df.set_index(['Timer Name',
+                                           'num_nodes',
+                                           'procs_per_node',
+                                           'cores_per_proc',
+                                           'threads_per_core',
+                                           'execspace_name'],
+                                          drop=True,
+                                          verify_integrity=True)
+
+    annotated_df = annotated_df.reset_index()
+    annotated_df.to_csv('muelu_constructor_annotated_data.csv')
+
+  # reportable group is: execspace_name, procs_per_node, cores_per_proc, threads_per_core, num_nodes
+  annotated_df['over_all_timer_ranking'] = annotated_df.groupby(
+    ['execspace_name',
+     'procs_per_node',
+     'cores_per_proc',
+     'threads_per_core',
+     'num_nodes'])[QUANTITY_OF_INTEREST_MAX].rank(ascending=False, method='first')
+
+
+  # add timer ranking for each level in the level_timer_map
+  # that is, given a list of timer labels, we find the ranking (sorted order number) of each
+  # and store it in a column.  We do this for each level
+  for level, level_timer_list in level_timer_map.items():
+    if not level_timer_list:
+      continue
+    # get the key to access rows with this specific timer name, this includes all decomps
+    indexer = annotated_df['Timer Name'].isin(level_timer_list)
+    annotated_df.loc[ indexer ,'max_ranking'] = annotated_df.loc[indexer].groupby(
+      ['execspace_name',
+       'procs_per_node',
+       'cores_per_proc',
+       'threads_per_core',
+       'num_nodes'])[QUANTITY_OF_INTEREST_MAX].rank(ascending=False, method='first')
+
+  # add a decomp label
+  annotated_df['decomp_label'] = annotated_df["procs_per_node"].map(str) + 'x' \
+                               + annotated_df["cores_per_proc"].map(str) + 'x' \
+                               + annotated_df["threads_per_core"].map(str) \
+                               + ' (' + annotated_df["execspace_name"].map(str) + ')'
+
+  # create pivot tables for each level summarizing the data
+  for level, level_timer_list in level_timer_map.items():
+    if not level_timer_list:
+      continue
+
+    report_level_name = 'level-{n}_side-by-side'.format(n=level)
+
+    # pivot with the decomp labels being the column names
+    indexer = annotated_df['Timer Name'].isin(level_timer_list)
+    for qoi in ['max_ranking', 'over_all_timer_ranking', QUANTITY_OF_INTEREST_MAX, 'max_percent']:
+      if qoi in ['max_ranking', 'over_all_timer_ranking']:
+        ascending=True
+      else:
+        ascending=False
+
+      pd.pivot_table(annotated_df.loc[indexer],
+                          index=['num_nodes', 'Timer Name'],
+                          values=qoi,
+                          columns=['decomp_label']).reset_index(
+        drop=False).sort_values(by=['num_nodes', '64x1x1 (Serial)'],
+                                ascending=[True,ascending]).to_csv('{f}_{qoi}.csv'.format(f=report_level_name,
+                                                                                   qoi=qoi),
+                                                                    index=False)
+    #
+    # annotated_df.loc[indexer].pivot(index='Timer Name',
+    #                                 columns='decomp_label',
+    #                                 values=QUANTITY_OF_INTEREST_MAX).to_csv(report_level_name, index=True)
+
+  reportable_groups = annotated_df.groupby( ['execspace_name',
+                                             'procs_per_node',
+                                             'cores_per_proc',
+                                             'threads_per_core',
+                                             'num_nodes'])
+
+  for reportable_name, reportable_group in reportable_groups:
+    report_name = 'muelu_constructor-{exec}-{procs_per_node}x{cores_per_proc}x{threads_per_core}-nodes_{nodes}'.format(
+      exec=reportable_name[0],
+      procs_per_node=reportable_name[1],
+      cores_per_proc=reportable_name[2],
+      threads_per_core=reportable_name[3],
+      nodes=reportable_name[4])
+
+    reportable_group.sort_values(by=[QUANTITY_OF_INTEREST_MAX],
+                                 ascending=False).to_csv('{}.csv'.format(report_name),
+                                                         index=False)
+    # next, restrict by levels
+    for level, level_timer_list in level_timer_map.items():
+      if not level_timer_list:
+        continue
+
+      report_level_name = '{name}_level-{n}.csv'.format(name=report_name,
+                                                    n=level)
+      reportable_group[reportable_group['Timer Name'].isin(level_timer_list)].sort_values(by=[QUANTITY_OF_INTEREST_MAX],
+                                                                                          ascending=False).to_csv(report_level_name,
+                                                                                                                  index=False)
+
+  # for master_timer_label in master_timer_labels:
+  #   # find all timer labels that start with the master label
+  #   nested_timer_labels = [timer_name for timer_name in timer_names if timer_name.startswith(master_timer_label)]
+  #   print('Master: {master}\nNested: {nested}'.format(master=master_timer_label, nested=','.join(nested_timer_labels)))
+  #   plottable_df = get_plottable_dataset(full_dataset=dataset,
+  #                                        total_time_dataset=total_time_dataset,
+  #                                        comparable_timers=nested_timer_labels[0],
+  #                                        scaling_type=scaling_type,
+  #                                        expected_nodes=expected_nodes)
+  #
+  #   plottable_df.to_csv('{}.csv'.format(re.sub(r'[ :]', '_',nested_timer_labels[0])))
+  #   plottable_df['Timer Name'] = timer_name
+  #   annotated_df = pd.concat([annotated_df, plottable_df])
+
+  exit(0)
+
+
+
+  for re_str in analysis_timers:
+    timer_re = re.compile(re_str)
+    timer_names_subset = [m.group(0) for t in timer_names for m in [timer_re.search(t)] if m]
+    print(re_str)
+    print(timer_names_subset)
+    print(os.path.commonprefix(timer_names_subset))
+    get_plottable_dataset(full_dataset=dataset,
+                          total_time_dataset=total_time_dataset,
+                          comparable_timers=timer_names_subset[0],
+                          scaling_type=scaling_type,
+                          expected_nodes=expected_nodes)
 
 
 ###############################################################################
