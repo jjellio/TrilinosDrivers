@@ -10,25 +10,44 @@ MIN_NUM_NODES = 1
 MAX_NUM_NODES = 64
 FORCE_REPLOT = True
 QUANTITY_OF_INTEREST='maxT'
+QUANTITY_OF_INTEREST_COUNT='maxC'
 
-if __name__ == '__main__':
+QUANTITY_OF_INTEREST_MIN='minT'
+QUANTITY_OF_INTEREST_MIN_COUNT='minC'
+QUANTITY_OF_INTEREST_MAX='maxT'
+QUANTITY_OF_INTEREST_MAX_COUNT='maxC'
+QUANTITY_OF_INTEREST_THING='meanCT'
+QUANTITY_OF_INTEREST_THING_COUNT='meanCC'
+
+def sanity_check():
+  import matplotlib
+  print('matplotlib: {}'.format(matplotlib.__version__))
+  print('numpy: {}'.format(np.__version__))
+  print('pandas: {}'.format(pd.__version__))
+
+
+def load_dataset(dataset_name):
+  print('Reading {}'.format(dataset_name))
   # write the total dataset out, index=False, because we do not drop it above
-  dataset = pd.read_csv('all_data.csv', low_memory=False)
+  dataset = pd.read_csv(dataset_name, low_memory=False)
+
+  print('Read csv complete')
+
+  integral_columns = SFP.getIndexColumns(execspace_name='OpenMP')
+  non_integral_names = ['Timer Name',
+                           'problem_type',
+                           'solver_name',
+                           'solver_attributes',
+                           'prec_name',
+                           'prec_attributes',
+                           'execspace_name',
+                           'execspace_attributes']
 
   # set the index, verify it, and sort
   dataset.set_index(keys=SFP.getIndexColumns(execspace_name='OpenMP'),
                     drop=False, inplace=True, verify_integrity=True)
-  # sort
-  dataset.sort_values(inplace=True,
-                      by=SFP.getIndexColumns(execspace_name='OpenMP'))
+  print('Verified index')
 
-  # remove the timers the driver adds
-  dataset = dataset[~dataset['Timer Name'].isin(['0 - Total Time',
-                                                  '1 - Reseting Linear System',
-                                                  '2 - Adjusting Nullspace for BlockSize',
-                                                  '3 - Constructing Preconditioner',
-                                                  '4 - Constructing Solver',
-                                                  '5 - Solve'])]
   # optionally restrict the data processed
   # Elasticity data is incomplete.
   restriction_query = '(problem_type != \"Elasticity3D\") & ' \
@@ -39,6 +58,50 @@ if __name__ == '__main__':
                                 max_num_nodes=MAX_NUM_NODES)
 
   dataset = dataset.query(restriction_query)
+  print('Restricted dataset')
+
+  dataset.fillna(value='None', inplace=True)
+
+  # sort
+  # dataset.sort_values(inplace=True,
+  #                     by=SFP.getIndexColumns(execspace_name='OpenMP'))
+  dataset.sort_index(inplace=True)
+  print('Sorted')
+
+  # remove the timers the driver adds
+  driver_dataset = dataset[dataset['Timer Name'].isin(['0 - Total Time',
+                                                  '1 - Reseting Linear System',
+                                                  '2 - Adjusting Nullspace for BlockSize',
+                                                  '3 - Constructing Preconditioner',
+                                                  '4 - Constructing Solver',
+                                                  '5 - Solve'])]
+  print('Gathered driver timers')
+
+  # remove the timers the driver adds
+  dataset = dataset[~dataset['Timer Name'].isin(['0 - Total Time',
+                                                  '1 - Reseting Linear System',
+                                                  '2 - Adjusting Nullspace for BlockSize',
+                                                  '3 - Constructing Preconditioner',
+                                                  '4 - Constructing Solver',
+                                                  '5 - Solve'])]
+  print('Removed driver timers')
+
+  # reindex
+  # set the index, verify it, and sort
+  dataset.set_index(keys=SFP.getIndexColumns(execspace_name='OpenMP'),
+                    drop=False, inplace=True, verify_integrity=True)
+  driver_dataset.set_index(keys=SFP.getIndexColumns(execspace_name='OpenMP'),
+                    drop=False, inplace=True, verify_integrity=True)
+  print('Rebuilt truncated index')
+
+  return dataset, driver_dataset
+
+
+if __name__ == '__main__':
+  sanity_check()
+
+  # read the csv file
+  dataset, driver_dataset = load_dataset('all_data.csv')
 
   # enforce all plots use the same num_nodes. E.g., the axes will be consistent
   my_nodes = np.array(list(map(int, dataset['num_nodes'].unique())))
@@ -56,9 +119,31 @@ if __name__ == '__main__':
   # For now, use Experiment, because it encapsulates the possible 'nan' keys
 
   omp_groupby_columns = SFP.getMasterGroupBy(execspace_name='OpenMP', scaling_type='strong')
-  #print(omp_groupby_columns)
+  print(omp_groupby_columns)
   timer_name_index = omp_groupby_columns.index('Timer Name')
   groups = dataset.groupby(omp_groupby_columns)
+
+  spmv_group_by = SFP.getMasterGroupBy(execspace_name='OpenMP', scaling_type='strong')
+  # uncomment these, and you will get the fastest SpMV over all decomps
+  # spmv_group_by.remove('procs_per_node')
+  # spmv_group_by.remove('cores_per_proc')
+  spmv_group_by.remove('solver_name')
+  spmv_group_by.remove('solver_attributes')
+  spmv_group_by.remove('prec_name')
+  spmv_group_by.remove('prec_attributes')
+
+  # mini index
+  #spmv_index = ['problem_type', 'problem_nx', 'problem_ny', 'problem_nz', '']
+
+  spmv_only_data = dataset[dataset['Timer Name'].str.match('^.* Operation Op\*x$')]
+  spmv_only_data['Timer Name'] = 'Operation Op*x'
+  spmv_only_data['single_spmv_time'] = spmv_only_data[QUANTITY_OF_INTEREST] / spmv_only_data[QUANTITY_OF_INTEREST_COUNT]
+
+  fastest_spmv_by_decomp = spmv_only_data.loc[spmv_only_data.groupby(spmv_group_by)[QUANTITY_OF_INTEREST].idxmin()]
+  #fastest_spmv_by_decomp['Timer Name'] = 'Operation Op*x'
+  fastest_spmv_by_decomp.set_index(['problem_type', 'procs_per_node', 'cores_per_proc'],
+                                   inplace=True, verify_integrity=True)
+  fastest_spmv_by_decomp.to_csv('spmv_agg_groups.csv')
 
   for group_name, group in groups:
     # for a specific group of data, compute the scaling terms, which are things like min/max
@@ -100,10 +185,13 @@ if __name__ == '__main__':
     elif len(np1) > 1:
       np1 = np.min(np1)
 
-    spmv_index = list(group[(group['num_nodes'] == 1) & (group['threads_per_core'] == 1)].iloc[0].name)
-    spmv_index[0] = 'Belos:CG: Operation Op*x'
-    spmv_index = tuple(spmv_index)
-    np1_spmv_time = dataset.iloc[dataset.index.get_loc(spmv_index)][QUANTITY_OF_INTEREST]
+    # spmv_index = list(group[(group['num_nodes'] == 1) & (group['threads_per_core'] == 1)].iloc[0].name)
+    # spmv_index[0] = 'Belos:CG: Operation Op*x'
+    # spmv_index = tuple(spmv_index)
+    np1_spmv_time = fastest_spmv_by_decomp.loc[(my_tokens['problem_type'],
+                                                my_tokens['procs_per_node'],
+                                                my_tokens['cores_per_proc'])]['single_spmv_time']
+    #np1_spmv_time = dataset.iloc[dataset.index.get_loc(spmv_index)][QUANTITY_OF_INTEREST]
     print(np1_spmv_time)
 
     print("min: {}, max: {}".format(y_min, y_max))
@@ -130,10 +218,12 @@ if __name__ == '__main__':
           num_missing_data_points=num_missing_data_points))
         #print(my_agg_times[['num_nodes', QUANTITY_OF_INTEREST]])
 
+      np1_spmv_time_scaled = np1_spmv_time * my_agg_times[QUANTITY_OF_INTEREST_COUNT]
+      print(np1_spmv_time_scaled)
+
       # compute SpeedUp and Efficiency
       S = np1 / my_agg_times[QUANTITY_OF_INTEREST]
       E = 100.00 * S / my_agg_times['num_nodes']
-      S_spmv = np1_spmv_time / my_agg_times[QUANTITY_OF_INTEREST]
 
       c = ht_group[QUANTITY_OF_INTEREST].count()
 
@@ -143,7 +233,6 @@ if __name__ == '__main__':
 
       my_agg_times['SpeedUp'] = S
       my_agg_times['Efficiency'] = E
-      my_agg_times['SpeedUp SpMV'] = S_spmv
 
       # compute approximate nnz per proc
       my_agg_times['nnz'] = (prob_size / (my_agg_times['num_nodes']*procs_per_node))/1000.0
@@ -163,23 +252,24 @@ if __name__ == '__main__':
 
       # plot the titles for the first HT group
       if ht_n == 1:
-        ax_.set_title('Raw Data\nAnnotation: Number of NP=1 SpMVs\n(HTs={:.0f})'.format(ht_name))
+        # ax_.set_title('Raw Data\nAnnotation: Number of NP=1 SpMVs\n(HTs={:.0f})'.format(ht_name))
+        ax_.set_title('Raw Data\nAnnotation: Data Labels\n(HTs={:.0f})'.format(ht_name))
       else:
         # otherwise, print only the num hts
         ax_.set_title('(HTs={:.0f})'.format(ht_name))
 
       # add spmvs as a right side 2nd axes
-      ax_twin = ax_.twinx()
-      ax_twin.set_yticks(ax_.get_yticks() / np1_spmv_time)
-      ax_twin.set_ylim([y_min/np1_spmv_time, y_max/np1_spmv_time])
-      ax_twin.set_ylabel('Cost as Function of SpMVs')
+      # ax_twin = ax_.twinx()
+      # ax_twin.set_yticks(ax_.get_yticks() / np1_spmv_time)
+      # ax_twin.set_ylim([y_min/np1_spmv_time, y_max/np1_spmv_time])
+      # ax_twin.set_ylabel('Cost as Function of SpMVs')
 
       # label the runtimes as functions of SpMVs
-      my_agg_times['num_np1_spmvs'] = my_agg_times[QUANTITY_OF_INTEREST].values / np1_spmv_time
-      spmv_data_labels = ['{:.2f}'.format(i) for i in (my_agg_times['num_np1_spmvs'])]
+      #my_agg_times['num_np1_spmvs'] = my_agg_times[QUANTITY_OF_INTEREST].values / np1_spmv_time_scaled
+      spmv_data_labels = ['{:.2f}'.format(i) for i in (my_agg_times[QUANTITY_OF_INTEREST])]
       bad_value = False
-      for label, x, y in zip(spmv_data_labels, my_ticks, my_agg_times['num_np1_spmvs'].values):
-        ax_twin.annotate(
+      for label, x, y in zip(spmv_data_labels, my_ticks, my_agg_times[QUANTITY_OF_INTEREST].values):
+        ax_.annotate(
           label,
           xy=(x, y), xytext=(20, 20),
           textcoords='offset points', ha='right', va='bottom',

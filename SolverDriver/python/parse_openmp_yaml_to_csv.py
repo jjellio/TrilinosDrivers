@@ -21,6 +21,19 @@ from pathlib import Path
 import re
 import ScalingFilenameParser as SFP
 
+# this is used to preallocate the dataframe. It does not need to be perfect, simply large enough
+MAX_NUM_TIMERS = 1024
+
+
+def file_len(PathLibFilename):
+  i = 0
+
+  with PathLibFilename.open() as f:
+    for i, l in enumerate(f):
+      pass
+  return i + 1
+
+
 # affinity_files have the name:
 # affinity_dir/Laplace3D-BS-1-1240x1240x1240_OpenMP-threads-16_np-2048_decomp-128x16x4x1_affinity.csv
 # Tokenized:
@@ -29,18 +42,44 @@ def parse_affinity_data(affinity_path, tokens):
   affinity_filename = '{path}/{name}'.format(path=affinity_path,
                                              name=SFP.build_affinity_filename(my_tokens))
 
-  my_file = Path(affinity_filename)
-  if ~my_file.is_file():
+  my_file_lookup = Path(affinity_filename)
+  try:
+    affinity_file_abs = my_file_lookup.resolve()
+  except:
     print('Missing Affinity File: {}'.format(affinity_filename))
     return
 
-  df = pd.read_csv(affinity_filename,
-                   parse_dates=True,
-                   skipinitialspace=True,
-                   low_memory=False)
+  #if ~my_file.is_file():
+  #  print('Missing Affinity File: {}'.format(affinity_filename))
+  #  print(my_file.stat())
+  #  return
+  file_lines = file_len(affinity_file_abs)
 
-  hostnames = ','.join(df['hostname'].unique())
-  timestamp = df['Timestamp'].max()
+  # 0,64,64,0,"nid02623","5-11-2017 21:02:30.900965",0,0|68|136|204
+  expected_lines = tokens['num_nodes'] \
+                 * tokens['procs_per_node'] \
+                 * tokens['cores_per_proc'] \
+                 * tokens['threads_per_core'] \
+                 + 1
+  if expected_lines != file_lines:
+    import re
+
+    print('{fname}: has {num} lines, expected {exp}'.format(fname=affinity_filename,
+                                                            num=file_lines,
+                                                            exp=expected_lines))
+    #line_re = r'\d+,\d+,\d+,\d+,"\w+","[0-9- :.]+",\d+,\d+|\d+|\d+|\d\d\d'
+    hostnames = 'unknown'
+    timestamp = 'unknown'
+
+  else:
+    # use pandas to read the CSV
+    df = pd.read_csv(affinity_file_abs,
+                     parse_dates=True,
+                     skipinitialspace=True,
+                     low_memory=False)
+
+    hostnames = ','.join(df['hostname'].unique())
+    timestamp = df['Timestamp'].max()
 
   tokens['nodes'] = hostnames
   tokens['timestamp'] = timestamp
@@ -142,8 +181,11 @@ if __name__ == '__main__':
       # dtypes = SFP.getColumnsDTypes(execspace_name='OpenMP')
       # print(dtypes)
 
-      dataset = pd.DataFrame(columns=list(timer_data), index=np.arange(num_timers*num_files*4))
+      dataset = pd.DataFrame(columns=list(timer_data), index=np.arange(MAX_NUM_TIMERS*num_files*4))
 
+    #timer_data = timer_data.reindex_like(dataset)
+
+    #dataset = pd.concat([dataset, timer_data])
     for index, row in timer_data.iterrows():
       df_idx += 1
       dataset.loc[df_idx] = row[:]

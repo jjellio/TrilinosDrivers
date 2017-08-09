@@ -1,0 +1,49 @@
+<ParameterList name="MueLu">
+
+  <Parameter name="verbosity"                               type="string"   value="none"/>
+  <Parameter name="coarse: max size"                        type="int"      value="1000"/>
+
+  <!-- not part of original milestone, but reduces setup cost for symmetric problems -->
+  <Parameter name="transpose: use implicit"                 type="bool"     value="true"/>
+
+  <!-- There is no harm in omitting the following options and values, as these are the default
+       values.  By including these, however, it's made explicit what the options' values are. -->
+  <!-- start of default values for general options (can be omitted) -->
+  <Parameter name="number of equations"                     type="int"      value="1"/>
+  <Parameter name="max levels"                	            type="int"      value="10"/>
+  <Parameter name="multigrid algorithm"                     type="string"   value="sa"/>
+  <Parameter name="sa: use filtered matrix"                 type="bool"     value="true"/>
+  <!-- end of default values -->
+
+  <!-- =================  SMOOTHERS  ================= -->
+  <Parameter name="smoother: type"                          type="string"   value="CHEBYSHEV"/>
+  <ParameterList name="smoother: params">
+     <Parameter name="chebyshev: degree"                    type="int"      value="2"/>
+     <Parameter name="chebyshev: ratio eigenvalue"          type="double"   value="20"/>
+     <Parameter name="chebyshev: min eigenvalue"            type="double"   value="1.0"/>
+     <Parameter name="chebyshev: zero starting solution"    type="bool"     value="true"/>
+     <Parameter name="chebyshev: eigenvalue max iterations" type="int"      value="15"/>
+  </ParameterList>
+
+  <!-- =================  AGGREGATION  ================= -->
+  <Parameter name="aggregation: type"                       type="string"   value="uncoupled"/>
+  <Parameter name="aggregation: drop scheme"                type="string"   value="classical"/>
+
+  <!-- =================  REPARTITION  ================= -->
+  <!-- Normally we would enable repartitioning for parallel studies.  However, its influence
+       on threaded performance is unknown.  -->
+  <Parameter name="repartition: enable"                     type="bool"     value="true"/>
+  <Parameter name="repartition: min rows per proc"          type="int"      value="1000"/>
+  <Parameter name="repartition: start level"                type="int"      value="2"/>
+  <Parameter name="repartition: max imbalance"              type="double"   value="1.327"/>
+  <Parameter name="repartition: partitioner"                type="string"   value="zoltan2"/>
+  <!-- start of default values for repartitioning (can be omitted) -->
+  <Parameter name="repartition: remap parts"                type="bool"     value="true"/>
+  <Parameter name="repartition: rebalance P and R"          type="bool"     value="false"/>
+  <ParameterList name="repartition: params">
+     <Parameter name="algorithm" type="string" value="multijagged"/>
+     <Parameter name="mj_migration_type" type="int" value="1"/>
+  </ParameterList> 
+  <!-- end of default values -->
+
+</ParameterList>
