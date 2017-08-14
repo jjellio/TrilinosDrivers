@@ -66,13 +66,16 @@
 #include <Xpetra_Map.hpp> // needed for lib enum
 
 #include <TpetraCore_config.h>
+#include <MueLu_config.hpp>
 #ifdef HAVE_MUELU_EXPLICIT_INSTANTIATION
 #include <MueLu_ExplicitInstantiation.hpp>
 #endif
 
 #ifdef HAVE_MUELU_OPENMP
 #include <omp.h>
+#include "WhereAmI.hpp"
 #endif
+
 
 #include "SolverDriverDetails_decl.hpp"
 
@@ -279,7 +282,7 @@ int main(int argc, char* argv[]) {
     // =========================================================================
     // do this so argc/argv will have kokkos items removed
     Kokkos::initialize(argc, argv);
-
+    report_omp_bindings();
 
     Xpetra::UnderlyingLib lib = xpetraParams->GetLib();
 

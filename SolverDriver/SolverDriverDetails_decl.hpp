@@ -97,7 +97,7 @@
 #include <BelosSolverManager.hpp>
 #include <BelosTypes.hpp>
 #include <BelosXpetraAdapterOperator.hpp>
-
+#include <BelosMultiVecTraits.hpp>
 
 #include <MueLu.hpp>
 #include <MueLu_BaseClass.hpp>
