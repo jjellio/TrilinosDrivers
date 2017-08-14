@@ -45,7 +45,7 @@
 
 #include "SolverDriverDetails_decl.hpp"
 
-
+extern bool __KokkosSparse_Impl_USE_PURE_OPENMP_SPMV;
 
 template<class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
 SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::SolverDriverDetails (
@@ -97,6 +97,10 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::SolverDriverDetails
                                             "For Serial, this could be one or 2. E.g., does this process exclusively own the core,"
                                             "or does it share the core with another process. E.g., 4 MPI procs per KNL core.");
 
+  std::string spmv_backend = "kokkos_teams";
+  clp.setOption("spmv_backend", &spmv_backend,
+                "The backend used for the SpMV: kokkos_teams, omp_flat, omp_nested");
+
   std::string reportSolversAndExit = "";
   clp.setOption("reportSolversAndExit", &reportSolversAndExit,
                 "report the solvers supported by the SolverFactory and exit (SolverFactory=Belos|MueLu)");
@@ -107,6 +111,9 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::SolverDriverDetails
     case CLP::PARSE_ERROR:
     case CLP::PARSE_UNRECOGNIZED_OPTION: exit(EXIT_FAILURE);
     case CLP::PARSE_SUCCESSFUL:          break;
+  }
+  {
+    setenv("KOKKOS_SPARSE_CRS_SPMV", spmv_backend.c_str(), 1); // does overwrite
   }
 
   comm_ = Teuchos::DefaultComm<int>::getComm();
@@ -205,6 +212,7 @@ template<class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
 void
 SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::createConfigParameterList (Teuchos::ParameterList& configPL)
 {
+  using Teuchos::ParameterList;
   // gather information about MPI
   {
     ParameterList& mpiPL = configPL.sublist("MPI", false, "Parallel partitioning information");
@@ -285,7 +293,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::gatherAffinityInfo 
   OSTab tab (out);
 
   RCP<Time> tm =  TimeMonitor::getNewTimer("Driver: 2 - Gather Thread Affinity");
-  Teuchos::TimeMonitor linearSystemCreationTimer ( *tm );
+  Teuchos::TimeMonitor affinityTimer ( *tm );
 
   std::ostringstream oss;
   oss << getProblemFileToken() << "_"
@@ -411,8 +419,6 @@ if (nodeLocalComm_->getRank () == 0) {
   }
 }
 #endif
-
-
 
   comm_->barrier();
 }
@@ -569,6 +575,9 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::createLinearSystem(
       << "========================================================"
       << endl;
 
+  //out << "calling create_block_partitioning" << std::endl;
+ 
+  //A->getLocalMatrix ().graph.create_block_partitioning(omp_get_max_threads());
   // make the pointers const. The problem should not be changed during execution
   orig_A_           = A;
   orig_coordinates_ = coordinates;
@@ -821,12 +830,16 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
     RCP<MultiVector> nullspace= Teuchos::null;
     RCP<MultiVector> X= Teuchos::null;
     RCP<MultiVector> B= Teuchos::null;
+    RCP<MultiVector> Q= Teuchos::null;
+    const int num_Q = 100+1;
     RCP<MultiVector> R0 = Teuchos::null;
     RCP<const Map>   map= Teuchos::null;
     RCP<Map>        mapT= Teuchos::null;
 
     typedef Teuchos::ScalarTraits<SC> STS;
     SC zero = STS::zero(), one = STS::one();
+
+    Q   = MultiVectorFactory::Build(orig_X_->getMap(), num_Q, true);
 
     OSTab tab (out);
 
@@ -852,6 +865,8 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
       if (orig_A_->GetFixedBlockSize() > 1)
         A->SetFixedBlockSize( orig_A_->GetFixedBlockSize() );
 */
+      Q->putScalar(1.0);
+
       X   = MultiVectorFactory::Build(orig_X_->getMap(), orig_X_->getNumVectors(), true);
       B   = MultiVectorFactory::Build(orig_B_->getMap(), orig_B_->getNumVectors(), false);
       *B  = *orig_B_;
@@ -893,10 +908,96 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
       SC gblSum[10] = {0,0,0,0,0,0,0,0,0,0};
 
       Teuchos::reduceAll<int, SC> (*comm_, Teuchos::REDUCE_SUM, nv, lclSum, gblSum);
-
     }
     // barrier after the timer scope, this allows the timers to track variations
     comm_->barrier();
+
+    {
+      using ss_t = std::stringstream;
+      ss_t timerLabel;
+
+      // mimic classical gram schmidt ortho passes
+      typedef MultiVector MV;
+      typedef Belos::MultiVecTraits<SC,MV> MVT;
+      std::vector<int> indices (1);
+
+      indices[0] = 0;
+
+      for (int i=1; i < (num_Q-1); ++i) {
+        indices.resize(i+1);
+        indices[i] = i;
+
+
+        Teuchos::RCP<const MV> Q_prev;
+        {
+          timerLabel.str("");
+          timerLabel << "MVT::CloneView::" << indices.size();
+          RCP<Time> the_timer   = TimeMonitor::getNewTimer(timerLabel.str());
+
+          // start the clock
+          Teuchos::TimeMonitor tm (*the_timer);
+
+          Q_prev = MVT::CloneView( *Q, indices);
+        }
+        comm_->barrier();
+
+        Teuchos::RCP<MV> Q_new;
+        {
+          std::vector<int> view_indices (1);
+          view_indices[0] = i;
+
+          timerLabel.str("");
+          timerLabel << "MVT::CloneViewNonConst::" << indices.size();
+          RCP<Time> the_timer   = TimeMonitor::getNewTimer(timerLabel.str());
+
+          // start the clock
+          Teuchos::TimeMonitor tm (*the_timer);
+
+          // view the i+1 vector
+          Q_new = MVT::CloneViewNonConst( *Q, view_indices );
+        }
+        comm_->barrier();
+
+        Teuchos::RCP< Teuchos::SerialDenseMatrix<int,SC> > Z;
+        {
+          int num_vecs = MVT::GetNumberVecs (*Q_prev);
+
+          timerLabel.str("");
+          timerLabel << "MVT::InnerProduct::" << num_vecs;
+
+          RCP<Time> the_timer   = TimeMonitor::getNewTimer(timerLabel.str());
+
+
+          Z = Teuchos::rcp( new Teuchos::SerialDenseMatrix<int,SC> (num_vecs, 1) );
+
+          // start the clock
+          Teuchos::TimeMonitor tm (*the_timer);
+
+          MVT::MvTransMv(STS::one(), *Q_prev, *Q_new, *Z);
+        }
+        comm_->barrier();
+
+        {
+          int num_vecs = MVT::GetNumberVecs (*Q_prev);
+
+          timerLabel.str("");
+          timerLabel << "MVT::Update::" << num_vecs;
+
+          RCP<Time> the_timer   = TimeMonitor::getNewTimer(timerLabel.str());
+
+
+          // start the clock
+          Teuchos::TimeMonitor tm (*the_timer);
+
+          MVT::MvTimesMatAddMv( -STS::one(), *Q_prev, *Z, STS::one(), *Q_new );
+        }
+        comm_->barrier();
+
+      }
+    }
+    // barrier after the timer scope, this allows the timers to track variations
+    comm_->barrier();
+
   }
   writeTimersForFunAndProfit (fileName);
 }
