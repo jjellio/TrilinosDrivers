@@ -414,7 +414,7 @@ std::string getProcessAffinitCSV_str (
     tid_count++;
   }
 
-  if (tid > 0)
+  if (tid_count > 0)
   {
     oss << std::endl;
   }
