@@ -829,7 +829,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
 
   for (size_t i=0; i < num_Q; ++i) {
     lclSum.push_back(SC(i));
-    lclSum.push_back(zero);
+    gblSum.push_back(zero);
   }
 
   Q   = MultiVectorFactory::Build(orig_X_->getMap(), num_Q, false);
@@ -872,13 +872,11 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
     RCP<Matrix> A = Teuchos::null;
     RCP<MultiVector> coordinates = Teuchos::null;
     RCP<MultiVector> nullspace= Teuchos::null;
-    RCP<MultiVector> X= Teuchos::null;
+    RCP<MultiVector> X= Teuchos::rcp_const_cast<MultiVector> (orig_X_);
     RCP<const MultiVector> B = orig_B_;
     RCP<MultiVector> R0 = Teuchos::null;
     RCP<const Map>   map= Teuchos::null;
     RCP<Map>        mapT= Teuchos::null;
-
-    Q->putScalar(zero);
 
     OSTab tab (out);
 
@@ -970,7 +968,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
         Teuchos::RCP<MV> Q_new;
         {
           std::vector<int> view_indices (1);
-          view_indices[0] = num_vectors+1;
+          view_indices[0] = num_vectors;
 
           timerLabel.str("");
           timerLabel << "MVT::CloneViewNonConst::" << num_vectors+1;
