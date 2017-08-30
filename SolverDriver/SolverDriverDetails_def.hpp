@@ -179,16 +179,16 @@ for (int r=0; r < comm_->getSize (); ++r)
   }
   #endif
 
+  // =========================================================================
+  // Problem construction
+  // =========================================================================
+  createLinearSystem(*xpetraParams_, *galeriPL_);
+
   // ===========================================================================
   // Report the types
   // ===========================================================================
   configPL_ = parameterList ("Runtime Information");
   createConfigParameterList(*configPL_);
-
-  // =========================================================================
-  // Problem construction
-  // =========================================================================
-  createLinearSystem(*xpetraParams_, *galeriPL_);
 
   // construct the file tokens used for output
   if (comm_->getRank() == 0)
@@ -1015,6 +1015,17 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
         }
         comm_->barrier();
 
+        {
+          timerLabel.str("");
+          timerLabel << "MVT::MVScale::" << num_vectors;
+          RCP<Time> the_timer   = TimeMonitor::getNewTimer(timerLabel.str());
+
+          // start the clock
+          Teuchos::TimeMonitor tm (*the_timer);
+          MVT::MvScale(*Q_prev_nonconst, one);
+          //MVT::MvInit (*Q_prev_nonconst, one);
+        }
+        comm_->barrier();
 
         Teuchos::RCP< Teuchos::SerialDenseMatrix<int,SC> > Z;
         {
