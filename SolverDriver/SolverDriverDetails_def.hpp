@@ -265,6 +265,24 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::createConfigParamet
 
   }
 
+  // track load imbalance
+  ParameterList& loadPL = configPL.sublist("Rank Loads", false, "Per Rank Load");
+  {
+    const GO my_rows = orig_X_->getLocalLength ();
+    const GO total_rows = orig_X_->getGlobalLength ();
+    std::vector<GO> rank_rows(comm_->getSize());
+    rank_rows.resize(comm_->getSize());
+
+    Teuchos::gather<int, GO> (&my_rows, 1, rank_rows.data(), 1, 0, *comm_);
+
+    for (size_t r=0; r < rank_rows.size(); ++r) {
+      std::stringstream rank_str;
+      rank_str << r;
+
+      loadPL.set(rank_str.str(), rank_rows[r]);
+    }
+  }
+
 }
 
 template<class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
@@ -770,6 +788,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
 
   typedef MultiVector MV;
   typedef Belos::MultiVecTraits<SC,MV> MVT;
+  typedef Belos::OperatorTraits<SC,MV,Matrix> OPT;
 
   FancyOStream& out = *pOut_;
 
@@ -816,10 +835,9 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
   // define counters for the main phases
   RCP<Time> globalTime_       = TimeMonitor::getNewTimer(TM_LABEL_GLOBAL);
   RCP<Time> copyTime_         = TimeMonitor::getNewTimer(TM_LABEL_COPY);
-  RCP<Time> applyTime_        = TimeMonitor::getNewTimer("Op::Apply");
+  RCP<Time> applyTime_        = TimeMonitor::getNewTimer("OPT::Apply");
   RCP<Time> norm2Time_        = TimeMonitor::getNewTimer("MVT::Norm2");
   RCP<Time> scaleTime_        = TimeMonitor::getNewTimer("MVT::MvScale");
-  RCP<Time> all_reduceTime_   = TimeMonitor::getNewTimer("Teuchos::reduceAll");
   std::vector<int> block_sizes;
   RCP<MultiVector> Q= Teuchos::null;
   constexpr int num_Q = 100+1;
@@ -829,7 +847,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
 
   for (size_t i=0; i < num_Q; ++i) {
     lclSum.push_back(SC(i));
-    lclSum.push_back(zero);
+    gblSum.push_back(zero);
   }
 
   Q   = MultiVectorFactory::Build(orig_X_->getMap(), num_Q, false);
@@ -872,13 +890,11 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
     RCP<Matrix> A = Teuchos::null;
     RCP<MultiVector> coordinates = Teuchos::null;
     RCP<MultiVector> nullspace= Teuchos::null;
-    RCP<MultiVector> X= Teuchos::null;
+    RCP<MultiVector> X= Teuchos::rcp_const_cast<MultiVector> (orig_X_);
     RCP<const MultiVector> B = orig_B_;
     RCP<MultiVector> R0 = Teuchos::null;
     RCP<const Map>   map= Teuchos::null;
     RCP<Map>        mapT= Teuchos::null;
-
-    Q->putScalar(zero);
 
     OSTab tab (out);
 
@@ -896,8 +912,8 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
       // start the clock
       Teuchos::TimeMonitor tm (*copyTime_);
 
-      Q->putScalar(1.0);
-      X->putScalar(0.0);
+      Q->putScalar(one);
+      X->putScalar(zero);
 //      X   = MultiVectorFactory::Build(orig_X_->getMap(), orig_X_->getNumVectors(), true);
 //      B   = MultiVectorFactory::Build(orig_B_->getMap(), orig_B_->getNumVectors(), false);
 //      *B  = *orig_B_;
@@ -910,7 +926,8 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
       // start the clock
       Teuchos::TimeMonitor tm (*applyTime_);
 
-      orig_A_->apply(*(B), *(X), Teuchos::NO_TRANS, one, zero);
+      OPT::Apply(*orig_A_, *B, *X, Belos::NOTRANS)
+      //orig_A_->apply(*(B), *(X), Teuchos::NO_TRANS, one, zero);
     }
     // barrier after the timer scope, this allows the timers to track variations
     comm_->barrier();
@@ -970,7 +987,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
         Teuchos::RCP<MV> Q_new;
         {
           std::vector<int> view_indices (1);
-          view_indices[0] = num_vectors+1;
+          view_indices[0] = num_vectors;
 
           timerLabel.str("");
           timerLabel << "MVT::CloneViewNonConst::" << num_vectors+1;
