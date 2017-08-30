@@ -1015,6 +1015,17 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
         }
         comm_->barrier();
 
+        {
+          timerLabel.str("");
+          timerLabel << "MVT::MVScale::" << num_vectors;
+          RCP<Time> the_timer   = TimeMonitor::getNewTimer(timerLabel.str());
+
+          // start the clock
+          Teuchos::TimeMonitor tm (*the_timer);
+          MVT::MvScale(*Q_prev_nonconst, one);
+          //MVT::MvInit (*Q_prev_nonconst, one);
+        }
+        comm_->barrier();
 
         Teuchos::RCP< Teuchos::SerialDenseMatrix<int,SC> > Z;
         {
