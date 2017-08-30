@@ -179,16 +179,16 @@ for (int r=0; r < comm_->getSize (); ++r)
   }
   #endif
 
+  // =========================================================================
+  // Problem construction
+  // =========================================================================
+  createLinearSystem(*xpetraParams_, *galeriPL_);
+
   // ===========================================================================
   // Report the types
   // ===========================================================================
   configPL_ = parameterList ("Runtime Information");
   createConfigParameterList(*configPL_);
-
-  // =========================================================================
-  // Problem construction
-  // =========================================================================
-  createLinearSystem(*xpetraParams_, *galeriPL_);
 
   // construct the file tokens used for output
   if (comm_->getRank() == 0)
@@ -926,8 +926,8 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
       // start the clock
       Teuchos::TimeMonitor tm (*applyTime_);
 
-      OPT::Apply(*orig_A_, *B, *X, Belos::NOTRANS)
-      //orig_A_->apply(*(B), *(X), Teuchos::NO_TRANS, one, zero);
+      //OPT::Apply(*orig_A_, *B, *X, Belos::NOTRANS);
+      orig_A_->apply(*(B), *(X), Teuchos::NO_TRANS, one, zero);
     }
     // barrier after the timer scope, this allows the timers to track variations
     comm_->barrier();
