@@ -2817,13 +2817,9 @@ def main():
 
 
 def do_tpetra_analysis(dataset):
-  import os
-  dataset['Timer Name'].str.match('(^(MVT|OPT|Teuchos::reduceAll)::.*)').to_csv('lin-ops.csv')
-  restricted_data = dataset[dataset['Timer Name'].str.match('(^(MVT|OPT|Teuchos::reduceAll)::.*)')]
+  restricted_data = dataset[dataset['Timer Name'].str.match('(^([a-zA-Z]+::)+\d+)')]
+  restricted_data.to_csv('lin-ops.csv')
   unique_timers = restricted_data['Timer Name'].unique()
-
-  #
-  for timer in unique_timers:
 
 
 def nested_timer_analysis(dataset,
