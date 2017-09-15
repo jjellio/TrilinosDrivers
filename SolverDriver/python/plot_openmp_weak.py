@@ -30,7 +30,10 @@ import ScalingFilenameParser as SFP
 # from operator import itemgetter
 
 COMPOSITE_PATH   = 'composites'
-INDEPENDENT_PATH = 'composites/indep'
+INDEPENDENT_PATH = 'standalone'
+LATEX_CSV_PATH = 'latex_csv'
+IMG_FORMAT = "pdf"
+IMG_DPI = 150
 
 FORCE_REPLOT  = False
 QUANTITY_OF_INTEREST       = 'minT'
@@ -61,6 +64,8 @@ DECOMP_COLORS = {
   '16x4'      : 'xkcd:amber',
   '8x8'       : 'xkcd:faded green',
   '4x16'      : 'xkcd:dusty purple',
+  '2x32'      : 'xkcd:peach',
+  '1x64'      : 'xkcd:cyan',
   'flat_mpi'  : 'xkcd:salmon',
   'best'      : 'xkcd:salmon',
   'worst'     : 'xkcd:greyish'
@@ -707,6 +712,7 @@ def enforce_consistent_ylims(figures, axes):
         fig.gca().set_ylim(best_ylims)
 
 
+###########################################################################################
 def save_figures(figures,
                  filename,
                  close_figure=False,
@@ -732,12 +738,13 @@ def save_figures(figures,
     try:
       fullpath = '{path}/{fname}'.format(path=COMPOSITE_PATH, fname=filename)
 
-      figures['composite'].savefig('{}.png'.format(fullpath),
-                                   format='png',
-                                   dpi=180)
-      print('Wrote: {}.png'.format(filename))
+      figures['composite'].savefig('{path}.{format}'.format(path=fullpath,
+                                                            format=IMG_FORMAT),
+                                   format=IMG_FORMAT,
+                                   dpi=IMG_DPI)
+      print('Wrote: {}'.format(filename))
     except:
-      print('FAILED writing {}.png'.format(filename))
+      print('FAILED writing {}'.format(filename))
       raise
 
     if close_figure:
@@ -757,17 +764,17 @@ def save_figures(figures,
         fig_names = figures['independent'][column_name].keys()
 
       for ht_name in fig_names:
-        fig_filename = '{base}-{col}-{ht}.png'.format(base=filename, col=column_name, ht=ht_name)
+        fig_filename = '{base}-{col}-{ht}.{format}'.format(base=filename, col=column_name, ht=ht_name, format=IMG_FORMAT)
 
         try:
           fullpath = '{path}/{fname}'.format(path=INDEPENDENT_PATH, fname=fig_filename)
 
           figures['independent'][column_name][ht_name].savefig(fullpath,
-                                                               format='png',
-                                                               dpi=180)
-          print('Wrote: {}.png'.format(fig_filename))
+                                                               format=IMG_FORMAT,
+                                                               dpi=IMG_DPI)
+          print('Wrote: {}'.format(fig_filename))
         except:
-          print('FAILED writing {}.png'.format(fig_filename))
+          print('FAILED writing {}'.format(fig_filename))
           raise
 
         if close_figure:
@@ -1041,6 +1048,7 @@ def update_decomp_dataframe(decomp_dataframe,
 
   return decomp_dataframe
 
+
 ###############################################################################
 def plot_composite_weak(composite_group,
                         my_nodes,
@@ -1048,7 +1056,7 @@ def plot_composite_weak(composite_group,
                         driver_df,
                         average=False,
                         numbered_plots_idx=-1,
-                        scaling_study_type='weak',
+                        write_latex_and_csv=True,
                         kwargs={}):
   """
   Plot all decompositions on a single figure.
@@ -1192,7 +1200,7 @@ def plot_composite_weak(composite_group,
       my_agg_times = get_plottable_dataframe(my_agg_times, ht_group, ht_name, driver_ht_groups, magic=magic_str)
 
       # this assumes that idx=0 is an SpMV aggregate figure, which appears to be worthless.
-      if numbered_plots_idx > -1 and plot_row == ht_name:
+      if write_latex_and_csv and plot_row == ht_name:
         total_df = update_decomp_dataframe(total_df,
                                            my_agg_times,
                                            ht_group,
@@ -1403,9 +1411,12 @@ def plot_composite_weak(composite_group,
                filename='{basename}-free-yaxis'.format(basename=simple_fname),
                close_figure=False)
 
-  total_df.to_csv('{fname}.csv'.format(fname=simple_fname))
-  total_df.to_latex('{fname}.tex'.format(fname=simple_fname),
-                    longtable=True)
+  if write_latex_and_csv:
+    total_df.to_csv('{path}/{fname}.csv'.format(path=LATEX_CSV_PATH,
+                                                fname=simple_fname))
+    total_df.to_latex('{path}/{fname}.tex'.format(path=LATEX_CSV_PATH,
+                                                  fname=simple_fname),
+                      longtable=True)
 
   # add labels for the best
   if ANNOTATE_BEST:
@@ -1689,7 +1700,7 @@ def plot_composite_strong(composite_group,
                         my_ticks,
                         driver_df,
                         numbered_plots_idx=-1,
-                        scaling_study_type='strong',
+                        write_latex_and_csv=True,
                         kwargs={}):
   """
   Plot all decompositions on a single figure.
@@ -1705,6 +1716,7 @@ def plot_composite_strong(composite_group,
   Numbering the plots uses a global counter to add a number prepended to each plots's filename. E.g., call this function
   with groups in a specific order and you can number the plots using that same order.
 
+  :param write_latex_and_csv: TODO for strong.
   :param composite_group: dataframe (or groupbyDataframe) of stuff to plot
   :param my_nodes:  a list of nodes that will be shared by all plots for the xaxis.
   :param my_ticks: the actual x location for the tick marks, which will be labeled using the node list
@@ -2288,6 +2300,7 @@ def load_dataset(dataset_filename,
                       '(prec_attributes != \"-no-repartition\")' \
                       ''.format(min_num_nodes=min_num_nodes,
                                 max_num_nodes=max_num_nodes)
+  # '(cores_per_proc <= 16) & ' \
 
   dataset = dataset.query(restriction_query)
   print('Restricted dataset')
@@ -2585,6 +2598,8 @@ def plot_dataset(dataset,
     os.makedirs(COMPOSITE_PATH)
   if not os.path.exists(INDEPENDENT_PATH):
     os.makedirs(INDEPENDENT_PATH)
+  if not os.path.exists(LATEX_CSV_PATH):
+    os.makedirs(LATEX_CSV_PATH)
 
   # enforce all plots use the same num_nodes. i.e., the axes will be consistent
   my_nodes = np.array(list(map(int, dataset['num_nodes'].unique())))
@@ -2712,9 +2727,28 @@ def main():
     global PLOT_MAX
     PLOT_MAX = False
 
+    global COMPOSITE_PATH
+    COMPOSITE_PATH = 'min_only/{}'.format(COMPOSITE_PATH)
+
+    global INDEPENDENT_PATH
+    INDEPENDENT_PATH = 'min_only/{}'.format(INDEPENDENT_PATH)
+
+    global LATEX_CSV_PATH
+    LATEX_CSV_PATH = 'min_only/{}'.format(LATEX_CSV_PATH)
+
   if _arg_options['--max_only']:
     global PLOT_MIN
     PLOT_MIN = False
+
+    global COMPOSITE_PATH
+    COMPOSITE_PATH = 'max_only/{}'.format(COMPOSITE_PATH)
+
+    global INDEPENDENT_PATH
+    INDEPENDENT_PATH = 'max_only/{}'.format(INDEPENDENT_PATH)
+
+    global LATEX_CSV_PATH
+    LATEX_CSV_PATH = 'max_only/{}'.format(LATEX_CSV_PATH)
+
 
   print('study: {study}\nscaling_type: {scaling}\ndataset: {data}'.format(study=study_type,
                                                                           scaling=scaling_study_type,
@@ -2736,18 +2770,24 @@ def main():
     total_time_key = '3 - Constructing Preconditioner'
     restriction_tokens = {'solver_name' : 'Constructor',
                           'solver_attributes' : '-Only',
-                          'prec_name' : 'MueLu',
-                          'prec_attributes' : '-repartition'}
-
-    nested_timer_analysis(dataset=dataset,
-                          driver_dataset=driver_dataset,
-                          total_time_key=total_time_key,
-                          scaling_type=scaling_study_type)
-    exit(0)
+                          'prec_name' : 'MueLu'}#,
+                          #'prec_attributes' : '-repartition'}
 
     # obtain a list of timer names ordered the aggregate time spent in each
     ordered_timers = get_ordered_timers(dataset=dataset,
                                         rank_by_column_name=QUANTITY_OF_INTEREST)
+
+  elif study_type == 'linearAlg':
+    total_time_key = '0 - Total Time'
+    restriction_tokens = {'solver_name': 'LinearAlgebra',
+                          'solver_attributes': '-Tpetra',
+                          'prec_name': 'None'}
+
+    # nested_timer_analysis(dataset=dataset,
+    #                       driver_dataset=driver_dataset,
+    #                       total_time_key=total_time_key,
+    #                       scaling_type=scaling_study_type)
+    # exit(0)
 
   elif study_type == 'muelu_prec':
     total_time_key = '5 - Solve'
@@ -2765,12 +2805,20 @@ def main():
   else:
     raise ValueError('unknown study_type ({})'.format(study_type))
 
+  if study_type == 'linearAlg':
+    do_tpetra_analysis(dataset)
+
   plot_dataset(dataset=dataset,
                driver_dataset=driver_dataset,
                ordered_timers=ordered_timers,
                total_time_key=total_time_key,
                scaling_type=scaling_study_type,
                restriction_tokens=restriction_tokens)
+
+
+def do_tpetra_analysis(dataset):
+  restricted_data = dataset[dataset['Timer Name'].str.match('(^(MVT|OPT)::.*)').str.len() > 0]
+  restricted_data.to_csv('lin-ops.csv')
 
 
 def nested_timer_analysis(dataset,
@@ -2857,7 +2905,8 @@ def nested_timer_analysis(dataset,
                      '8': list(),
                      '9': list(),
                      '10': list(),
-                     'total': list()}
+                     'total': list(),
+                     'all' : list()}
 
   for level_timer_re in level_timers_re:
     for timer_name in timer_names:
@@ -2870,6 +2919,9 @@ def nested_timer_analysis(dataset,
       m = re.search(r'\(\s*total\s*\)', timer_name)
       if m:
         level_timer_map['total'].append(timer_name)
+      m = re.search(r'\(\s*level=[0-9]+\s*\)', timer_name)
+      if m:
+        level_timer_map['all'].append(timer_name)
 
   # find the total time key
   if total_time_key in timer_names:
@@ -2942,6 +2994,9 @@ def nested_timer_analysis(dataset,
   # add timer ranking for each level in the level_timer_map
   # that is, given a list of timer labels, we find the ranking (sorted order number) of each
   # and store it in a column.  We do this for each level
+  #
+  # level='all'
+  # level_timer_list = level_timer_map[level]
   for level, level_timer_list in level_timer_map.items():
     if not level_timer_list:
       continue
@@ -2962,6 +3017,9 @@ def nested_timer_analysis(dataset,
 
   # create pivot tables for each level summarizing the data
   for level, level_timer_list in level_timer_map.items():
+    if level != 'all':
+      continue
+
     if not level_timer_list:
       continue
 
@@ -2969,20 +3027,49 @@ def nested_timer_analysis(dataset,
 
     # pivot with the decomp labels being the column names
     indexer = annotated_df['Timer Name'].isin(level_timer_list)
-    for qoi in ['max_ranking', 'over_all_timer_ranking', QUANTITY_OF_INTEREST_MAX, 'max_percent']:
+    #for qoi in ['max_ranking', 'over_all_timer_ranking', QUANTITY_OF_INTEREST_MAX, 'max_percent']:
+    for qoi in [QUANTITY_OF_INTEREST_MAX]:
       if qoi in ['max_ranking', 'over_all_timer_ranking']:
-        ascending=True
+        ascending = True
       else:
-        ascending=False
+        ascending = False
 
-      pd.pivot_table(annotated_df.loc[indexer],
-                          index=['num_nodes', 'Timer Name'],
-                          values=qoi,
-                          columns=['decomp_label']).reset_index(
-        drop=False).sort_values(by=['num_nodes', '64x1x1 (Serial)'],
-                                ascending=[True,ascending]).to_csv('{f}_{qoi}.csv'.format(f=report_level_name,
-                                                                                   qoi=qoi),
-                                                                    index=False)
+      '''
+      We want output similar to MueLu prof:
+      
+                      SETUP TIMES (LEVEL SPECIFIC) EXCLUDING CHILD CALLS          Epetra   (total)   T-E (sec.)  
+                                                                            -------------------------------------------------
+       64:         MueLu: NullspaceFactory: Nullspace factory (level=3)  ==>       0.00   (  0.0)
+       63:         MueLu: NullspaceFactory: Nullspace factory (level=2)  ==>       0.00   (  0.0)
+        ...
+        2:           MueLu: SaPFactory: Prolongator smoothing (level=1)  ==>       0.45   (  1.4)
+        1:                    MueLu: RAPFactory: Computing Ac (level=1)  ==>       0.49   (  1.8)
+                                                                            ----------------
+                                   MueLu: Hierarchy: Setup (total)  ==>    1.841 seconds
+      '''
+      sbs_table = pd.pivot_table(annotated_df.loc[indexer],
+                                 index=['num_nodes', 'Timer Name'],
+                                 values=[qoi, 'max_ranking'],
+                                 columns=['decomp_label'])
+
+      sbs_table.to_csv('{f}_{qoi}-pre-.csv'.format(f=report_level_name,
+                                              qoi=qoi),
+                       index=True)
+
+      sbs_table = sbs_table.reset_index(drop=False)
+
+      sbs_table.to_csv('{f}_{qoi}-reindex-.csv'.format(f=report_level_name,
+                                              qoi=qoi),
+                       index=True)
+
+      sbs_table = sbs_table.sort_values(by=['num_nodes', '64x1x1 (Serial)'],
+                                        ascending=[True,ascending])
+
+      # sbs_table now contains a numeric index, with columns: num_nodes, Timer Name, and then all decomp_labels
+      sbs_table.to_csv('{f}_{qoi}.csv'.format(f=report_level_name,
+                                              qoi=qoi),
+                       index=False)
+
     #
     # annotated_df.loc[indexer].pivot(index='Timer Name',
     #                                 columns='decomp_label',
