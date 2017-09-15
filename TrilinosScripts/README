@@ -1,0 +1,21 @@
+mkdir build
+cd build
+
+module load crapye-mic-knl
+
+/path/to/configure-core knl openmp
+
+make -j
+
+
+The configure script will dump information before calling CMake. Inspect the
+modules loaded to ensure it all looks normal.
+
+You may need to edit configure-cori and towards the bottom change the cmake module
+that is loaded (or remove the load all together). This was added to ensure that the same
+Cmake version is always used.
+
+To edit TPLs, you must edit configure-cori-cmake. The TPLs at the bottom with the actual
+CMake command. The middle of script replicates the cmake call and echos this to stdout.
+Ideally, all things would be set in variables, and then echoed and passed to cmake, but there
+seems to be an issue with quoting, so currently the script replicates the commands.
