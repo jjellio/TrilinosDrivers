@@ -65,7 +65,7 @@ DECOMP_COLORS = {
   '16x4': 'xkcd:amber',
   '8x8': 'xkcd:faded green',
   '4x16': 'xkcd:dusty purple',
-  '2x32': 'xkcd:peach',
+  '2x32': 'xkcd:hot pink',
   '1x64': 'xkcd:cyan',
   'flat_mpi': 'xkcd:salmon',
   'best': 'xkcd:salmon',
