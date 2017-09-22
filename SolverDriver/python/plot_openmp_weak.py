@@ -2,7 +2,7 @@
 """plotter.py
 
 Usage:
-  plotter.py [--dataset=DATASET --study=STUDY_TYPE --scaling=SCALING_TYPE --force_replot --max_nodes=NUM --min_nodes=NUM [--min_only | --max_only]]
+  plotter.py [--dataset=DATASET --study=STUDY_TYPE --scaling=SCALING_TYPE [--legend] [--force_replot] [--max_nodes=NUM] [--min_nodes=NUM] [--min_procs_per_node=NUM] [--max_procs_per_node=NUM] [--min_only | --max_only]]
   plotter.py (-h | --help)
 
 Options:
@@ -11,13 +11,16 @@ Options:
   --study=STUDY_TYPE       muelu_constructor, muelu_prec, solvers
   --scaling=SCALING_TYPE   Type of analysis, weak/strong [default: strong]
   --force_replot           Force replotting of existing data [default: False]
+  --legend                 Plot a legend [default: False]
   --max_nodes=NUM          Fix the number of nodes [default: 100000]
   --min_nodes=NUM          Fix the number of nodes [default: 1]
+  --min_procs_per_node=NUM  Restrict the number processes per node [default: 4]
+  --max_procs_per_node=NUM  Restrict the number processes per node [default: 64]
   --min_only               Plot only the minimum values [default: False]
   --max_only               Plot only the maximum values [default: False]
 """
-import matplotlib as mpl
-#mpl.use('TkAgg')
+# import matplotlib as mpl
+# mpl.use('TkAgg')
 
 from docopt import docopt
 import matplotlib.pyplot as plt
@@ -54,6 +57,7 @@ PLOT_MAX            = True
 SMOOTH_OUTLIERS     = False
 HT_CONSISTENT_YAXES = True
 ANNOTATE_BEST       = False
+PLOT_LEGEND         = False
 
 HYPER_THREAD_LABEL = 'HT'
 
@@ -139,8 +143,8 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
            aggregates.
   """
   DEBUG_plottable_dataframe = False
-  DIVIDE_BY_CALLCOUNTS = False
-  DIVIDE_BY_NUMSTEPS = True
+  DIVIDE_BY_CALLCOUNTS = True
+  DIVIDE_BY_NUMSTEPS = False
   TAKE_COLUMNWISE_MINMAX = False
 
   if DEBUG_plottable_dataframe:
@@ -243,29 +247,28 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
   # runs. We also have more data for some points than others. Plotting raw data can also be influenced by this.
   # a total mess.
   if DIVIDE_BY_CALLCOUNTS:
-    plottable_df['min_percent_t'] = \
-                              (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df[QUANTITY_OF_INTEREST_MIN_COUNT]) \
-                            / (plottable_df['driver_min'] / plottable_df['driver_min_count']) * 100.00
+    plottable_df[QUANTITY_OF_INTEREST_MIN] = plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df[QUANTITY_OF_INTEREST_MIN_COUNT]
+    plottable_df[QUANTITY_OF_INTEREST_MAX] = plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df[QUANTITY_OF_INTEREST_MAX_COUNT]
 
-    plottable_df['max_percent_t'] =\
-                              (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df[QUANTITY_OF_INTEREST_MAX_COUNT]) \
-                            / (plottable_df['driver_max'] / plottable_df['driver_max_count']) * 100.00
+    plottable_df['driver_min'] = plottable_df['driver_min'] / plottable_df['driver_min_count']
+    plottable_df['driver_min'] = plottable_df['driver_max'] / plottable_df['driver_max_count']
+
+    plottable_df['flat_mpi_min'] = plottable_df['flat_mpi_min'] / plottable_df['flat_mpi_min_count']
+    plottable_df['flat_mpi_max'] = plottable_df['flat_mpi_max'] / plottable_df['flat_mpi_max_count']
+
   elif DIVIDE_BY_NUMSTEPS:
-    plottable_df['min_percent_t'] = \
-                              (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df['numsteps']) \
-                            / (plottable_df['driver_min'] / plottable_df['driver_numsteps']) * 100.00
+    plottable_df[QUANTITY_OF_INTEREST_MIN] = plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df['numsteps']
+    plottable_df[QUANTITY_OF_INTEREST_MAX] = plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df['numsteps']
 
-    plottable_df['max_percent_t'] =\
-                              (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df['numsteps']) \
-                            / (plottable_df['driver_max'] / plottable_df['driver_numsteps']) * 100.00
-  else:
-    plottable_df['min_percent_t'] = \
-                              (plottable_df[QUANTITY_OF_INTEREST_MIN]) \
-                            / (plottable_df['driver_min']) * 100.00
+    plottable_df['driver_min'] = plottable_df['driver_min'] / plottable_df['driver_numsteps']
+    plottable_df['driver_min'] = plottable_df['driver_max'] / plottable_df['driver_numsteps']
 
-    plottable_df['max_percent_t'] =\
-                              (plottable_df[QUANTITY_OF_INTEREST_MAX]) \
-                            / (plottable_df['driver_max']) * 100.00
+    plottable_df['flat_mpi_min'] = plottable_df['flat_mpi_min'] / plottable_df['flat_mpi_numsteps']
+    plottable_df['flat_mpi_max'] = plottable_df['flat_mpi_max'] / plottable_df['flat_mpi_numsteps']
+
+  # compute the percent of total
+  plottable_df['min_percent_t'] = (plottable_df[QUANTITY_OF_INTEREST_MIN]) / (plottable_df['driver_min']) * 100.00
+  plottable_df['max_percent_t'] = (plottable_df[QUANTITY_OF_INTEREST_MAX]) / (plottable_df['driver_max']) * 100.00
 
   if TAKE_COLUMNWISE_MINMAX:
     # this is a bit iffy. It depends on what you choose to divide by above. Should the 'min' in the data
@@ -285,30 +288,8 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
   plottable_df['max_percent'] = plottable_df['max_percent'].round(1)
 
   # similar approach as above.
-  if DIVIDE_BY_CALLCOUNTS:
-    plottable_df['flat_mpi_factor_min_t'] = \
-                              (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df[QUANTITY_OF_INTEREST_MIN_COUNT]) \
-                            / (plottable_df['flat_mpi_min'] / plottable_df['flat_mpi_min_count'])
-
-    plottable_df['flat_mpi_factor_max_t'] = \
-                              (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df[QUANTITY_OF_INTEREST_MAX_COUNT]) \
-                            / (plottable_df['flat_mpi_max'] / plottable_df['flat_mpi_max_count'])
-  elif DIVIDE_BY_NUMSTEPS:
-    plottable_df['flat_mpi_factor_min_t'] = \
-                              (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df['numsteps']) \
-                            / (plottable_df['flat_mpi_min'] / plottable_df['flat_mpi_numsteps'])
-
-    plottable_df['flat_mpi_factor_max_t'] = \
-                              (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df['numsteps']) \
-                            / (plottable_df['flat_mpi_max'] / plottable_df['flat_mpi_numsteps'])
-  else:
-    plottable_df['flat_mpi_factor_min_t'] = \
-                              (plottable_df[QUANTITY_OF_INTEREST_MIN]) \
-                            / (plottable_df['flat_mpi_min'])
-
-    plottable_df['flat_mpi_factor_max_t'] = \
-                              (plottable_df[QUANTITY_OF_INTEREST_MAX]) \
-                            / (plottable_df['flat_mpi_max'])
+  plottable_df['flat_mpi_factor_min_t'] = (plottable_df[QUANTITY_OF_INTEREST_MIN]) / (plottable_df['flat_mpi_min'])
+  plottable_df['flat_mpi_factor_max_t'] = (plottable_df[QUANTITY_OF_INTEREST_MAX]) / (plottable_df['flat_mpi_max'])
 
   if TAKE_COLUMNWISE_MINMAX:
     plottable_df['flat_mpi_factor_min'] = plottable_df[['flat_mpi_factor_max_t', 'flat_mpi_factor_min_t']].min(axis=1)
@@ -345,24 +326,8 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
 
   if DEBUG_plottable_dataframe: print(np1_min, np1_max)
 
-  if DIVIDE_BY_CALLCOUNTS:
-    plottable_df['speedup_min_t'] = np1_min /\
-                              (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df[QUANTITY_OF_INTEREST_MIN_COUNT])
-
-    plottable_df['speedup_max_t'] = np1_max /\
-                              (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df[QUANTITY_OF_INTEREST_MAX_COUNT])
-  elif DIVIDE_BY_NUMSTEPS:
-    plottable_df['speedup_min_t'] = np1_min /\
-                              (plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df['numsteps'])
-
-    plottable_df['speedup_max_t'] = np1_max /\
-                              (plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df['numsteps'])
-  else:
-    plottable_df['speedup_min_t'] = np1_min /\
-                              (plottable_df[QUANTITY_OF_INTEREST_MIN])
-
-    plottable_df['speedup_max_t'] = np1_max /\
-                              (plottable_df[QUANTITY_OF_INTEREST_MAX])
+  plottable_df['speedup_min_t'] = np1_min / (plottable_df[QUANTITY_OF_INTEREST_MIN])
+  plottable_df['speedup_max_t'] = np1_max / (plottable_df[QUANTITY_OF_INTEREST_MAX])
 
   if DEBUG_plottable_dataframe: print(plottable_df)
   # this will ensure that the 'max' as plotted is the max value, not necessarily the maxOverProcs value
@@ -742,6 +707,25 @@ def save_figures(figures,
                                                             format=IMG_FORMAT),
                                    format=IMG_FORMAT,
                                    dpi=IMG_DPI)
+
+      # create a second figure for the legend
+      handles, labels = figures['composite'].gca().get_legend_handles_labels()
+      ncols = len(labels)
+      legend_path = '{path}/legend-{ncols}.{format}'.format(path=COMPOSITE_PATH, ncols=ncols, format=IMG_FORMAT)
+      legend_file = Path(legend_path)
+      try:
+        temp = legend_file.resolve()
+      except FileNotFoundError or RuntimeError:
+        import pylab
+        figLegend = pylab.figure(figsize=(11, 4))
+        figLegend.legend(handles, labels,
+                         title="Procs per Node x Cores per Proc",
+                         ncol=ncols,
+                         loc='lower center')
+        figLegend.savefig(legend_path,
+                          format=IMG_FORMAT,
+                          dpi=IMG_DPI)
+
       print('Wrote: {}'.format(filename))
     except:
       print('FAILED writing {}'.format(filename))
@@ -1390,9 +1374,10 @@ def plot_composite_weak(composite_group,
   # we plot in a deterministic fashion, and so the order is consistent among all
   # axes plotted. This allows a single legend that is compatible with all plots.
   handles, labels = axes['raw_data'][ht_names[0]].get_legend_handles_labels()
-  figures['composite'].legend(handles, labels,
-                              title="Procs per Node x Cores per Proc",
-                              loc='lower center', ncol=ndecomps, bbox_to_anchor=(0.5, 0.0))
+  if PLOT_LEGEND:
+    figures['composite'].legend(handles, labels,
+                                title="Procs per Node x Cores per Proc",
+                                loc='lower center', ncol=ndecomps, bbox_to_anchor=(0.5, 0.0))
   figures['composite'].tight_layout()
   # this must be called after tight layout
   figures['composite'].subplots_adjust(top=0.85, bottom=0.15)
@@ -1400,11 +1385,12 @@ def plot_composite_weak(composite_group,
   # add legends
   for column_name in figures['independent']:
     for fig_name, fig in figures['independent'][column_name].items():
-      fig.legend(handles, labels,
-                 title="Procs per Node x Cores per Proc",
-                 loc='lower center', ncol=ndecomps, bbox_to_anchor=(0.5, 0.0))
-      # add space since the titles are typically large
-      fig.subplots_adjust(bottom=0.20)
+      if PLOT_LEGEND:
+        fig.legend(handles, labels,
+                   title="Procs per Node x Cores per Proc",
+                   loc='lower center', ncol=ndecomps, bbox_to_anchor=(0.5, 0.0))
+        # add space since the titles are typically large
+        fig.subplots_adjust(bottom=0.20)
 
   # save the free axis version of the figures
   save_figures(figures,
@@ -2205,6 +2191,9 @@ def plot_composite_strong(composite_group,
                filename='{basename}-free-yaxis'.format(basename=simple_fname),
                close_figure=False)
 
+  # produce a legend for the objects in the other figure
+  pylab.figlegend(*ax.get_legend_handles_labels(), loc='upper left')
+
   if ANNOTATE_BEST:
     for column_name in figures['independent']:
       for fig_name, fig in figures['independent'][column_name].items():
@@ -2251,7 +2240,9 @@ def plot_composite_strong(composite_group,
 ###############################################################################
 def load_dataset(dataset_filename,
                  min_num_nodes=1,
-                 max_num_nodes=1000000):
+                 max_num_nodes=1000000,
+                 min_procs_per_node=1,
+                 max_procs_per_node=1000000):
   """
   Load a CSV datafile. This assumes the data was parsed from YAML using the parser in this directory
 
@@ -2297,10 +2288,13 @@ def load_dataset(dataset_filename,
   restriction_query = '(problem_type != \"Elasticity3D\") & ' \
                       '(num_nodes >= {min_num_nodes}) & ' \
                       '(num_nodes <= {max_num_nodes}) & ' \
+                      '(procs_per_node >= {min_procs_per_node}) & ' \
+                      '(procs_per_node <= {max_procs_per_node}) & ' \
                       '(prec_attributes != \"-no-repartition\")' \
                       ''.format(min_num_nodes=min_num_nodes,
-                                max_num_nodes=max_num_nodes)
-  # '(cores_per_proc <= 16) & ' \
+                                max_num_nodes=max_num_nodes,
+                                min_procs_per_node=min_procs_per_node,
+                                max_procs_per_node=max_procs_per_node)
 
   dataset = dataset.query(restriction_query)
   print('Restricted dataset')
@@ -2415,6 +2409,9 @@ def get_aggregate_groups(dataset, scaling_type,
   spmv_groupby_columns.remove('execspace_name')
 
   spmv_only_data = dataset[dataset['Timer Name'].str.match(timer_name_re_str)]
+  if spmv_only_data.empty:
+    spmv_only_data = dataset[dataset['Timer Name'].str.match('OPT::Apply')]
+
   spmv_only_data.loc[:, 'Timer Name'] = timer_name_rename
 
   spmv_agg_groups = spmv_only_data.groupby(spmv_groupby_columns)
@@ -2633,6 +2630,7 @@ def plot_dataset(dataset,
                    numbered_plots_idx=numbered_plots_idx,
                    driver_df=driver_dataset,
                    show_percent_total=False)
+    exit(0)
 
   # restrict the dataset if requested
   if restriction_tokens:
@@ -2718,6 +2716,8 @@ def main():
   study_type        = _arg_options['--study']
   max_num_nodes          = _arg_options['--max_nodes']
   min_num_nodes          = _arg_options['--min_nodes']
+  max_procs_per_node     = _arg_options['--max_procs_per_node']
+  min_procs_per_node     = _arg_options['--min_procs_per_node']
   scaling_study_type      = _arg_options['--scaling']
 
   global FORCE_REPLOT
@@ -2749,20 +2749,28 @@ def main():
     global LATEX_CSV_PATH
     LATEX_CSV_PATH = 'max_only/{}'.format(LATEX_CSV_PATH)
 
+  if _arg_options['--legend']:
+    global PLOT_LEGEND
+    PLOT_LEGEND=True
 
   print('study: {study}\nscaling_type: {scaling}\ndataset: {data}'.format(study=study_type,
                                                                           scaling=scaling_study_type,
                                                                           data=dataset_filename))
   print('Max Nodes: {max}\tMin Nodes: {min}'.format(max=max_num_nodes, min=min_num_nodes))
+  print('Max PPN: {max}\tMin PPN: {min}'.format(max=max_procs_per_node, min=min_procs_per_node))
 
   if scaling_study_type == 'weak':
     dataset, driver_dataset = load_dataset(dataset_filename=dataset_filename,
                                            min_num_nodes=min_num_nodes,
-                                           max_num_nodes=max_num_nodes)
+                                           max_num_nodes=max_num_nodes,
+                                           min_procs_per_node=min_procs_per_node,
+                                           max_procs_per_node=max_procs_per_node)
   else:
     dataset, driver_dataset = load_dataset(dataset_filename=dataset_filename,
                                            min_num_nodes=0,
-                                           max_num_nodes=64)
+                                           max_num_nodes=64,
+                                           min_procs_per_node=min_procs_per_node,
+                                           max_procs_per_node=max_procs_per_node)
 
   ordered_timers = []
 
@@ -2783,12 +2791,6 @@ def main():
                           'solver_attributes': '-Tpetra',
                           'prec_name': 'None'}
 
-    # nested_timer_analysis(dataset=dataset,
-    #                       driver_dataset=driver_dataset,
-    #                       total_time_key=total_time_key,
-    #                       scaling_type=scaling_study_type)
-    # exit(0)
-
   elif study_type == 'muelu_prec':
     total_time_key = '5 - Solve'
     restriction_tokens = {'solver_name' : 'CG',
@@ -2804,9 +2806,6 @@ def main():
     restriction_tokens = {'prec_name' : 'None'}
   else:
     raise ValueError('unknown study_type ({})'.format(study_type))
-
-  if study_type == 'linearAlg':
-    do_tpetra_analysis(dataset)
 
   plot_dataset(dataset=dataset,
                driver_dataset=driver_dataset,

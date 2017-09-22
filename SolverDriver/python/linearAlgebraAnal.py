@@ -1352,12 +1352,6 @@ def main():
                           'solver_attributes': '-Tpetra',
                           'prec_name': 'None'}
 
-    # nested_timer_analysis(dataset=dataset,
-    #                       driver_dataset=driver_dataset,
-    #                       total_time_key=total_time_key,
-    #                       scaling_type=scaling_study_type)
-    # exit(0)
-
   elif study_type == 'muelu_prec':
     total_time_key = '5 - Solve'
     restriction_tokens = {'solver_name': 'CG',
