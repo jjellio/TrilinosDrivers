@@ -2,7 +2,7 @@
 """plotter.py
 
 Usage:
-  plotter.py [--dataset=DATASET --study=STUDY_TYPE --scaling=SCALING_TYPE [--legend] [--force_replot] [--max_nodes=NUM] [--min_nodes=NUM] [--min_procs_per_node=NUM] [--max_procs_per_node=NUM] [--min_only | --max_only]]
+  plotter.py [--dataset=DATASET --study=STUDY_TYPE --scaling=SCALING_TYPE [--legend] [--force_replot] [--max_nodes=NUM] [--min_nodes=NUM] [--min_procs_per_node=NUM] [--max_procs_per_node=NUM] [--min_only | --max_only] [--ymin=NUM] [--ymax=NUM] [--normalize_y]]
   plotter.py (-h | --help)
 
 Options:
@@ -18,6 +18,9 @@ Options:
   --max_procs_per_node=NUM  Restrict the number processes per node [default: 64]
   --min_only               Plot only the minimum values [default: False]
   --max_only               Plot only the maximum values [default: False]
+  --ymin=NUM               Restrict the number processes per node [default: -1.0]
+  --ymax=NUM               Restrict the number processes per node [default: -1.0]
+  --normalize_y            Normalize the y axis between [0,1] [default: False]
 """
 # import matplotlib as mpl
 # mpl.use('TkAgg')
@@ -35,7 +38,7 @@ import ScalingFilenameParser as SFP
 COMPOSITE_PATH   = 'composites'
 INDEPENDENT_PATH = 'standalone'
 LATEX_CSV_PATH = 'latex_csv'
-IMG_FORMAT = "pdf"
+IMG_FORMAT = "png"
 IMG_DPI = 150
 
 FORCE_REPLOT  = False
@@ -58,6 +61,12 @@ SMOOTH_OUTLIERS     = False
 HT_CONSISTENT_YAXES = True
 ANNOTATE_BEST       = False
 PLOT_LEGEND         = False
+
+DO_YMIN_OVERRIDE=False
+DO_YMAX_OVERRIDE=False
+YMIN_OVERRIDE=None
+YMAX_OVERRIDE=None
+DO_NORMALIZE_Y=False
 
 HYPER_THREAD_LABEL = 'HT'
 
@@ -677,6 +686,38 @@ def enforce_consistent_ylims(figures, axes):
         fig.gca().set_ylim(best_ylims)
 
 
+def enforce_override_ylims(figures, axes):
+  """
+  Given the matplotlib figure and axes handles, Override the current ylims
+
+  :param figures: dict of dict of dict of figures
+                  figures should be the independent figures, constructed as
+                  independent:column_name:row_name
+  :param axes: Handles for all axes that are part of the composite plot. e.g., axes[column_name][row_name]
+  :return: Nothing
+  """
+  # if we want consistent axes by column, then enforce that here.
+  if DO_YMAX_OVERRIDE or DO_YMIN_OVERRIDE:
+    for column_name, column_map in axes.items():
+      # apply these limits to each plot in this column
+      for axes_name, ax in column_map.items():
+        current_ylims = list(ax.get_ylim())
+        if DO_YMIN_OVERRIDE:
+          current_ylims[0] = YMIN_OVERRIDE
+        if DO_YMAX_OVERRIDE:
+          current_ylims[1] = YMAX_OVERRIDE
+        ax.set_ylim(current_ylims)
+
+      for figure_name, fig in figures['independent'][column_name].items():
+        current_ylims = list(fig.gca().get_ylim())
+        if DO_YMIN_OVERRIDE:
+          current_ylims[0] = YMIN_OVERRIDE
+        if DO_YMAX_OVERRIDE:
+          current_ylims[1] = YMAX_OVERRIDE
+
+        fig.gca().set_ylim(current_ylims)
+
+
 ###########################################################################################
 def save_figures(figures,
                  filename,
@@ -765,6 +806,26 @@ def save_figures(figures,
           plt.close(figures['independent'][column_name][ht_name])
 
 
+###########################################################################################
+def close_figures(figures):
+  """
+  Helper to save figures. Plots the composite figure, as well as the independent figures.
+
+  :param figures: dict of figures. composite => figure,
+                                   independent => column_name => row_name => figure
+  :return:
+  """
+
+  plt.close(figures['composite'])
+
+  for column_name in figures['independent']:
+    fig_names = figures['independent'][column_name].keys()
+
+    for ht_name in fig_names:
+      plt.close(figures['independent'][column_name][ht_name])
+
+
+###########################################################################################
 def get_figures_and_axes(subplot_names,
                          subplot_row_names,
                          fig_size=5.0,
@@ -1422,7 +1483,7 @@ def plot_composite_weak(composite_group,
     enforce_consistent_ylims(figures, axes)
 
   # save the figures with the axes shared
-  save_figures(figures, filename=simple_fname, close_figure=True)
+  save_figures(figures, filename=simple_fname, close_figure=False)
 
   if ANNOTATE_BEST:
     for column_name in figures['independent']:
@@ -1438,7 +1499,19 @@ def plot_composite_weak(composite_group,
                  independent=True,
                  independent_names=ht_names[0])
 
+  # y axes overrides
+  if DO_YMAX_OVERRIDE or DO_YMIN_OVERRIDE:
+    enforce_override_ylims(figures, axes)
 
+    # save the override axis version of the figures
+    save_figures(figures,
+                 filename='{basename}-or'.format(basename=simple_fname),
+                 close_figure=False)
+
+  close_figures(figures)
+
+
+###########################################################################################
 def axes_to_df(ax, ax_id):
   import re
 
@@ -2748,6 +2821,22 @@ def main():
 
     global LATEX_CSV_PATH
     LATEX_CSV_PATH = 'max_only/{}'.format(LATEX_CSV_PATH)
+
+  if _arg_options['--ymin'] != -1.0:
+    global YMIN_OVERRIDE
+    global DO_YMIN_OVERRIDE
+    DO_YMIN_OVERRIDE=True
+    YMIN_OVERRIDE = float(_arg_options['--ymin'])
+
+  if _arg_options['--ymax'] != -1.0:
+    global YMAX_OVERRIDE
+    global DO_YMAX_OVERRIDE
+    DO_YMAX_OVERRIDE=True
+    YMAX_OVERRIDE = float(_arg_options['--ymax'])
+
+  if _arg_options['--normalize_y']:
+    global DO_NORMALIZE_Y
+    DO_NORMALIZE_Y = _arg_options['--normalize_y']
 
   if _arg_options['--legend']:
     global PLOT_LEGEND
