@@ -2,12 +2,26 @@
 """plotter.py
 
 Usage:
-  plotter.py [--dataset=DATASET --study=STUDY_TYPE --scaling=SCALING_TYPE [--legend] [--force_replot] [--max_nodes=NUM] [--min_nodes=NUM] [--min_procs_per_node=NUM] [--max_procs_per_node=NUM] [--min_only | --max_only] [--ymin=NUM] [--ymax=NUM] [--normalize_y]]
+  plotter.py --study=STUDY_TYPE
+            [--scaling=SCALING_TYPE]
+            [--dataset=DATASET]
+            [--baseline=DATASET]
+            [--legend]
+            [--force_replot]
+            [--max_nodes=NUM]
+            [--min_nodes=NUM]
+            [--min_procs_per_node=NUM]
+            [--max_procs_per_node=NUM]
+            [--min_only | --max_only]
+            [--ymin=NUM]
+            [--ymax=NUM]
+            [--normalize_y]
   plotter.py (-h | --help)
 
 Options:
   -h --help                Show this screen.
   --dataset=DATASET        Input file [default: all_data.csv]
+  --baseline=DATASET       Input file that should be used to form baseline comparisons
   --study=STUDY_TYPE       muelu_constructor, muelu_prec, solvers
   --scaling=SCALING_TYPE   Type of analysis, weak/strong [default: strong]
   --force_replot           Force replotting of existing data [default: False]
@@ -22,7 +36,7 @@ Options:
   --ymax=NUM               Restrict the number processes per node [default: -1.0]
   --normalize_y            Normalize the y axis between [0,1] [default: False]
 """
-# import matplotlib as mpl
+#import matplotlib as mpl
 # mpl.use('TkAgg')
 
 from docopt import docopt
@@ -34,6 +48,8 @@ from pathlib import Path
 import copy
 import ScalingFilenameParser as SFP
 # from operator import itemgetter
+
+SPMV_FIG=True
 
 COMPOSITE_PATH   = 'composites'
 INDEPENDENT_PATH = 'standalone'
@@ -55,6 +71,24 @@ QUANTITY_OF_INTEREST_THING_COUNT = 'meanCC'
 MIN_LINESTYLE = 'dotted'
 MAX_LINESTYLE = 'solid'
 
+MIN_MARKER = 's'
+MAX_MARKER = 'o'
+STANDALONE_FONT_SIZE=20
+
+MIN_STYLE= {
+  'linewidth'  : 5,
+  'marker'     : MIN_MARKER,
+  'markersize' : 10,
+  'fillstyle'  : 'none'
+}
+
+MAX_STYLE= {
+  'linewidth'  : 5,
+  'marker'     : MAX_MARKER,
+  'markersize' : 10,
+  'fillstyle'  : 'none'
+}
+
 PLOT_MIN            = True
 PLOT_MAX            = True
 SMOOTH_OUTLIERS     = False
@@ -62,11 +96,21 @@ HT_CONSISTENT_YAXES = True
 ANNOTATE_BEST       = False
 PLOT_LEGEND         = False
 
-DO_YMIN_OVERRIDE=False
-DO_YMAX_OVERRIDE=False
-YMIN_OVERRIDE=None
-YMAX_OVERRIDE=None
-DO_NORMALIZE_Y=False
+DO_YMIN_OVERRIDE = False
+DO_YMAX_OVERRIDE = False
+YMIN_OVERRIDE    = None
+YMAX_OVERRIDE    = None
+DO_NORMALIZE_Y   = False
+HAVE_BASELINE    = False
+BASELINE_DATASET_DF = None
+BASELINE_DRIVER_DF  = None
+BASELINE_DECOMP = dict(procs_per_node=int(64),
+                       cores_per_proc=int(1),
+                       threads_per_core=int(1),
+                       execspace_name='Serial')
+BASELINE_DECOMP_TUPLE = (BASELINE_DECOMP['procs_per_node'],
+                         BASELINE_DECOMP['cores_per_proc'],
+                         BASELINE_DECOMP['execspace_name'])
 
 HYPER_THREAD_LABEL = 'HT'
 
@@ -79,7 +123,8 @@ DECOMP_COLORS = {
   '4x16'      : 'xkcd:dusty purple',
   '2x32'      : 'xkcd:peach',
   '1x64'      : 'xkcd:cyan',
-  'flat_mpi'  : 'xkcd:salmon',
+  'flat_mpi'  : 'xkcd:red',
+  #'flat_mpi'  : 'xkcd:salmon',
   'best'      : 'xkcd:salmon',
   'worst'     : 'xkcd:greyish'
 }
@@ -871,12 +916,13 @@ def plot_raw_data(ax, indep_ax, xvalues, yvalues, linestyle, label, color,
                   **kwargs):
 
   # plot the data
-  ax.plot(xvalues,
-          yvalues,
-          label=label,
-          color=color,
-          linestyle=linestyle,
-          **kwargs)
+  if ax:
+    ax.plot(xvalues,
+            yvalues,
+            label=label,
+            color=color,
+            linestyle=linestyle,
+            **kwargs)
 
   if indep_ax:
     indep_ax.plot(xvalues,
@@ -1102,6 +1148,7 @@ def plot_composite_weak(composite_group,
                         average=False,
                         numbered_plots_idx=-1,
                         write_latex_and_csv=True,
+                        baseline_group=None,
                         kwargs={}):
   """
   Plot all decompositions on a single figure.
@@ -1146,10 +1193,17 @@ def plot_composite_weak(composite_group,
       show_factor = kwargs['show_factor']
 
   # determine the flat MPI time
-  composite_group = add_flat_mpi_data(composite_group,allow_baseline_override=True)
+  composite_group = add_flat_mpi_data(composite_group, allow_baseline_override=True)
+  if HAVE_BASELINE:
+    bl_composite_group = add_flat_mpi_data(baseline_group, allow_baseline_override=True)
 
   decomp_groups = composite_group.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
   driver_decomp_groups = driver_df.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
+
+  if HAVE_BASELINE:
+    bl_decomp_groups = bl_composite_group.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
+    bl_dr_decomp_groups = BASELINE_DRIVER_DF.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
+
 
   # determine the components that should be in the filename
   show_solver_name = (composite_group['solver_name'].nunique() == 1)
@@ -1200,6 +1254,10 @@ def plot_composite_weak(composite_group,
     subplot_names.remove('percent_total')
   if show_factor:
     subplot_names.append('flat_mpi_factor')
+  if HAVE_BASELINE:
+    subplot_names.append('global_baseline')
+    subplot_names.append('global_percent_baseline')
+    subplot_names.append('decomp_baseline')
 
   # whether we should replot images that already exist.
   if FORCE_REPLOT is False:
@@ -1212,6 +1270,25 @@ def plot_composite_weak(composite_group,
                                        fig_size=fig_size,
                                        fig_size_width_inflation=fig_size_width_inflation,
                                        fig_size_height_inflation=fig_size_height_inflation)
+  # whether we have data to make a baseline comparison
+  have_global_baseline = False
+
+  if HAVE_BASELINE:
+    # gather data for a global baseline plot e.g., flat MPI from another study
+    try:
+      bl_global_decomp_group = bl_decomp_groups.get_group(BASELINE_DECOMP_TUPLE)
+      bl_global_decomp_ht_groups = bl_global_decomp_group.groupby('threads_per_core')
+      bl_global_decomp_ht_group = bl_global_decomp_ht_groups.get_group((BASELINE_DECOMP['threads_per_core']))
+
+      bl_dr_global_decomp_group = bl_dr_decomp_groups.get_group(BASELINE_DECOMP_TUPLE)
+      bl_dr_global_decomp_ht_groups = bl_dr_global_decomp_group.groupby('threads_per_core')
+      bl_dr_global_decomp_ht_group = bl_dr_global_decomp_ht_groups.get_group((BASELINE_DECOMP['threads_per_core']))
+      if not bl_global_decomp_ht_group.empty:
+        have_global_baseline = True
+        # for plot_row in axes['raw_data']:
+        #   axes['decomp_baseline'][plot_row] = False
+    except:
+      pass
 
   for decomp_group_name, decomp_group in decomp_groups:
     procs_per_node = int(decomp_group_name[0])
@@ -1237,12 +1314,49 @@ def plot_composite_weak(composite_group,
         ht_name = ht_names[0]
 
       ht_group = ht_groups.get_group(ht_name)
+
+      ####################################################################################################################
+      # attempt to gather data for baseline tracking
+
+      # whether we have data to make a baseline comparison
+      have_decomp_baseline = False
+
+      if HAVE_BASELINE:
+        try:
+          # this series of groupings is for clarity.
+          # this is the same order of ops as we do for the regular data
+          # what we effectively do, is group by procs, cores, execspace, threads
+          bl_decomp_group = bl_decomp_groups.get_group(decomp_group_name)
+          bl_decomp_ht_groups = bl_decomp_group.groupby('threads_per_core')
+          bl_decomp_ht_group = bl_decomp_ht_groups.get_group(ht_name)
+
+          bl_dr_decomp_group = bl_dr_decomp_groups.get_group(decomp_group_name)
+          bl_dr_decomp_ht_groups = bl_dr_decomp_group.groupby('threads_per_core')
+          bl_dr_decomp_ht_group = bl_dr_decomp_ht_groups.get_group(ht_name)
+          if not bl_decomp_ht_group.empty:
+            # if we got something, then we can form a comparison
+            have_decomp_baseline = True
+        except:
+          pass
+
       magic_str = '-{decomp_label}x{threads_per_core}'.format(decomp_label=decomp_label,
                                                               threads_per_core=ht_name)
 
       my_agg_times = pd.DataFrame(columns=['num_nodes', 'ticks'], data=np.column_stack((my_nodes, my_ticks)))
-
       my_agg_times = get_plottable_dataframe(my_agg_times, ht_group, ht_name, driver_ht_groups, magic=magic_str)
+
+      bl_agg_times = pd.DataFrame(columns=['num_nodes', 'ticks'], data=np.column_stack((my_nodes, my_ticks)))
+      if have_decomp_baseline:
+        bl_agg_times = get_plottable_dataframe(bl_agg_times, bl_decomp_ht_group, ht_name, bl_dr_decomp_ht_groups, magic=magic_str)
+        bl_agg_times.rename(columns={QUANTITY_OF_INTEREST_MIN: 'bl_min',
+                                     QUANTITY_OF_INTEREST_MAX: 'bl_max'},
+                            inplace=True)
+        my_agg_times = pd.merge(my_agg_times, bl_agg_times[['bl_min', 'bl_max', 'num_nodes']],
+                                how='left',
+                                on=['num_nodes'])
+        my_agg_times['bl_max_diff'] = ((my_agg_times['bl_max'] - my_agg_times[QUANTITY_OF_INTEREST_MAX])/my_agg_times['bl_max'])*100
+        my_agg_times['bl_min_diff'] = ((my_agg_times['bl_min'] - my_agg_times[QUANTITY_OF_INTEREST_MIN])/my_agg_times['bl_min'])*100
+        print(my_agg_times)
 
       # this assumes that idx=0 is an SpMV aggregate figure, which appears to be worthless.
       if write_latex_and_csv and plot_row == ht_name:
@@ -1270,16 +1384,24 @@ def plot_composite_weak(composite_group,
 
       # plot the data
       if PLOT_MAX:
+        import matplotlib.patheffects as pe
+
         # plot the max if requested
+        MAX_STYLE['path_effects'] = [pe.Stroke(linewidth=18, foreground=DECOMP_COLORS[decomp_label], alpha=0.25), pe.Normal()]
         plot_raw_data(ax=axes['raw_data'][plot_row],
                       indep_ax=figures['independent']['raw_data'][plot_row].gca(),
                       xvalues=my_agg_times['ticks'],
                       yvalues=my_agg_times[QUANTITY_OF_INTEREST_MAX],
                       linestyle=MAX_LINESTYLE,
                       label='max-{}'.format(decomp_label),
-                      color=DECOMP_COLORS[decomp_label])
+                      color=DECOMP_COLORS[decomp_label],
+                      **MAX_STYLE)
+        MAX_STYLE['path_effects'] = None
 
       if PLOT_MIN:
+        import matplotlib.patheffects as pe
+
+        MIN_STYLE['path_effects'] = [pe.Stroke(linewidth=18, foreground=DECOMP_COLORS[decomp_label], alpha=0.25), pe.Normal()]
         # plot the max if requested
         plot_raw_data(ax=axes['raw_data'][plot_row],
                       indep_ax=figures['independent']['raw_data'][plot_row].gca(),
@@ -1287,7 +1409,70 @@ def plot_composite_weak(composite_group,
                       yvalues=my_agg_times[QUANTITY_OF_INTEREST_MIN],
                       linestyle=MIN_LINESTYLE,
                       label='min-{}'.format(decomp_label),
-                      color=DECOMP_COLORS[decomp_label])
+                      color=DECOMP_COLORS[decomp_label],
+                      **MIN_STYLE)
+        MIN_STYLE['path_effects'] = None
+
+      if have_decomp_baseline:
+        import copy
+        import matplotlib.patheffects as pe
+        if PLOT_MAX:
+          m=copy.deepcopy(MAX_STYLE)
+          m['marker'] = None
+          #m['path_effects'] = [pe.Stroke(linewidth=15, foreground=DECOMP_COLORS[decomp_label], alpha=0.25), pe.Normal()]
+          #m['path_effects'] = [pe.Stroke(linewidth=5, foreground=DECOMP_COLORS[decomp_label], alpha=0.25), pe.Normal()]
+          #m['path_effects'] = [pe.SimpleLineShadow(shadow_color=DECOMP_COLORS[decomp_label]), pe.Normal()]
+          # plot the max if requested
+          plot_raw_data(ax=axes['raw_data'][plot_row],
+                        indep_ax=figures['independent']['raw_data'][plot_row].gca(),
+                        xvalues=my_agg_times['ticks'],
+                        yvalues=my_agg_times['bl_max'],
+                        linestyle=MAX_LINESTYLE,
+                        label=None,
+                        color='black',
+                        **m)
+          m['path_effects'] = None
+          m['marker'] = '*'
+          plot_raw_data(ax=axes['raw_data'][plot_row],
+                        indep_ax=figures['independent']['raw_data'][plot_row].gca(),
+                        xvalues=my_agg_times['ticks'],
+                        yvalues=my_agg_times['bl_max'],
+                        linestyle=MAX_LINESTYLE,
+                        label='Prior-max-{}'.format(decomp_label),
+                        color=DECOMP_COLORS[decomp_label],
+                        **m)
+          # plot percent diff
+          plot_raw_data(ax=axes['decomp_baseline'][plot_row],
+                        indep_ax=figures['independent']['decomp_baseline'][plot_row].gca(),
+                        xvalues=my_agg_times['ticks'],
+                        yvalues=my_agg_times['bl_max_diff'],
+                        linestyle=MAX_LINESTYLE,
+                        label='Perc. Diff-max-{}'.format(decomp_label),
+                        color=DECOMP_COLORS[decomp_label],
+                        **MAX_STYLE)
+
+        if PLOT_MIN:
+          m=copy.deepcopy(MIN_STYLE)
+          m['marker'] = '*'
+          # plot the max if requested
+          plot_raw_data(ax=axes['raw_data'][plot_row],
+                        indep_ax=figures['independent']['raw_data'][plot_row].gca(),
+                        xvalues=my_agg_times['ticks'],
+                        yvalues=my_agg_times['bl_min'],
+                        linestyle='dashed',
+                        label='Prior-{}'.format(decomp_label),
+                        color=DECOMP_COLORS[decomp_label],
+                        **m)
+
+          # plot percent diff
+          plot_raw_data(ax=axes['decomp_baseline'][plot_row],
+                        indep_ax=figures['independent']['decomp_baseline'][plot_row].gca(),
+                        xvalues=my_agg_times['ticks'],
+                        yvalues=my_agg_times['bl_min_diff'],
+                        linestyle=MIN_LINESTYLE,
+                        label='Perc. Diff-min-{}'.format(decomp_label),
+                        color=DECOMP_COLORS[decomp_label],
+                        **MIN_STYLE)
 
       if show_percent_total:
         # plot the data
@@ -1338,9 +1523,30 @@ def plot_composite_weak(composite_group,
     figures['independent']['raw_data'][ht_name].gca().set_xticks(my_ticks)
     figures['independent']['raw_data'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
     figures['independent']['raw_data'][ht_name].gca().set_xlim([0.5, my_num_nodes + 0.5])
-    figures['independent']['raw_data'][ht_name].gca().set_title('{}\n({HT_LABEL}={HT_NUM:.0f})'.format(simple_title,
-                                                                                                       HT_LABEL=HYPER_THREAD_LABEL,
-                                                                                                       HT_NUM=ht_name))
+    if SPMV_FIG:
+      figures['independent']['raw_data'][ht_name].gca().set_title('')
+    else:
+      figures['independent']['raw_data'][ht_name].gca().set_title('{}\n{bolding_pre}({HT_LABEL}={HT_NUM:.0f}){bolding_post}'.format(simple_title,
+                                                                                                         HT_LABEL=HYPER_THREAD_LABEL,
+                                                                                                         HT_NUM=ht_name,
+                                                                                                         bolding_pre=r'$\bf{',
+                                                                                                         bolding_post=r'}$'))
+    tmp_ax = figures['independent']['raw_data'][ht_name].gca()
+    for item in ([tmp_ax.xaxis.label, tmp_ax.yaxis.label] +
+                  tmp_ax.get_xticklabels() + tmp_ax.get_yticklabels()):
+      item.set_fontsize(STANDALONE_FONT_SIZE)
+    tmp_ax.title.set_fontsize(STANDALONE_FONT_SIZE-2)
+
+    ## percent diff
+    if show_percent_total:
+      figures['independent']['decomp_baseline'][ht_name].gca().set_ylabel('Percentage Improvement over Prior')
+      figures['independent']['decomp_baseline'][ht_name].gca().set_xlabel('Number of Nodes')
+      figures['independent']['decomp_baseline'][ht_name].gca().set_xticks(my_ticks)
+      figures['independent']['decomp_baseline'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
+      figures['independent']['decomp_baseline'][ht_name].gca().set_xlim([0.5, my_num_nodes + 0.5])
+      figures['independent']['decomp_baseline'][ht_name].gca().set_title('{}\n({HT_LABEL}={HT_NUM:.0f})'.format(simple_title,
+                                                                                                              HT_LABEL=HYPER_THREAD_LABEL,
+                                                                                                              HT_NUM=ht_name))
     ## percentages
     if show_percent_total:
       figures['independent']['percent_total'][ht_name].gca().set_ylabel('Percentage of Total Time')
@@ -1445,6 +1651,8 @@ def plot_composite_weak(composite_group,
 
   # add legends
   for column_name in figures['independent']:
+    if column_name not in ['raw_data', 'decomp_baseline']:
+      continue
     for fig_name, fig in figures['independent'][column_name].items():
       if PLOT_LEGEND:
         fig.legend(handles, labels,
@@ -1452,6 +1660,9 @@ def plot_composite_weak(composite_group,
                    loc='lower center', ncol=ndecomps, bbox_to_anchor=(0.5, 0.0))
         # add space since the titles are typically large
         fig.subplots_adjust(bottom=0.20)
+      else:
+        fig.subplots_adjust(bottom=0.14)
+        fig.tight_layout()
 
   # save the free axis version of the figures
   save_figures(figures,
@@ -1760,6 +1971,7 @@ def plot_composite_strong(composite_group,
                         driver_df,
                         numbered_plots_idx=-1,
                         write_latex_and_csv=True,
+                        baseline_group=None,
                         kwargs={}):
   """
   Plot all decompositions on a single figure.
@@ -2370,6 +2582,8 @@ def load_dataset(dataset_filename,
                                 max_procs_per_node=max_procs_per_node)
 
   dataset = dataset.query(restriction_query)
+  dataset = dataset[dataset['procs_per_node'].isin([64, 4])]
+  dataset = dataset[~dataset['num_nodes'].isin([4, 32])]
   print('Restricted dataset')
 
   dataset = dataset.fillna(value='None')
@@ -2480,6 +2694,7 @@ def get_aggregate_groups(dataset, scaling_type,
   spmv_groupby_columns.remove('prec_attributes')
   # be very careful, there will be duplicate decomp groups
   spmv_groupby_columns.remove('execspace_name')
+  spmv_groupby_columns.remove('numsteps')
 
   spmv_only_data = dataset[dataset['Timer Name'].str.match(timer_name_re_str)]
   if spmv_only_data.empty:
@@ -2498,9 +2713,11 @@ def plot_composite(composite_group,
                    scaling_study_type,
                    numbered_plots_idx,
                    driver_df,
+                   baseline_group=None,
                    **kwargs):
   if scaling_study_type == 'weak':
     plot_composite_weak(composite_group=composite_group,
+                        baseline_group=baseline_group,
                         my_nodes=my_nodes,
                         my_ticks=my_ticks,
                         numbered_plots_idx=numbered_plots_idx,
@@ -2509,10 +2726,11 @@ def plot_composite(composite_group,
 
   elif scaling_study_type == 'strong':
     plot_composite_strong(composite_group=composite_group,
-                        my_nodes=my_nodes,
-                        my_ticks=my_ticks,
-                        numbered_plots_idx=numbered_plots_idx,
-                        driver_df=driver_df)
+                          baseline_group=baseline_group,
+                          my_nodes=my_nodes,
+                          my_ticks=my_ticks,
+                          numbered_plots_idx=numbered_plots_idx,
+                          driver_df=driver_df)
 
 
 ###############################################################################
@@ -2689,6 +2907,9 @@ def plot_dataset(dataset,
   numbered_plots_idx = -1
 
   spmv_agg_groups = get_aggregate_groups(dataset=dataset, scaling_type=scaling_type)
+  if HAVE_BASELINE:
+    baseline_spmv_agg_groups = get_aggregate_groups(dataset=BASELINE_DATASET_DF, scaling_type=scaling_type)
+    print('baseline', baseline_spmv_agg_groups)
 
   # plot the aggregate spmv data, e.g., all data regardless of experiment so long as the problem size is the
   for spmv_agg_name, spmv_agg_group in spmv_agg_groups:
@@ -2696,13 +2917,24 @@ def plot_dataset(dataset,
     if number_plots:
       numbered_plots_idx += 1
 
-    plot_composite(composite_group=spmv_agg_group,
-                   my_nodes=my_nodes,
-                   my_ticks=my_ticks,
-                   scaling_study_type=scaling_type,
-                   numbered_plots_idx=numbered_plots_idx,
-                   driver_df=driver_dataset,
-                   show_percent_total=False)
+    if HAVE_BASELINE:
+      plot_composite(composite_group=spmv_agg_group,
+                     baseline_group=baseline_spmv_agg_groups.get_group(spmv_agg_name),
+                     my_nodes=my_nodes,
+                     my_ticks=my_ticks,
+                     scaling_study_type=scaling_type,
+                     numbered_plots_idx=numbered_plots_idx,
+                     driver_df=driver_dataset,
+                     show_percent_total=False)
+    else:
+      plot_composite(composite_group=spmv_agg_group,
+                     my_nodes=my_nodes,
+                     my_ticks=my_ticks,
+                     scaling_study_type=scaling_type,
+                     numbered_plots_idx=numbered_plots_idx,
+                     driver_df=driver_dataset,
+                     show_percent_total=False)
+
     exit(0)
 
   # restrict the dataset if requested
@@ -2712,6 +2944,11 @@ def plot_dataset(dataset,
     print(restriction_query_string)
     dataset = dataset.query(restriction_query_string)
     driver_dataset = driver_dataset.query(restriction_query_string)
+    if HAVE_BASELINE:
+      global BASELINE_DATASET_DF
+      global BASELINE_DRIVER_DF
+      BASELINE_DATASET_DF = BASELINE_DATASET_DF.query(restriction_query_string)
+      BASELINE_DRIVER_DF  = BASELINE_DRIVER_DF.query(restriction_query_string)
 
   # group by timer and attributes, but keep all decomps together
   omp_groupby_columns = SFP.getMasterGroupBy(execspace_name='OpenMP', scaling_type=scaling_type)
@@ -2726,6 +2963,10 @@ def plot_dataset(dataset,
   # it would be nice to pivot the driver timers so that they become columns in the actual data
   # e.g., each experiment has their corresponding driver timers as additional columns
   driver_composite_groups = driver_dataset.groupby(omp_groupby_columns)
+
+  if HAVE_BASELINE:
+    bl_composite_groups = BASELINE_DATASET_DF.groupby(omp_groupby_columns)
+    bl_driver_composite_groups = BASELINE_DRIVER_DF.groupby(omp_groupby_columns)
 
   # if we sort timers, then construct a sorted set
   if ordered_timers:
@@ -2792,6 +3033,7 @@ def main():
   max_procs_per_node     = _arg_options['--max_procs_per_node']
   min_procs_per_node     = _arg_options['--min_procs_per_node']
   scaling_study_type      = _arg_options['--scaling']
+  baseline_df_file = None
 
   global FORCE_REPLOT
   FORCE_REPLOT           = _arg_options['--force_replot']
@@ -2799,6 +3041,9 @@ def main():
   if _arg_options['--min_only']:
     global PLOT_MAX
     PLOT_MAX = False
+
+    global MIN_LINESTYLE
+    MIN_LINESTYLE='solid'
 
     global COMPOSITE_PATH
     COMPOSITE_PATH = 'min_only/{}'.format(COMPOSITE_PATH)
@@ -2838,6 +3083,16 @@ def main():
     global DO_NORMALIZE_Y
     DO_NORMALIZE_Y = _arg_options['--normalize_y']
 
+  if _arg_options['--baseline']:
+    baseline_df_file = _arg_options['--baseline']
+
+    if baseline_df_file != dataset_filename:
+      global HAVE_BASELINE
+      HAVE_BASELINE=True
+
+      print('Have baseline data: ', baseline_df_file)
+
+
   if _arg_options['--legend']:
     global PLOT_LEGEND
     PLOT_LEGEND=True
@@ -2854,12 +3109,29 @@ def main():
                                            max_num_nodes=max_num_nodes,
                                            min_procs_per_node=min_procs_per_node,
                                            max_procs_per_node=max_procs_per_node)
+    if HAVE_BASELINE:
+      global BASELINE_DRIVER_DF
+      global BASELINE_DATASET_DF
+      BASELINE_DATASET_DF, BASELINE_DRIVER_DF = load_dataset(dataset_filename=baseline_df_file,
+                                                             min_num_nodes=min_num_nodes,
+                                                             max_num_nodes=max_num_nodes,
+                                                             min_procs_per_node=min_procs_per_node,
+                                                             max_procs_per_node=max_procs_per_node)
   else:
     dataset, driver_dataset = load_dataset(dataset_filename=dataset_filename,
                                            min_num_nodes=0,
                                            max_num_nodes=64,
                                            min_procs_per_node=min_procs_per_node,
                                            max_procs_per_node=max_procs_per_node)
+
+    if HAVE_BASELINE:
+      global BASELINE_DRIVER_DF
+      global BASELINE_DATASET_DF
+      BASELINE_DATASET_DF, BASELINE_DRIVER_DF = load_dataset(dataset_filename=baseline_df_file,
+                                                             min_num_nodes=min_num_nodes,
+                                                             max_num_nodes=max_num_nodes,
+                                                             min_procs_per_node=min_procs_per_node,
+                                                             max_procs_per_node=max_procs_per_node)
 
   ordered_timers = []
 
