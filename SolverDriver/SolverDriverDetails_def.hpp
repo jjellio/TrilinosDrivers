@@ -922,12 +922,18 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
     comm_->barrier();
 
     // apply
+    for (int app=0; app < 30; ++app)
     {
-      // start the clock
-      Teuchos::TimeMonitor tm (*applyTime_);
+      {
+        // start the clock
+        Teuchos::TimeMonitor tm (*applyTime_);
 
-      //OPT::Apply(*orig_A_, *B, *X, Belos::NOTRANS);
-      orig_A_->apply(*(B), *(X), Teuchos::NO_TRANS, one, zero);
+        //OPT::Apply(*orig_A_, *B, *X, Belos::NOTRANS);
+        orig_A_->apply(*(B), *(X), Teuchos::NO_TRANS, one, zero);
+      }
+       // barrier after the timer scope, this allows the timers to track variations
+      comm_->barrier();
+
     }
     // barrier after the timer scope, this allows the timers to track variations
     comm_->barrier();
@@ -944,13 +950,13 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
     // barrier after the timer scope, this allows the timers to track variations
     comm_->barrier();
 
-    {
-      // start the clock
-      Teuchos::TimeMonitor tm (*scaleTime_);
-      MVT::MvScale(*X, SC(1.00253));
-    }
+//    {
+//      // start the clock
+//      Teuchos::TimeMonitor tm (*scaleTime_);
+//      MVT::MvScale(*X, SC(1.00253));
+//    }
     // barrier after the timer scope, this allows the timers to track variations
-    comm_->barrier();
+//    comm_->barrier();
 
     {
       using ss_t = std::stringstream;
@@ -1005,13 +1011,37 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
 
         {
           timerLabel.str("");
+          timerLabel << "MVT::MvInit0::" << num_vectors;
+          RCP<Time> the_timer   = TimeMonitor::getNewTimer(timerLabel.str());
+
+          // start the clock
+          Teuchos::TimeMonitor tm (*the_timer);
+
+          MVT::MvInit (*Q_prev_nonconst, zero);
+        }
+        comm_->barrier();
+
+        {
+          timerLabel.str("");
           timerLabel << "MVT::MvInit::" << num_vectors;
           RCP<Time> the_timer   = TimeMonitor::getNewTimer(timerLabel.str());
 
           // start the clock
           Teuchos::TimeMonitor tm (*the_timer);
 
-          MVT::MvInit (*Q_prev_nonconst, one);
+          MVT::MvInit (*Q_prev_nonconst, SC(23.23344319));
+        }
+        comm_->barrier();
+
+        {
+          timerLabel.str("");
+          timerLabel << "MVT::MVScale1::" << num_vectors;
+          RCP<Time> the_timer   = TimeMonitor::getNewTimer(timerLabel.str());
+
+          // start the clock
+          Teuchos::TimeMonitor tm (*the_timer);
+          MVT::MvScale(*Q_prev_nonconst, one);
+          //MVT::MvInit (*Q_prev_nonconst, one);
         }
         comm_->barrier();
 
@@ -1022,10 +1052,11 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
 
           // start the clock
           Teuchos::TimeMonitor tm (*the_timer);
-          MVT::MvScale(*Q_prev_nonconst, one);
+          MVT::MvScale(*Q_prev_nonconst, SC(5.23123123));
           //MVT::MvInit (*Q_prev_nonconst, one);
         }
         comm_->barrier();
+
 
         Teuchos::RCP< Teuchos::SerialDenseMatrix<int,SC> > Z;
         {
