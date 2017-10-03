@@ -1,0 +1,171 @@
+# this bash script should be sourced
+
+date
+
+execSpace=openmp
+
+##### Setup Hugepages
+module -s rm craype-hugepages512M craype-hugepages256M craype-hugepages128M craype-hugepages64M craype-hugepages32M craype-hugepages16M craype-hugepages8M craype-hugepages2M craype-hugepages4M
+module load ${hp_name}
+
+export MPICH_ALLOC_MEM_HUGE_PAGES=1
+export MPICH_ALLOC_MEM_PG_SZ=${hp}M
+export MPICH_ENV_DISPLAY=verbose
+export HUGETLB_VERBOSE=2
+
+
+echo "EXEC_DIR: ${EXEC_DIR}"
+mkdir -p ${EXEC_DIR} 2>&1 > /dev/null
+
+ln -s $(realpath gold) ${EXEC_DIR} 2>&1 > /dev/null
+ln -s $(realpath fused-driver.xml) ${EXEC_DIR} 2>&1 > /dev/null
+
+pushd ${EXEC_DIR}
+
+# track node uptime
+### TODO
+# srun --ntasks-per-node=1 bash -c "uptime > \`hostname\`.${PBS_JOBID}.uptime"
+
+
+# can add BricK3D
+for PROBLEM_TYPE in "Laplace3D"; do
+#PROBLEM_TYPE="Brick3D"
+NODAL_NX=246;
+NODAL_NY=246;
+NODAL_NZ=246;
+
+if [ "${PROBLEM_TYPE}" == "Elasticity3D" ]; then
+
+NODAL_NX=171;
+NODAL_NY=171;
+NODAL_NZ=171;
+
+fi
+
+
+CUBE_SIZE=`echo "e(l( (${NODAL_NX}*${NODAL_NY}*${NODAL_NZ}*1.0*${nodes}) )/3.0)" | bc -l | python -c "from math import ceil; print int(ceil(float(raw_input())))"`
+
+# 64 procs per node also does flat MPI run
+if [ "${nr}" == "64" ]; then
+
+execSpace=serial
+
+
+export OMP_NUM_THREADS=1
+export OMP_PLACES=threads
+export OMP_PROC_BIND=spread
+#export OMP_DISPLAY_ENV=verbose
+#export KMP_AFFINITY=verbose
+
+export procs_per_node=${nr}
+export cores_per_proc=${nc}
+export threads_per_core=1
+
+
+echo "${hp_name} : $nodes, $procs_per_node, $cores_per_proc $threads_per_core : ${CUBE_SIZE}x${CUBE_SIZE}x${CUBE_SIZE}"
+
+read -r -d '' OMP_STUFF <<- EOM
+OpenMP:
+  OMP_NUM_THREADS=${OMP_NUM_THREADS}
+  OMP_PLACES=${OMP_PLACES}
+  OMP_PROC_BIND=${OMP_PROC_BIND}
+EOM
+
+echo "$OMP_STUFF"
+
+let ntasks=nodes*nr
+
+fname=weakscaling_${execSpace}_${PROBLEM_TYPE}-${CUBE_SIZE}x${CUBE_SIZE}x${CUBE_SIZE}_decomp-${nodes}x${procs_per_node}x${cores_per_proc}x${threads_per_core}_knl-quad-cache-onyx.log
+
+srun_cmd="--nodes=${nodes} \
+--ntasks-per-node=${procs_per_node} \
+-c $(( 256 / ${procs_per_node} )) --cpu_bind=cores \
+numactl -m 0 \
+${RUN_EXE} --xml=fused-driver.xml \
+--node=${execSpace} \
+--matrixType=${PROBLEM_TYPE} \
+--nx=${CUBE_SIZE} --ny=${CUBE_SIZE} --nz=${CUBE_SIZE} \
+--Threads_per_core=${threads_per_core} \
+--cores_per_proc=${cores_per_proc}"
+
+echo "srun ${srun_cmd}"
+
+if [ -s "${fname}-ok" ]; then
+  echo "Skipping nr=${nr} nht=${nht}, file, $fname exists"
+else
+
+echo "srun ${srun_cmd}" |& tee ${fname}
+
+mv ${fname} ${fname}-ok
+
+fi
+
+# end of flat MPI run
+fi
+
+
+# loop over HT combos
+for nht in 1 2 4; do
+
+execSpace=openmp
+
+export OMP_NUM_THREADS=$(( ${nc}*${nht} ))
+export OMP_PLACES=threads
+export OMP_PROC_BIND=spread
+#export OMP_DISPLAY_ENV=verbose
+#export KMP_AFFINITY=verbose
+
+export procs_per_node=${nr}
+export cores_per_proc=${nc}
+export threads_per_core=${nht}
+
+
+echo "${hp_name} : $nodes, $procs_per_node, $cores_per_proc $threads_per_core : ${CUBE_SIZE}x${CUBE_SIZE}x${CUBE_SIZE}"
+
+
+read -r -d '' OMP_STUFF <<- EOM
+OpenMP:
+  OMP_NUM_THREADS=${OMP_NUM_THREADS}
+  OMP_PLACES=${OMP_PLACES}
+  OMP_PROC_BIND=${OMP_PROC_BIND}
+EOM
+
+echo "$OMP_STUFF"
+
+let ntasks=nodes*nr
+
+fname=weakscaling_${execSpace}_${PROBLEM_TYPE}-${CUBE_SIZE}x${CUBE_SIZE}x${CUBE_SIZE}_decomp-${nodes}x${procs_per_node}x${cores_per_proc}x${threads_per_core}_knl-quad-cache-onyx.log
+
+srun_cmd="--nodes=${nodes} \
+--ntasks-per-node=${procs_per_node} \
+-c $(( 256 / ${procs_per_node} )) --cpu_bind=cores \
+numactl -m 0 \
+${RUN_EXE} --xml=fused-driver.xml \
+--node=${execSpace} \
+--matrixType=${PROBLEM_TYPE} \
+--nx=${CUBE_SIZE} --ny=${CUBE_SIZE} --nz=${CUBE_SIZE} \
+--Threads_per_core=${threads_per_core} \
+--cores_per_proc=${cores_per_proc}"
+
+echo "srun ${srun_cmd}"
+
+if [ -s "${fname}-ok" ]; then
+  echo "Skipping nr=${nr} nht=${nht}, file, $fname exists"
+else
+
+echo "srun ${srun_cmd}" |& tee ${fname}
+
+mv ${fname} ${fname}-ok
+
+fi
+
+# HT runs
+done
+
+# problem type
+done
+
+popd
+
+date
+
