@@ -73,7 +73,7 @@
 
 #ifdef HAVE_MUELU_OPENMP
 #include <omp.h>
-#include "WhereAmI.hpp"
+//#include "WhereAmI.hpp"
 #endif
 
 
@@ -282,7 +282,7 @@ int main(int argc, char* argv[]) {
     // =========================================================================
     // do this so argc/argv will have kokkos items removed
     Kokkos::initialize(argc, argv);
-    report_omp_bindings();
+    //report_omp_bindings();
 
     Xpetra::UnderlyingLib lib = xpetraParams->GetLib();
 
