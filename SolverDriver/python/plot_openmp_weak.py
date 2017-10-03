@@ -197,8 +197,8 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
            aggregates.
   """
   DEBUG_plottable_dataframe = False
-  DIVIDE_BY_CALLCOUNTS = True
-  DIVIDE_BY_NUMSTEPS = False
+  DIVIDE_BY_CALLCOUNTS = False
+  DIVIDE_BY_NUMSTEPS = True
   TAKE_COLUMNWISE_MINMAX = False
 
   if DEBUG_plottable_dataframe:
@@ -2957,6 +2957,9 @@ def plot_dataset(dataset,
   # be very careful, there will be duplicate decomp groups
   omp_groupby_columns.remove('execspace_name')
 
+  if ordered_timers:
+    dataset = dataset[dataset['Timer Name'].isin(ordered_timers)]
+
   # print(omp_groupby_columns)
   composite_groups = dataset.groupby(omp_groupby_columns)
   # group the driver timers the same way
@@ -2970,14 +2973,15 @@ def plot_dataset(dataset,
 
   # if we sort timers, then construct a sorted set
   if ordered_timers:
-    print(ordered_timers)
+    # print(ordered_timers)
     foo = copy.deepcopy(composite_groups.groups).keys()
-    # the timer name is the first element in the index. This
-    # will take the index, and apply the sorting from ordered_timers to them.
-    # This approach is not stable. That is, it does not preserve the order of
-    # multiple occurences of the same name.
+    # # the timer name is the first element in the index. This
+    # # will take the index, and apply the sorting from ordered_timers to them.
+    # # This approach is not stable. That is, it does not preserve the order of
+    # # multiple occurences of the same name.
     sorted_composite_groups = sorted(foo, key=lambda x: ordered_timers.index(x[0]))
     print(sorted_composite_groups)
+    #sorted_composite_groups = composite_groups.groups.keys()
 
     # loop over the sorted names, which are index tuples
     for composite_group_name in sorted_composite_groups:
@@ -2991,12 +2995,32 @@ def plot_dataset(dataset,
       if number_plots:
         numbered_plots_idx += 1
 
+      if HAVE_BASELINE:
+        try:
+          print('querying bl groups for: ', composite_group_name)
+          bl_group = bl_composite_groups.get_group(composite_group_name)
+        except:
+          print('Failed to lookup label in bl group')
+          print('BL labels:')
+          print(bl_composite_groups.groups())
+          bl_group = None
+
       plot_composite(composite_group=composite_group,
+                     baseline_group=bl_group,
                      my_nodes=my_nodes,
                      my_ticks=my_ticks,
                      scaling_study_type=scaling_type,
                      driver_df=driver_composite_groups.get_group(tuple(driver_constructor_name)),
-                     numbered_plots_idx=numbered_plots_idx)
+                     numbered_plots_idx=numbered_plots_idx,
+                     show_percent_total=False)
+
+
+      # plot_composite(composite_group=composite_group,
+      #                my_nodes=my_nodes,
+      #                my_ticks=my_ticks,
+      #                scaling_study_type=scaling_type,
+      #                driver_df=driver_composite_groups.get_group(tuple(driver_constructor_name)),
+      #                numbered_plots_idx=numbered_plots_idx)
 
   else:
     # loop over the groups using the built in iterator (name,group)
@@ -3092,7 +3116,6 @@ def main():
 
       print('Have baseline data: ', baseline_df_file)
 
-
   if _arg_options['--legend']:
     global PLOT_LEGEND
     PLOT_LEGEND=True
@@ -3139,12 +3162,14 @@ def main():
     total_time_key = '3 - Constructing Preconditioner'
     restriction_tokens = {'solver_name' : 'Constructor',
                           'solver_attributes' : '-Only',
-                          'prec_name' : 'MueLu'}#,
-                          #'prec_attributes' : '-repartition'}
+                          'prec_name' : 'MueLu',
+                          'prec_attributes' : '-repartition'}
 
     # obtain a list of timer names ordered the aggregate time spent in each
-    ordered_timers = get_ordered_timers(dataset=dataset,
-                                        rank_by_column_name=QUANTITY_OF_INTEREST)
+    # ordered_timers = get_ordered_timers(dataset=dataset,
+    #                                     rank_by_column_name=QUANTITY_OF_INTEREST)
+    ordered_timers = getMueLuLevelTimers(dataset=dataset)
+    print(ordered_timers)
 
   elif study_type == 'linearAlg':
     total_time_key = '0 - Total Time'
@@ -3180,6 +3205,114 @@ def do_tpetra_analysis(dataset):
   restricted_data = dataset[dataset['Timer Name'].str.match('(^([a-zA-Z]+::)+\d+)')]
   restricted_data.to_csv('lin-ops.csv')
   unique_timers = restricted_data['Timer Name'].unique()
+
+
+def getMueLuLevelTimers(dataset):
+  import re
+  # gather all timer labels
+  timer_names = dataset['Timer Name'].sort_values().unique().tolist()
+
+  # examples:
+  # MueLu: AmalgamationFactory: Build (level=[0-9]*)
+  # MueLu: CoalesceDropFactory: Build (level=[0-9]*)
+  # MueLu: CoarseMapFactory: Build (level=[0-9]*)
+  # MueLu: FilteredAFactory: Matrix filtering (level=[0-9]*)
+  # MueLu: NullspaceFactory: Nullspace factory (level=[0-9]*)
+  # MueLu: UncoupledAggregationFactory: Build (level=[0-9]*)
+  # MueLu: CoordinatesTransferFactory: Build (level=[0-9]*)
+  # MueLu: TentativePFactory: Build (level=[0-9]*)
+  # MueLu: Zoltan2Interface: Build (level=[0-9]*)
+  # MueLu: SaPFactory: Prolongator smoothing (level=[0-9]*)
+  # MueLu: SaPFactory: Fused (I-omega\*D\^{-1} A)\*Ptent (sub, total, level=1[0-9]*)
+  # MueLu: RAPFactory: Computing Ac (level=[0-9]*)
+  # MueLu: RAPFactory: MxM: A x P (sub, total, level=[0-9]*)
+  # MueLu: RAPFactory: MxM: P' x (AP) (implicit) (sub, total, level=[0-9]*)
+  # MueLu: RepartitionHeuristicFactory: Build (level=[0-9]*)
+  # MueLu: RebalanceTransferFactory: Build (level=[0-9]*)
+  # MueLu: RebalanceAcFactory: Computing Ac (level=[0-9]*)
+  # MueLu: RebalanceAcFactory: Rebalancing existing Ac (sub, total, level=[0-9]*)
+  # MueLu: Hierarchy: Setup(total, level=[0-1]*)
+  #
+  # Do not contain the text total
+  # TpetraExt MueLu::SaP-[0-9]*: Jacobi All I&X
+  # TpetraExt MueLu::SaP-[0-9]*: Jacobi All Multiply
+  # TpetraExt MueLu::A\*P-[0-9]*: MMM All I&X
+  # TpetraExt MueLu::A\*P-[0-9]*: MMM All Multiply
+  # TpetraExt MueLu::R\*(AP)-implicit-[0-9]*: MMM All I&X
+  # TpetraExt MueLu::R\*(AP)-implicit-[0-9]*: MMM All Multiply
+
+  # for now, hard code these.
+  level_timers = [
+    r'(?P<label_prefix>MueLu: Hierarchy: Setup)\s*\(total, level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: AmalgamationFactory: Build)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: CoalesceDropFactory: Build)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: CoarseMapFactory: Build)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: FilteredAFactory: Matrix filtering)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: NullspaceFactory: Nullspace factory)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: UncoupledAggregationFactory: Build)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: CoordinatesTransferFactory: Build)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: TentativePFactory: Build)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: Zoltan2Interface: Build)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: SaPFactory: Prolongator smoothing)\s*\(level=(?P<level_number>[0-9]*)\)',
+    r'(?P<label_prefix>MueLu: SaPFactory: Fused \(I-omega\*D\^{-1} A\)\*Ptent \(sub, total,)\s*level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: RAPFactory: Computing Ac)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: RAPFactory: MxM: A x P \(sub, total,)\s*level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: RAPFactory: MxM: P\' x \(AP\) \(implicit\) \(sub, total,)\s*level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: RepartitionHeuristicFactory: Build)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: RebalanceTransferFactory: Build)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: RebalanceAcFactory: Computing Ac)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    r'(?P<label_prefix>MueLu: RebalanceAcFactory: Rebalancing existing Ac \(sub, total,)\s*level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
+    # Do not contain the text total
+    r'(?P<label_prefix>TpetraExt MueLu::SaP)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>Jacobi All I&X)',
+    r'(?P<label_prefix>TpetraExt MueLu::SaP)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>Jacobi All Multiply)',
+    r'(?P<label_prefix>TpetraExt MueLu::A\*P)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All I&X)',
+    r'(?P<label_prefix>TpetraExt MueLu::A\*P)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All Multiply)',
+    r'(?P<label_prefix>TpetraExt MueLu::R\*\(AP\)-implicit)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All I&X)',
+    r'(?P<label_prefix>TpetraExt MueLu::R\*\(AP\)-implicit)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All Multiply)'
+  ]
+
+  level_timers_re = []
+  for re_str in level_timers:
+    level_timers_re.append(re.compile(re_str))
+
+  level_timer_map = {0: list(),
+                     1: list(),
+                     2: list(),
+                     3: list(),
+                     4: list(),
+                     5: list(),
+                     6: list(),
+                     7: list(),
+                     8: list(),
+                     9: list(),
+                     10: list(),
+                     'total': list(),
+                     'all' : list()}
+  # populate the map's level specific timer names
+  for level_timer_re in level_timers_re:
+    for timer_name in timer_names:
+      for m in [level_timer_re.search(timer_name)]:
+        if m:
+          level_timer_map[int(m.group('level_number'))].append(timer_name)
+
+  # look for (total) labels
+  for timer_name in timer_names:
+      m = re.search(r'\(\s*total\s*\)', timer_name)
+      if m:
+        level_timer_map['total'].append(timer_name)
+      m = re.search(r'\(\s*level=[0-9]+\s*\)', timer_name)
+      if m:
+        level_timer_map['all'].append(timer_name)
+
+  # level timers:
+  level_timer_names = []
+  for level_id in level_timer_map:
+    if level_id == 'all':
+      continue
+    print(level_id)
+    level_timer_names += level_timer_map[level_id]
+
+  return level_timer_names
 
 
 def nested_timer_analysis(dataset,
