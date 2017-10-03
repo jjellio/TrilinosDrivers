@@ -1,0 +1,40 @@
+<ParameterList name="Driver">
+
+  <ParameterList name="run">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="100" />
+    <Parameter name="Set Initial Residual"      type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="ExperimentType"            type="string"   value="Linear Algebra"/>
+
+  </ParameterList>
+
+
+  <ParameterList name="run1">
+    <Parameter name="Pseudo Timesteps"          type="int"      value="20" />
+    <Parameter name="Construction Only"         type="bool"     value="true" />
+
+    <!-- Define the solver to be used -->
+    <Parameter name="Solver"                    type="string"   value="None"/>
+    <Parameter name="SolverParams"              type="string"   value="Constructor-Only"/>
+    <Parameter name="SolverFactory"             type="string"   value="Belos"/>
+
+    <!-- Add a preconditioner to the solver -->
+    <Parameter name="Preconditioner"            type="string"   value="MueLu"/>
+    <Parameter name="PreconditionerParams"      type="string"   value="gold/MueLu/MueLu-repartition.xml"/>
+    <Parameter name="PreconditionerFactory"     type="string"   value="MueLu"/>
+  </ParameterList>
+
+
+<!-- =============================================================================================== -->
+<!-- =============================================================================================== -->
+<!-- =============================================================================================== -->
+
+  <ParameterList name="Constructor-Only">
+    <Parameter name="Maximum Iterations"    type="int"  value="0" />
+    <Parameter name="Convergence Tolerance" type="double"  value="0.0" />
+    <Parameter name="Verbosity"             type="int"  value="0" />
+  </ParameterList>
+
+</ParameterList>
+
