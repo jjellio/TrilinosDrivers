@@ -1,0 +1,29 @@
+Job scripts for Slurm
+
+fused-submission
+submitted
+
+Fused submission is the slurm script, submitter ques the jobs.
+
+Parameters such as 'switches' must be added to submitter, because they depend on the number of nodes used.
+
+Fused submission uses SLURM job arrays to control how many cores per process (processes per node) are used.
+
+By default, the the 'fused' job will perform all tests for a given number of nodes + processes per node.
+This includes computing results for HT=1,2,4
+
+In the special case that cores per task (slurm Array ID) is one, this maps to both OpenMP with 1 core, and Flat MPI. In this case, the job will perform the OpenMP run as well as the flat MPI run. This means that the job can require longer than other jobs, but in general, flat MPI outperforms other HT=1 combinations, so this isn't that big of a deal.
+
+The main caveat is that the slurm array represents CORES per task, so 1,2,4,8,16. Maps to 64 tasks per node, 32, 16, 8, and 4. It is not advisable to use 32 or 64 as array IDs, as this maps to 1 or 2 tasks per node, which MueLu is not prepared for.
+
+#Paths/output
+
+You should edit fused submission, and change
+RUN_EXE to point to the driver's binary. On Cray machines, it is recommended that you store the binary on the 'scratch' file system, which provides fast parallel loads.
+
+search for:
+exec_dir, and set this to point to a directory where you want output files stored. Currently, it is configured to use the 'scratch' filesytem.
+
+Given different experiments, you need to make sure exec_dir is unique.  If the system does not provide scratch space, you can simply set exec_dir to ".", and the output will be stored where the jobs are submitted from.
+
+
