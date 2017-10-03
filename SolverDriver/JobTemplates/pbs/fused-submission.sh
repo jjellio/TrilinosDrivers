@@ -12,7 +12,10 @@ export EXEC_DIR="./${hp_name}"
 
 
 # choose the number of nodes
-for NODES in 1 2 4 8 16 32 64 128 256 512 544; do
+
+# this is the correct number.. for testing use something else:
+#for NODES in 1 2 4 8 16 32 64 128 256 512 544; do
+for NODES in 1 4; do
 
 # determine our cores per proc
 # we want 64x1, 32x2, 16x4, 8x8 and 4x16
@@ -52,9 +55,9 @@ source /global/homes/j/jjellio/src/TrilinosDrivers/SolverDriver/JobTemplates/pbs
 END
 
 # Submit the tmp job
-chmod +x tmp.pbs
-./tmp.pbs
-#qsub tmp.pbs
+#chmod +x tmp.pbs
+#./tmp.pbs
+qsub tmp.pbs
 
 # end of cores_per_proc
 done
