@@ -54,7 +54,8 @@ execSpace=serial
 export OMP_NUM_THREADS=1
 export OMP_PLACES=threads
 export OMP_PROC_BIND=spread
-#export OMP_DISPLAY_ENV=verbose
+export OMP_WAIT_POLICY=passive
+export OMP_DISPLAY_ENV=true
 #export KMP_AFFINITY=verbose
 
 export procs_per_node=${nr}
@@ -69,6 +70,7 @@ OpenMP:
   OMP_NUM_THREADS=${OMP_NUM_THREADS}
   OMP_PLACES=${OMP_PLACES}
   OMP_PROC_BIND=${OMP_PROC_BIND}
+  OMP_WAIT_POLICY=${OMP_WAIT_POLICY}
 EOM
 
 echo "$OMP_STUFF"
@@ -77,10 +79,12 @@ let ntasks=nodes*nr
 
 fname=weakscaling_${execSpace}_${PROBLEM_TYPE}-${CUBE_SIZE}x${CUBE_SIZE}x${CUBE_SIZE}_decomp-${nodes}x${procs_per_node}x${cores_per_proc}x${threads_per_core}_knl-quad-cache-onyx.log
 
-srun_cmd="--nodes=${nodes} \
---ntasks-per-node=${procs_per_node} \
--c $(( 256 / ${procs_per_node} )) --cpu_bind=cores \
-numactl -m 0 \
+srun_cmd="\
+-d ${OMP_NUM_THREADS} \
+-j ${threads_per_core} \
+-cc depth \
+-N ${procs_per_node} \
+-n ${ntasks} \
 ${RUN_EXE} --xml=fused-driver.xml \
 --node=${execSpace} \
 --matrixType=${PROBLEM_TYPE} \
@@ -88,13 +92,13 @@ ${RUN_EXE} --xml=fused-driver.xml \
 --Threads_per_core=${threads_per_core} \
 --cores_per_proc=${cores_per_proc}"
 
-echo "srun ${srun_cmd}"
+echo "aprun ${srun_cmd}"
 
 if [ -s "${fname}-ok" ]; then
   echo "Skipping nr=${nr} nht=${nht}, file, $fname exists"
 else
 
-echo "srun ${srun_cmd}" |& tee ${fname}
+echo "aprun ${srun_cmd}" |& tee ${fname}
 
 mv ${fname} ${fname}-ok
 
@@ -112,7 +116,8 @@ execSpace=openmp
 export OMP_NUM_THREADS=$(( ${nc}*${nht} ))
 export OMP_PLACES=threads
 export OMP_PROC_BIND=spread
-#export OMP_DISPLAY_ENV=verbose
+export OMP_WAIT_POLICY=passive
+export OMP_DISPLAY_ENV=true
 #export KMP_AFFINITY=verbose
 
 export procs_per_node=${nr}
@@ -136,10 +141,13 @@ let ntasks=nodes*nr
 
 fname=weakscaling_${execSpace}_${PROBLEM_TYPE}-${CUBE_SIZE}x${CUBE_SIZE}x${CUBE_SIZE}_decomp-${nodes}x${procs_per_node}x${cores_per_proc}x${threads_per_core}_knl-quad-cache-onyx.log
 
-srun_cmd="--nodes=${nodes} \
---ntasks-per-node=${procs_per_node} \
--c $(( 256 / ${procs_per_node} )) --cpu_bind=cores \
-numactl -m 0 \
+
+srun_cmd="\
+-d ${OMP_NUM_THREADS} \
+-j ${threads_per_core} \
+-cc depth \
+-N ${procs_per_node} \
+-n ${ntasks} \
 ${RUN_EXE} --xml=fused-driver.xml \
 --node=${execSpace} \
 --matrixType=${PROBLEM_TYPE} \
@@ -147,13 +155,13 @@ ${RUN_EXE} --xml=fused-driver.xml \
 --Threads_per_core=${threads_per_core} \
 --cores_per_proc=${cores_per_proc}"
 
-echo "srun ${srun_cmd}"
+echo "aprun ${srun_cmd}"
 
 if [ -s "${fname}-ok" ]; then
   echo "Skipping nr=${nr} nht=${nht}, file, $fname exists"
 else
 
-echo "srun ${srun_cmd}" |& tee ${fname}
+echo "aprun ${srun_cmd}" |& tee ${fname}
 
 mv ${fname} ${fname}-ok
 
