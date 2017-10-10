@@ -1,53 +1,53 @@
 #!/bin/bash
 
-ARCH_NAME_=""
-EXE_SPACE_=""
-ENABLE_MUELU_=""
-BUILD_LABEL=""
-ENABLE_PREC_=""
-
-if [ "$1" == "hsw" ]; then
-  ARCH_NAME_="hsw";
-  module -s swap craype-mic-knl craype-haswell
-elif [ "$1" == "knl" ]; then
-  ARCH_NAME_="knl";
-  module -s swap craype-haswell craype-mic-knl
-elif [ "$1" == "none" ]; then
-  ARCH_NAME_="novec"
+if [[ -L "$0" ]]; then
+  SCRIPT_DIR=$(dirname $(readlink $0));
 else
-  echo "ERROR, please specify an architecture to build for."
-  echo "$0 hsw|knl [openmp|serial]"
-  exit;
+  SCRIPT_DIR=$(dirname $0);
 fi
 
+echo $SCRIPT_DIR
+source ${SCRIPT_DIR}/cmd_parser.sh
 
-if [ "$2" == "serial" ]; then
-  EXE_SPACE_="serial"
-elif [ "$2" == "openmp" ]; then
-  EXE_SPACE_="openmp";
-elif [ "$2" == "serial-openmp" ]; then
-  EXE_SPACE_="serial-openmp";
-fi
+print_vars;
 
-
-if [ "$3" == "prec" ]; then
-  ENABLE_PREC_="true"
-  BUILD_LABEL="${ARCH_NAME_}-${EXE_SPACE_}-prec"
-else
-  ENABLE_PREC_="false"
-  BUILD_LABEL="${ARCH_NAME_}-${EXE_SPACE_}"
-fi
+ARCH_NAME_="${ARG_arch}"
+EXE_SPACE_="${ARG_execSpace}"
+ENABLE_PREC_="${ARG_prec}"
+BLAS_CONCURRENCY_="${ARG_blasThreaded}"
+ENABLE_HUGEPAGES_="${ARG_hugepages}"
+EXTRA_INSTALL_STRING=${ARG_buildID}
 
 ENABLE_MUELU_="true"
+BUILD_LABEL="${ARCH_NAME_}-${EXE_SPACE_}"
+
+if [ "$ARCH_NAME_" == "hsw" ]; then
+  module -s swap craype-mic-knl craype-haswell
+elif [ "$ARCH_NAME_" == "knl" ]; then
+  module -s swap craype-haswell craype-mic-knl
+elif [ "$ARCH_NAME_" == "hsw-knl" ]; then
+  module -s swap craype-haswell craype-mic-knl
+fi
+
+
+if [ "$ENABLE_PREC_" == "true" ]; then
+  BUILD_LABEL="${BUILD_LABEL}-prec"
+fi
+
+if [ "${ENABLE_HUGEPAGES_}" != "none" ]; then
+  BUILD_LABEL="${BUILD_LABEL}_hp-${ENABLE_HUGEPAGES_}"
+  module load craype-hugepages${ENABLE_HUGEPAGES_}M
+  echo "module load craype-hugepages${ENABLE_HUGEPAGES_}M"
+fi
 
 # This script expects testbed (not SEMS!) modules to be loaded already.
-TRILINOS_INSTALL_PREFIX=${HOME}/install
+TRILINOS_INSTALL_PREFIX=${PROJECT_DIR}/install
 #Set path to Trilinos:
 TRILINOS_PATH=${HOME}/src/Trilinos
 TRILINOS_VERSION=`grep "Trilinos_VERSION " ${TRILINOS_PATH}/Version.cmake | cut -f2 -d' ' | tr -d ')'`
 COMPILER_NAME=intel
 COMPILER_VERSION=${INTEL_VERSION}
-TRILINOS_INSTALL=${TRILINOS_INSTALL_PREFIX}/trilinos-${TRILINOS_VERSION}/${COMPILER_NAME}-${COMPILER_VERSION}_${MPI_VENDOR}-${MPI_VERSION}_${BUILD_LABEL}
+TRILINOS_INSTALL=${TRILINOS_INSTALL_PREFIX}/trilinos-${TRILINOS_VERSION}/${COMPILER_NAME}-${COMPILER_VERSION}_${MPI_VENDOR}-${MPI_VERSION}_${BUILD_LABEL}-${EXTRA_INSTALL_STRING}
 
 # You could load a devpack here, but for now assume it was loaded.
 # module load devpack
@@ -74,26 +74,18 @@ if [ "${EXE_SPACE_}" == "openmp" ]; then
   export SERIAL=ON
   export CORES_PER_TEST=4
   export HT_PER_CORE=2
+elif [ "${EXE_SPACE_}" == "serial" ]; then
+  export SERIAL=ON
+fi
+
+if [ "${BLAS_CONCURRENCY_}" == "threaded" ]; then
   export BLAS_DIRS="${MKLROOT}/lib/intel64;${MKLROOT}/../compiler/lib/intel64/"
   export BLAS_LIBRARIES="mkl_intel_lp64;mkl_intel_thread;mkl_core;iomp5;m;dl"
   export EXTRA_FLAGS="-mkl=parallel"
-fi
-
-if [ "${EXE_SPACE_}" == "serial" ]; then
-  export SERIAL=ON
+elif [ "${BLAS_CONCURRENCY_}" == "sequential" ]; then
   export BLAS_DIRS="${MKLROOT}/lib/intel64;${MKLROOT}/../compiler/lib/intel64/"
   export BLAS_LIBRARIES="mkl_intel_lp64;mkl_sequential;mkl_core;m;dl"
   export EXTRA_FLAGS="-mkl=sequential"
-fi
-
-
-if [ "${EXE_SPACE_}" == "serial-openmp" ]; then
-  export SERIAL=ON
-  export OPENMP=ON
-  export BLAS_DIRS="${MKLROOT}/lib/intel64;${MKLROOT}/../compiler/lib/intel64/"
-  export BLAS_LIBRARIES="mkl_intel_lp64;mkl_sequential;mkl_core;m;dl"
-  export EXTRA_FLAGS="-mkl=sequential"
-  export EXTRA_OPTIONS="-D Tpetra_DefaultNode:STRING=Kokkos::Compat::KokkosSerialWrapperNode"
 fi
 
 
@@ -123,6 +115,12 @@ fi
 if [ "${ARCH_NAME_}" == "novec" ]; then
 export ARCH_CXX_FLAG="-no-vec -no-simd ${EXTRA_FLAGS}"
 export ARCH_C_FLAG="-no-vec -no-simd ${EXTRA_FLAGS}"
+export LAPACK_LIBRARIES=${BLAS_LIBRARIES}
+fi
+
+if [ "${ARCH_NAME_}" == "hsw-knl" ]; then
+export ARCH_CXX_FLAG="-xMIC-AVX512 -axCORE-AVX2,MIC-AVX512 ${EXTRA_FLAGS}"
+export ARCH_C_FLAG="-xMIC-AVX512 -axCORE-AVX2,MIC-AVX512 ${EXTRA_FLAGS}"
 export LAPACK_LIBRARIES=${BLAS_LIBRARIES}
 fi
 
@@ -161,7 +159,7 @@ export JENKINS_DO_EXAMPLES=${EXAMPLES}
 
 echo "Loaded modules: "
 module -s rm cmake
-module -s load cmake/3.5.2
+module -s load cmake/3.8.2
 source ${HOME}/src/Scripts/tpls.env
 module list
 echo "Final set of loaded modules: "
@@ -173,5 +171,5 @@ script -qc "module list --terse -s" | grep -v "Currently" |& tee | tr -d '\r' | 
 
 # This actually runs CMake.
 
-source ${HOME}/src/Scripts/configure-cori-cmake
+source ${SCRIPT_DIR}/configure-cori-cmake
 

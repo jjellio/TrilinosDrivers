@@ -256,7 +256,7 @@ private:
 
   static constexpr const char* AFFINITY_MAP_CSV_STR  = "affinity.csv";
 
-  const Teuchos::EVerbosityLevel DESCRIBE_VERB_LEVEL = Teuchos::EVerbosityLevel::VERB_MEDIUM;
+  const Teuchos::EVerbosityLevel DESCRIBE_VERB_LEVEL = Teuchos::EVerbosityLevel::VERB_LOW;
 
 
   void createConfigParameterList (Teuchos::ParameterList& configPL);
