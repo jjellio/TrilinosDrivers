@@ -197,8 +197,8 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
            aggregates.
   """
   DEBUG_plottable_dataframe = False
-  DIVIDE_BY_CALLCOUNTS = False
-  DIVIDE_BY_NUMSTEPS = True
+  DIVIDE_BY_CALLCOUNTS = True
+  DIVIDE_BY_NUMSTEPS = False
   TAKE_COLUMNWISE_MINMAX = False
 
   if DEBUG_plottable_dataframe:
@@ -1201,6 +1201,7 @@ def plot_composite_weak(composite_group,
   driver_decomp_groups = driver_df.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
 
   if HAVE_BASELINE:
+    print('have a baseline!')
     bl_decomp_groups = bl_composite_group.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
     bl_dr_decomp_groups = BASELINE_DRIVER_DF.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
 
@@ -1384,10 +1385,10 @@ def plot_composite_weak(composite_group,
 
       # plot the data
       if PLOT_MAX:
-        import matplotlib.patheffects as pe
-
         # plot the max if requested
-        MAX_STYLE['path_effects'] = [pe.Stroke(linewidth=18, foreground=DECOMP_COLORS[decomp_label], alpha=0.25), pe.Normal()]
+        if HAVE_BASELINE:
+          import matplotlib.patheffects as pe
+          MAX_STYLE['path_effects'] = [pe.Stroke(linewidth=18, foreground=DECOMP_COLORS[decomp_label], alpha=0.25), pe.Normal()]
         plot_raw_data(ax=axes['raw_data'][plot_row],
                       indep_ax=figures['independent']['raw_data'][plot_row].gca(),
                       xvalues=my_agg_times['ticks'],
@@ -1396,12 +1397,14 @@ def plot_composite_weak(composite_group,
                       label='max-{}'.format(decomp_label),
                       color=DECOMP_COLORS[decomp_label],
                       **MAX_STYLE)
-        MAX_STYLE['path_effects'] = None
+        if HAVE_BASELINE:
+          MAX_STYLE['path_effects'] = None
 
       if PLOT_MIN:
-        import matplotlib.patheffects as pe
 
-        MIN_STYLE['path_effects'] = [pe.Stroke(linewidth=18, foreground=DECOMP_COLORS[decomp_label], alpha=0.25), pe.Normal()]
+        if HAVE_BASELINE:
+          import matplotlib.patheffects as pe
+          MIN_STYLE['path_effects'] = [pe.Stroke(linewidth=18, foreground=DECOMP_COLORS[decomp_label], alpha=0.25), pe.Normal()]
         # plot the max if requested
         plot_raw_data(ax=axes['raw_data'][plot_row],
                       indep_ax=figures['independent']['raw_data'][plot_row].gca(),
@@ -1411,7 +1414,8 @@ def plot_composite_weak(composite_group,
                       label='min-{}'.format(decomp_label),
                       color=DECOMP_COLORS[decomp_label],
                       **MIN_STYLE)
-        MIN_STYLE['path_effects'] = None
+        if HAVE_BASELINE:
+          MIN_STYLE['path_effects'] = None
 
       if have_decomp_baseline:
         import copy
@@ -1531,14 +1535,15 @@ def plot_composite_weak(composite_group,
                                                                                                          HT_NUM=ht_name,
                                                                                                          bolding_pre=r'$\bf{',
                                                                                                          bolding_post=r'}$'))
-    tmp_ax = figures['independent']['raw_data'][ht_name].gca()
-    for item in ([tmp_ax.xaxis.label, tmp_ax.yaxis.label] +
-                  tmp_ax.get_xticklabels() + tmp_ax.get_yticklabels()):
-      item.set_fontsize(STANDALONE_FONT_SIZE)
-    tmp_ax.title.set_fontsize(STANDALONE_FONT_SIZE-2)
+    for plot_name in ['raw_data', 'decomp_baseline']:
+      tmp_ax = figures['independent'][plot_name][ht_name].gca()
+      for item in ([tmp_ax.xaxis.label, tmp_ax.yaxis.label] +
+                    tmp_ax.get_xticklabels() + tmp_ax.get_yticklabels()):
+        item.set_fontsize(STANDALONE_FONT_SIZE)
+      tmp_ax.title.set_fontsize(STANDALONE_FONT_SIZE-2)
 
     ## percent diff
-    if show_percent_total:
+    if have_decomp_baseline:
       figures['independent']['decomp_baseline'][ht_name].gca().set_ylabel('Percentage Improvement over Prior')
       figures['independent']['decomp_baseline'][ht_name].gca().set_xlabel('Number of Nodes')
       figures['independent']['decomp_baseline'][ht_name].gca().set_xticks(my_ticks)
@@ -2583,7 +2588,7 @@ def load_dataset(dataset_filename,
 
   dataset = dataset.query(restriction_query)
   dataset = dataset[dataset['procs_per_node'].isin([64, 4])]
-  dataset = dataset[~dataset['num_nodes'].isin([4, 32])]
+  dataset = dataset[~dataset['num_nodes'].isin([4, 32, 768])]
   print('Restricted dataset')
 
   dataset = dataset.fillna(value='None')

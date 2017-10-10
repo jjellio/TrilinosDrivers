@@ -121,6 +121,7 @@ class ScalingFileNameParser:
     # parse the decomp token
     yaml_filename = os.path.basename(filename)
 
+    print(yaml_filename)
     # first, match the general tokens (problem, solver+attributes)
     yaml_matches = self.filename_re.match(os.path.basename(yaml_filename))
 
