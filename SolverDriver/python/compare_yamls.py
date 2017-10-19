@@ -82,7 +82,7 @@ def construct_dataframe(yaml_data):
 
 def df_to_markdown(df):
   from tabulate import tabulate
-  print(tabulate(df, headers='keys', tablefmt='simple'))
+  print(tabulate(df, headers='keys', tablefmt='simple', showindex=False))
 
 
 def demangeYAML_TimerNames(yaml_data):
@@ -249,35 +249,43 @@ def construct_short_name_for_file(filename, affinity_dir):
   return short_name
 
 
-def construct_short_names(comparable_file_mapping, comparable_files, relative_affinity_dir):
+def construct_short_names(comparable_files, relative_affinity_dir, comparable_file_mapping={}):
   # import datetime
 
   # construct a short name for this data
-  short_name_failed = False
 
-  for comparable_file in comparable_files:
-    print(comparable_file)
-    affinity_dir = os.path.dirname(comparable_file) + '/' + relative_affinity_dir
+  if isinstance(comparable_files, str):
+    affinity_dir = os.path.dirname(comparable_files) + '/' + relative_affinity_dir
 
     short_name = construct_short_name_for_file(affinity_dir=affinity_dir,
-                                               filename=comparable_file)
-
-    if short_name in comparable_file_mapping:
-      short_name_failed = True
-      break
-    else:
-      comparable_file_mapping[short_name] = comparable_file
-
-  if short_name_failed:
-    comparable_file_mapping = {}
-    short_name = chr(ord('A'))
+                                               filename=comparable_files)
+    return short_name
+  else:
+    short_name_failed = False
 
     for comparable_file in comparable_files:
       print(comparable_file)
+      affinity_dir = os.path.dirname(comparable_file) + '/' + relative_affinity_dir
 
-      comparable_file_mapping[short_name] = comparable_file
+      short_name = construct_short_name_for_file(affinity_dir=affinity_dir,
+                                                 filename=comparable_file)
 
-      short_name = chr(ord(short_name) + 1)
+      if short_name in comparable_file_mapping:
+        short_name_failed = True
+        break
+      else:
+        comparable_file_mapping[short_name] = comparable_file
+
+    if short_name_failed:
+      comparable_file_mapping = {}
+      short_name = chr(ord('A'))
+
+      for comparable_file in comparable_files:
+        print(comparable_file)
+
+        comparable_file_mapping[short_name] = comparable_file
+
+        short_name = chr(ord(short_name) + 1)
 
 
 def relableTpetraExperimentTimers(df):
@@ -376,6 +384,9 @@ def main():
                         comparable_file_mapping=comparable_file_mapping,
                         relative_affinity_dir=comparable_affinity_dir)
 
+  baseline_short_name = construct_short_names(comparable_files=baseline_file,
+                                              relative_affinity_dir=bl_affinity_dir)
+
   for short_name in sorted(comparable_file_mapping.keys()):
     comparable_file = comparable_file_mapping[short_name]
 
@@ -468,21 +479,31 @@ def main():
 
     # slice this data off and rank/sort
     data_slice = baseline_df[output_columns]
-    add_running_total_and_rank(data_slice, column_name=timer_type, prefix_label='bl_')
-    data_slice.to_csv('bl_test.csv')
+    data_slice = add_running_total_and_rank(data_slice, column_name=timer_type, prefix_label='bl_')
+
     if DO_MUELU_COMP:
-      data_slice = data_slice.sort_values(by=[lookup_column], ascending=True)
-      data_slice['running'] = data_slice[lookup_column].cumsum()
+      data_slice = add_running_total_and_rank(data_slice, column_name=lookup_column, prefix_label='')
+      # data_slice = data_slice.sort_values(by=[lookup_column], ascending=True)
+      # data_slice['running'] = data_slice[lookup_column].cumsum()
+      data_slice['rank_delta'] = data_slice['rank'] - data_slice['bl_rank']
       output_columns.append('running')
+      output_columns.append('rank')
+      output_columns.append('rank_delta')
       data_slice['Timer Name'] = data_slice.index.values
       output_columns = ['Timer Name'] + output_columns
 
       data_slice = data_slice[data_slice['running'].notnull()]
       data_slice = data_slice.reset_index(drop=True)
       data_slice = data_slice.sort_index(ascending=True).reset_index()
+      data_slice = data_slice.rename(columns={timer_type : baseline_short_name})
+      output_columns[output_columns.index(timer_type)] = baseline_short_name
+
+      output_columns.remove('rank')
+      output_columns.remove('rank_delta')
+      output_columns = ['rank', 'rank_delta'] + output_columns
 
     data_slice.to_csv('{fname}.csv'.format(fname=fname),
-                      index=True,
+                      index=False,
                       columns=output_columns)
 
     df_to_markdown(data_slice[output_columns])
@@ -504,6 +525,7 @@ def add_running_total_and_rank(df, column_name, prefix_label):
 
   df[running_label] = df[column_name].cumsum()
   df[rank_label] = df[running_label].rank(ascending=True)
+  return df
 
   # df = df[df[running_label].notnull()]
 
