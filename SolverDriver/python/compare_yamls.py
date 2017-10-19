@@ -2,18 +2,29 @@
 """analysis.py
 
 Usage:
-  analysis.py --baseline=<FILE> --comparables=<FILES> [--output-csv=<FILE>] [--average=<averaging>] [-a <PATH>] [--remove_string=STRING] [--total_time_key=STRING]
+  analysis.py --baseline=<FILE> --comparable=<FILES>
+              [--output_csv=<FILE>]
+              [--average=<averaging>]
+              [--bl_affinity_dir=<PATH>]
+              [--comparable_affinity_dir=<PATH>]
+              [--remove_string=<STRING>]
+              [--total_time_key=<STRING>]
+              [--write_percent_total]
+              [--muelu_prof]
   analysis.py (-h | --help)
 
 Options:
-  -h              --help                  # Show this screen.
-  --baseline=<FILE>       # Use this file as the baseline
-  --comparables=<FILES>   # YAMLS that can be compared to the baseline
-  --average=<averaging>   # Average the times using callcounts, numsteps, or none [default: none]
-  --output-csv=<FILE>     # Output file [default: all_data.csv]
-  --remove_string=STRING  # remove the STRING from timer labels [default: _kokkos]
-  --total_time_key=STRING  # use this timer key to compute percent total time [default: MueLu: Hierarchy: Setup (total)]
-  -a PATH --affinity-dir=PATH   Path to directory with affinity CSV data [default: ../affinity]
+  -h, --help               Show this screen.
+  --baseline=<FILE>       Use this file as the baseline
+  --comparable=<FILES>   YAMLS that can be compared to the baseline
+  --average=<averaging>   Average the times using callcounts, numsteps, or none [default: none]
+  --output_csv=<FILE>     Output file [default: all_data.csv]
+  --remove_string=STRING    remove the STRING from timer labels [default: _kokkos]
+  --total_time_key=STRING   use this timer key to compute percent total time [default: MueLu: Hierarchy: Setup (total)]
+  --bl_affinity_dir=PATH          Path to directory with affinity CSV data, relative to baseline [default: .]
+  --comparable_affinity_dir=PATH  Path to directory with affinity CSV data, relative to comparable [default: ../affinity]
+  --write_percent_total     Write a column with percent total
+  --muelu_prof              Do MueLu profile output
 
 Arguments:
 
@@ -69,52 +80,46 @@ def construct_dataframe(yaml_data):
   return df
 
 
+def df_to_markdown(df):
+  from tabulate import tabulate
+  print(tabulate(df, headers='keys', tablefmt='simple'))
+
+
 def demangeYAML_TimerNames(yaml_data):
-  import cxxfilt
   import re
-  import copy
+  # import copy
 
-  prior_timers = copy.deepcopy(yaml_data['Timer names'])
+  # prior_timers = copy.deepcopy(yaml_data['Timer names'])
 
-  for idx, timer_name in enumerate(prior_timers):
-#    print(idx, timer_name)
+  for idx, timer_name in enumerate(yaml_data['Timer names']):
     rebuilt_name = re.sub(r'N\d+MueLu\d+', '', timer_name)
     rebuilt_name = re.sub(r'I[d]*ixN\d+Kokkos\d+Compat\d+KokkosDeviceWrapperNodeINS\d+_\d+(OpenMPENS|SerialENS)\d+_\d+HostSpace[E]+', '', rebuilt_name)
 
     if rebuilt_name == timer_name:
       continue
 
-    if rebuilt_name in yaml_data['Total times']:
-      print('Trying to demangle timer names, but we have a collision: {} has been mapped twice.'.format(rebuilt_name))
-      raise(LookupError)
-    else:
-      yaml_data['Total times'][rebuilt_name] = yaml_data['Total times'][timer_name]
-      del yaml_data['Total times'][timer_name]
-
-    if rebuilt_name in yaml_data['Call counts']:
-      print('Trying to demangle timer names, but we have a collision: {} has been mapped twice.'.format(rebuilt_name))
-      raise (LookupError)
-    else:
-      yaml_data['Call counts'][rebuilt_name] = yaml_data['Call counts'][timer_name]
-      del yaml_data['Call counts'][timer_name]
-
-    yaml_data['Timer names'][idx] = rebuilt_name
+    rename_teuchos_timers_yaml_key(old_key=timer_name,
+                                   yaml_data=yaml_data,
+                                   new_key=rebuilt_name,
+                                   timer_index=idx)
 
     print(rebuilt_name)
 
 
-def remove_prefix(text, prefix):
-  if text.startswith(prefix):
-    print('prefix', text, text[len(prefix):])
-    return text[len(prefix):]
-  return text  # or whatever
+def rename_teuchos_timers_yaml_key(old_key,
+                                   yaml_data,
+                                   new_key,
+                                   timer_index):
+  try:
+    yaml_data['Total times'][new_key] = yaml_data['Total times'].pop(old_key)
+    yaml_data['Call counts'][new_key] = yaml_data['Call counts'].pop(old_key)
 
-
-def remove_suffix(text, suffix):
-  if text.endswith(suffix):
-    print("suf:", text, text[0:-len(suffix)])
-    return text[0:-len(suffix)]
-  return text  # or whatever
+    yaml_data['Timer names'][timer_index] = new_key
+  except KeyError as e:
+    print(
+      'Attempting to remove suffix and prefix from timer names, but we have a collision: {} has already been mapped.'.format(
+        new_key))
+    raise e
 
 
 def remove_timer_string(yaml_data,
@@ -129,70 +134,17 @@ def remove_timer_string(yaml_data,
   prior_timers = copy.deepcopy(yaml_data['Timer names'])
 
   for idx, timer_name in enumerate(prior_timers):
-    rebuilt_timer_name = timer_name
-
+    # remove the string from the timer label, then adjust the dict
     rebuilt_timer_name = timer_name.replace(string, '')
 
     # no modifications so skip to the next
     if rebuilt_timer_name == timer_name:
       continue
 
-    if rebuilt_timer_name in yaml_data['Total times']:
-      print(
-        'Attempting to remove suffix and prefix from timer names, but we have a collision: {} has been mapped twice.'.format(
-          rebuilt_timer_name))
-      raise (LookupError)
-    else:
-      yaml_data['Total times'][rebuilt_timer_name] = yaml_data['Total times'][timer_name]
-      del yaml_data['Total times'][timer_name]
-
-    if rebuilt_timer_name in yaml_data['Call counts']:
-      print(
-        'Attempting to remove suffix and prefix from timer names, but we have a collision: {} has been mapped twice.'.format(
-          rebuilt_timer_name))
-      raise (LookupError)
-    else:
-      yaml_data['Call counts'][rebuilt_timer_name] = yaml_data['Call counts'][timer_name]
-      del yaml_data['Call counts'][timer_name]
-
-    yaml_data['Timer names'][idx] = rebuilt_timer_name
-
-
-# def remove_timer_prefix_suffix(yaml_data,
-#                                prefix=None,
-#                                suffix=None):
-#   import copy
-#   # we modify the yaml_data, so make a copy
-#   prior_timers = copy.deepcopy(yaml_data['Timer names'])
-#
-#   for idx, timer_name in enumerate(prior_timers):
-#     rebuilt_timer_name = timer_name
-#
-#     if prefix:
-#       rebuilt_timer_name = remove_prefix(rebuilt_timer_name, prefix)
-#     if suffix:
-#       print(suffix, rebuilt_timer_name, remove_suffix(rebuilt_timer_name, suffix))
-#       rebuilt_timer_name = remove_suffix(rebuilt_timer_name, suffix)
-#
-#     # no modifications so skip to the next
-#     if rebuilt_timer_name == timer_name:
-#       continue
-#
-#     if rebuilt_timer_name in yaml_data['Total times']:
-#       print('Attempting to remove suffix and prefix from timer names, but we have a collision: {} has been mapped twice.'.format(rebuilt_timer_name))
-#       raise(LookupError)
-#     else:
-#       yaml_data['Total times'][rebuilt_timer_name] = yaml_data['Total times'][timer_name]
-#       del yaml_data['Total times'][timer_name]
-#
-#     if rebuilt_timer_name in yaml_data['Call counts']:
-#       print('Attempting to remove suffix and prefix from timer names, but we have a collision: {} has been mapped twice.'.format(rebuilt_timer_name))
-#       raise (LookupError)
-#     else:
-#       yaml_data['Call counts'][rebuilt_timer_name] = yaml_data['Call counts'][timer_name]
-#       del yaml_data['Call counts'][timer_name]
-#
-#     yaml_data['Timer names'][idx] = rebuilt_timer_name
+    rename_teuchos_timers_yaml_key(old_key=timer_name,
+                                   yaml_data=yaml_data,
+                                   new_key=rebuilt_timer_name,
+                                   timer_index=idx)
 
 
 def load_yaml(filename):
@@ -203,10 +155,10 @@ def load_yaml(filename):
     return yaml_data
 
 
-def file_len(PathLibFilename):
+def file_len(pathlib_filename):
   i = 0
 
-  with PathLibFilename.open() as f:
+  with pathlib_filename.open() as f:
     for i, l in enumerate(f):
       pass
   return i + 1
@@ -225,12 +177,8 @@ def parse_affinity_data(affinity_path, tokens):
     affinity_file_abs = my_file_lookup.resolve()
   except:
     print('Missing Affinity File: {}'.format(affinity_filename))
-    return
+    raise
 
-  #if ~my_file.is_file():
-  #  print('Missing Affinity File: {}'.format(affinity_filename))
-  #  print(my_file.stat())
-  #  return
   file_lines = file_len(affinity_file_abs)
 
   # 0,64,64,0,"nid02623","5-11-2017 21:02:30.900965",0,0|68|136|204
@@ -283,6 +231,63 @@ def add_percent_total(total_time_key, df):
       df['total_time_{timer}'.format(timer=timer_type)] = total_time_row[timer_type]
 
 
+def construct_short_name_for_file(filename, affinity_dir):
+  my_tokens = SFP.parseYAMLFileName(filename)
+  # parse affinity information, because it contains timestamps
+  try:
+    parse_affinity_data(affinity_path=affinity_dir, tokens=my_tokens)
+
+    short_name = str(my_tokens['num_nodes']) + 'x' + \
+                 str(my_tokens['procs_per_node']) + 'x' + \
+                 str(my_tokens['cores_per_proc']) + 'x' + \
+                 str(my_tokens['threads_per_core'])
+
+    short_name += '_' + pd.to_datetime(my_tokens['timestamp']).strftime('%b-%Y')
+  except:
+    short_name = 'A'
+
+  return short_name
+
+
+def construct_short_names(comparable_file_mapping, comparable_files, relative_affinity_dir):
+  # import datetime
+
+  # construct a short name for this data
+  short_name_failed = False
+
+  for comparable_file in comparable_files:
+    print(comparable_file)
+    affinity_dir = os.path.dirname(comparable_file) + '/' + relative_affinity_dir
+
+    short_name = construct_short_name_for_file(affinity_dir=affinity_dir,
+                                               filename=comparable_file)
+
+    if short_name in comparable_file_mapping:
+      short_name_failed = True
+      break
+    else:
+      comparable_file_mapping[short_name] = comparable_file
+
+  if short_name_failed:
+    comparable_file_mapping = {}
+    short_name = chr(ord('A'))
+
+    for comparable_file in comparable_files:
+      print(comparable_file)
+
+      comparable_file_mapping[short_name] = comparable_file
+
+      short_name = chr(ord(short_name) + 1)
+
+
+def relableTpetraExperimentTimers(df):
+  # if we have MVT::MvInit and not MVT::MvInit0
+  # then the rename MVT::MvInit to MVT::MvInit0, because it was a zero initialize
+  # if we have MVT::MvScale and not MVT::MvScale1
+  # rename to MvScale1, because that is what the first version of that experiment did.
+  return df
+
+
 def main():
   # Process input
   from docopt import DocoptExit
@@ -292,24 +297,38 @@ def main():
 #    print(__doc__)
 #    exit(0)
 
-  comparable_files  = options['--comparables']
-  affinity_dir  = options['--affinity-dir']
-  baseline_file = options['--baseline']
-  output_csv    = options['--output-csv']
-  remove_string = options['--remove_string']
-  averaging = options['--average']
-  total_time_key = options['--total_time_key']
+  comparable_files  = options['--comparable']
+  baseline_file     = options['--baseline']
+  bl_affinity_dir         = options['--bl_affinity_dir']
+  comparable_affinity_dir = options['--comparable_affinity_dir']
+  output_csv        = options['--output_csv']
+  remove_string     = options['--remove_string']
+  averaging         = options['--average']
+  write_percent_total = options['--write_percent_total']
+  muelu_prof        = options['--muelu_prof']
+  total_time_key    = options['--total_time_key']
+  total_time_key    = ''
+
+  DO_MUELU_COMP    = muelu_prof
+  DO_PERCENT_TOTAL = write_percent_total
 
   if remove_string == '':
     remove_string = None
 
   if total_time_key == '':
-    total_time_key = None
+    total_time_key   = None
+    DO_PERCENT_TOTAL = False
 
   ignored_labels = [ '0 - Total Time',
                      '1 - Reseting Linear System',
                      '2 - Adjusting Nullspace for BlockSize',
-                     '3 - Constructing Preconditioner' ]
+                     '3 - Constructing Preconditioner',
+                     '4 - Constructing Solver',
+                     '5 - Solve' ]
+
+  print(options)
+
+  baseline_file = glob.glob(baseline_file)[0]
 
   print('baseline_file: {baseline}\n'
         'comparable_files: {comparable}\n'
@@ -336,26 +355,32 @@ def main():
 
   my_tokens = SFP.parseYAMLFileName(baseline_file)
   baseline_df = construct_dataframe(bl_yaml)
-  baseline_df = baseline_df.drop(ignored_labels)
-  # baseline_df.index.delete(ignored_labels)
 
+  # remove ignored timers
+  baseline_df = baseline_df.drop(ignored_labels, errors='ignore')
+
+  # perform averaging
   do_averaging(averaging=averaging, df=baseline_df, my_tokens=my_tokens)
-  add_percent_total(total_time_key=total_time_key, df=baseline_df)
 
+  # compute the percentage of total time
+  if DO_PERCENT_TOTAL:
+    add_percent_total(total_time_key=total_time_key, df=baseline_df)
+
+  # track the global set of timer labels
   unified_timer_names = set(baseline_df.index)
 
+  # construct a short name for this data
   comparable_file_mapping = {}
-  short_name = chr(ord('A'))
 
-  for comparable_file in comparable_files:
-    print(comparable_file)
-
-    comparable_file_mapping[short_name] = comparable_file
-    short_name = chr(ord(short_name) + 1)
+  construct_short_names(comparable_files=comparable_files,
+                        comparable_file_mapping=comparable_file_mapping,
+                        relative_affinity_dir=comparable_affinity_dir)
 
   for short_name in sorted(comparable_file_mapping.keys()):
     comparable_file = comparable_file_mapping[short_name]
 
+    # we need the tokens, because they contain num_steps, which is
+    # an averaging option, since call counts is not appropriate in all cases
     my_tokens = SFP.parseYAMLFileName(comparable_file)
     rebuilt_filename = SFP.rebuild_source_filename(my_tokens)
 
@@ -365,42 +390,52 @@ def main():
       print("Rebuild FAIL: {} != {}".format(rebuilt_filename, comparable_file))
       exit(-1)
 
-    parse_affinity_data(affinity_path=affinity_dir, tokens=my_tokens)
-
-    print(my_tokens)
-
+    # load the YAML data
     comparable_yaml = load_yaml(comparable_file)
+
+    # remove a string from the timer labels (_kokkos)
     remove_timer_string(comparable_yaml, string=remove_string)
 
+    # construct the dataframe
     comparable_df = construct_dataframe(comparable_yaml)
-    comparable_df.drop(ignored_labels, inplace=True)
 
-    # add new timers
+    # drop the unwanted timers
+    comparable_df = comparable_df.drop(ignored_labels, errors='ignore')
+
+    # add new timers to the global set of parsed timers (required, because we do not always have the same
+    # set of timers)
     unified_timer_names = unified_timer_names.union(set(comparable_df.index))
+
     # update the dataframe of baseline to use this new index
-    baseline_df.reindex(list(unified_timer_names))
-    # build a new data frame
-    #comparable_df = construct_dataframe(comparable_yaml)
+    baseline_df = baseline_df.reindex(list(unified_timer_names))
+
+    # update the comparable datafrae
     comparable_df = comparable_df.reindex(list(unified_timer_names))
 
-    #comparable_df.to_csv('comparable-{}.csv'.format(short_name))
-    # add the experiment's other data (cores, threads, timestamp, etc..)
+    # apply any averaging to the timers
     do_averaging(averaging=averaging, df=comparable_df, my_tokens=my_tokens)
-    add_percent_total(total_time_key=total_time_key, df=comparable_df)
 
+    # optionally, compute the perct total time
+    if DO_PERCENT_TOTAL:
+      add_percent_total(total_time_key=total_time_key, df=comparable_df)
+
+    # merge the new timer data into the baseline dataframe using columns "Foo_shortname"
     baseline_df = pd.merge(baseline_df, comparable_df,
                            left_index=True,
                            right_index=True,
                            how='outer',
                            suffixes=('', '_'+short_name))
 
-    baseline_df = annotate_muelu_dataframe(df=baseline_df, total_time_key=total_time_key)
+    if DO_MUELU_COMP:
+      baseline_df = annotate_muelu_dataframe(df=baseline_df, total_time_key=total_time_key)
 
   timer_types = ['minT', 'maxT', 'meanT', 'meanCT']
   for timer_type in timer_types:
     output_columns = [timer_type]
 
-    output_columns.append('perc_{timer}'.format(timer=timer_type))
+    if DO_PERCENT_TOTAL:
+      output_columns.append('perc_{timer}'.format(timer=timer_type))
+
     lookup_column = ''
 
     for short_name in sorted(comparable_file_mapping.keys()):
@@ -408,21 +443,24 @@ def main():
       lookup_column = '{timer}_{short_name}'.format(timer=timer_type,
                                                     short_name=short_name)
 
-      new_colum = '{timer}_speedup_{short_name}'.format(timer=timer_type,
+      speedup_column = '{timer}_speedup_{short_name}'.format(timer=timer_type,
                                                         short_name=short_name)
-      baseline_df[new_colum] = baseline_df[timer_type] / baseline_df[lookup_column]
+      baseline_df[speedup_column] = baseline_df[timer_type] / baseline_df[lookup_column]
 
       # round the speedup  ?
-      baseline_df[new_colum] = pd.Series([round(val, 3) for val in baseline_df[new_colum] ],
+      baseline_df[speedup_column] = pd.Series([round(val, 3) for val in baseline_df[speedup_column] ],
                                          index=baseline_df.index)
 
       output_columns.append(lookup_column)
-      output_columns.append(new_colum)
+      output_columns.append(speedup_column)
 
-      output_columns.append('perc_{timer}_{short_name}'.format(timer=timer_type,
-                                                               short_name=short_name))
-      output_columns.append('total_time_{timer}_{short_name}'.format(timer=timer_type,
-                                                                     short_name=short_name))
+      if DO_PERCENT_TOTAL:
+        output_columns.append('perc_{timer}_{short_name}'.format(timer=timer_type,
+                                                                 short_name=short_name))
+        print(output_columns)
+      if total_time_key is not None:
+        output_columns.append('total_time_{timer}_{short_name}'.format(timer=timer_type,
+                                                                       short_name=short_name))
 
     fname = '{timer}_comparison'.format(timer=timer_type)
     if averaging != 'none':
@@ -430,18 +468,24 @@ def main():
 
     # slice this data off and rank/sort
     data_slice = baseline_df[output_columns]
-    data_slice = data_slice.sort_values(by=[lookup_column], ascending=True)
-    data_slice['running'] = data_slice[lookup_column].cumsum()
-    output_columns.append('running')
-    data_slice['Timer Name'] = data_slice.index.values
-    output_columns = ['Timer Name'] + output_columns
-    data_slice = data_slice[data_slice['running'].notnull()]
-    data_slice = data_slice.reset_index(drop=True)
-    data_slice = data_slice.sort_index(ascending=True).reset_index()
+    add_running_total_and_rank(data_slice, column_name=timer_type, prefix_label='bl_')
+    data_slice.to_csv('bl_test.csv')
+    if DO_MUELU_COMP:
+      data_slice = data_slice.sort_values(by=[lookup_column], ascending=True)
+      data_slice['running'] = data_slice[lookup_column].cumsum()
+      output_columns.append('running')
+      data_slice['Timer Name'] = data_slice.index.values
+      output_columns = ['Timer Name'] + output_columns
+
+      data_slice = data_slice[data_slice['running'].notnull()]
+      data_slice = data_slice.reset_index(drop=True)
+      data_slice = data_slice.sort_index(ascending=True).reset_index()
 
     data_slice.to_csv('{fname}.csv'.format(fname=fname),
                       index=True,
                       columns=output_columns)
+
+    df_to_markdown(data_slice[output_columns])
 
     # data_slice.to_csv('{fname}.csv'.format(fname=fname),
     #                    index_label='Timer Name',
@@ -452,6 +496,18 @@ def main():
     comparable_file = comparable_file_mapping[short_name]
     print('{short_name}: {file}'.format(short_name=short_name, file=comparable_file))
 
+
+def add_running_total_and_rank(df, column_name, prefix_label):
+  df = df.sort_values(by=[column_name], ascending=True)
+  running_label = '{prefix}running'.format(prefix=prefix_label)
+  rank_label = '{prefix}rank'.format(prefix=prefix_label)
+
+  df[running_label] = df[column_name].cumsum()
+  df[rank_label] = df[running_label].rank(ascending=True)
+
+  # df = df[df[running_label].notnull()]
+
+  #data_slice = data_slice.sort_index(ascending=True).reset_index()
 
 
 def annotate_muelu_dataframe (df, total_time_key):
