@@ -6,6 +6,8 @@ Usage:
             [--scaling=SCALING_TYPE]
             [--dataset=DATASET]
             [--baseline=DATASET]
+            [--no_baseline_comparison_shading]
+            [--baseline_linestyle=STYLE]
             [--legend]
             [--force_replot]
             [--max_nodes=NUM]
@@ -22,6 +24,8 @@ Options:
   -h --help                Show this screen.
   --dataset=DATASET        Input file [default: all_data.csv]
   --baseline=DATASET       Input file that should be used to form baseline comparisons
+  --baseline_linestyle=STYLE  Override the default line style [default: default]
+  --no_baseline_comparison_shading  Shade the dataset that is compared to the baseline [default: False]
   --study=STUDY_TYPE       muelu_constructor, muelu_prec, solvers
   --scaling=SCALING_TYPE   Type of analysis, weak/strong [default: strong]
   --force_replot           Force replotting of existing data [default: False]
@@ -35,6 +39,12 @@ Options:
   --ymin=NUM               Restrict the number processes per node [default: -1.0]
   --ymax=NUM               Restrict the number processes per node [default: -1.0]
   --normalize_y            Normalize the y axis between [0,1] [default: False]
+
+Arguments:
+
+      STYLE: default - line style is the same, no change
+             other - Any valid matplotlib style dotted, solid, dashed
+
 """
 #import matplotlib as mpl
 # mpl.use('TkAgg')
@@ -57,7 +67,7 @@ LATEX_CSV_PATH = 'latex_csv'
 IMG_FORMAT = "png"
 IMG_DPI = 150
 
-FORCE_REPLOT  = False
+FORCE_REPLOT  = True
 QUANTITY_OF_INTEREST       = 'minT'
 QUANTITY_OF_INTEREST_COUNT = 'minC'
 
@@ -70,6 +80,9 @@ QUANTITY_OF_INTEREST_THING_COUNT = 'meanCC'
 
 MIN_LINESTYLE = 'dotted'
 MAX_LINESTYLE = 'solid'
+
+BASELINE_LINESTYLE = 'default'
+SHADE_BASELINE_COMPARISON = True
 
 MIN_MARKER = 's'
 MAX_MARKER = 'o'
@@ -1386,7 +1399,9 @@ def plot_composite_weak(composite_group,
       # plot the data
       if PLOT_MAX:
         # plot the max if requested
-        if HAVE_BASELINE:
+
+        # if we are doing baseline comparisons, then make sure this data is shaded
+        if HAVE_BASELINE and SHADE_BASELINE_COMPARISON:
           import matplotlib.patheffects as pe
           MAX_STYLE['path_effects'] = [pe.Stroke(linewidth=18, foreground=DECOMP_COLORS[decomp_label], alpha=0.25), pe.Normal()]
         plot_raw_data(ax=axes['raw_data'][plot_row],
@@ -1402,7 +1417,8 @@ def plot_composite_weak(composite_group,
 
       if PLOT_MIN:
 
-        if HAVE_BASELINE:
+        # if we are doing baseline comparisons, then make sure this data is shaded
+        if HAVE_BASELINE and SHADE_BASELINE_COMPARISON:
           import matplotlib.patheffects as pe
           MIN_STYLE['path_effects'] = [pe.Stroke(linewidth=18, foreground=DECOMP_COLORS[decomp_label], alpha=0.25), pe.Normal()]
         # plot the max if requested
@@ -1421,6 +1437,11 @@ def plot_composite_weak(composite_group,
         import copy
         import matplotlib.patheffects as pe
         if PLOT_MAX:
+          if BASELINE_LINESTYLE == 'default':
+            baseline_linestyle = MAX_LINESTYLE
+          else:
+            baseline_linestyle = BASELINE_LINESTYLE
+
           m=copy.deepcopy(MAX_STYLE)
           m['marker'] = None
           #m['path_effects'] = [pe.Stroke(linewidth=15, foreground=DECOMP_COLORS[decomp_label], alpha=0.25), pe.Normal()]
@@ -1431,7 +1452,7 @@ def plot_composite_weak(composite_group,
                         indep_ax=figures['independent']['raw_data'][plot_row].gca(),
                         xvalues=my_agg_times['ticks'],
                         yvalues=my_agg_times['bl_max'],
-                        linestyle=MAX_LINESTYLE,
+                        linestyle=baseline_linestyle,
                         label=None,
                         color='black',
                         **m)
@@ -1441,7 +1462,7 @@ def plot_composite_weak(composite_group,
                         indep_ax=figures['independent']['raw_data'][plot_row].gca(),
                         xvalues=my_agg_times['ticks'],
                         yvalues=my_agg_times['bl_max'],
-                        linestyle=MAX_LINESTYLE,
+                        linestyle=baseline_linestyle,
                         label='Prior-max-{}'.format(decomp_label),
                         color=DECOMP_COLORS[decomp_label],
                         **m)
@@ -1450,12 +1471,17 @@ def plot_composite_weak(composite_group,
                         indep_ax=figures['independent']['decomp_baseline'][plot_row].gca(),
                         xvalues=my_agg_times['ticks'],
                         yvalues=my_agg_times['bl_max_diff'],
-                        linestyle=MAX_LINESTYLE,
+                        linestyle=baseline_linestyle,
                         label='Perc. Diff-max-{}'.format(decomp_label),
                         color=DECOMP_COLORS[decomp_label],
                         **MAX_STYLE)
 
         if PLOT_MIN:
+          if BASELINE_LINESTYLE == 'default':
+            baseline_linestyle = MIN_LINESTYLE
+          else:
+            baseline_linestyle = BASELINE_LINESTYLE
+
           m=copy.deepcopy(MIN_STYLE)
           m['marker'] = '*'
           # plot the max if requested
@@ -1463,7 +1489,7 @@ def plot_composite_weak(composite_group,
                         indep_ax=figures['independent']['raw_data'][plot_row].gca(),
                         xvalues=my_agg_times['ticks'],
                         yvalues=my_agg_times['bl_min'],
-                        linestyle='dashed',
+                        linestyle=baseline_linestyle,
                         label='Prior-{}'.format(decomp_label),
                         color=DECOMP_COLORS[decomp_label],
                         **m)
@@ -1473,7 +1499,7 @@ def plot_composite_weak(composite_group,
                         indep_ax=figures['independent']['decomp_baseline'][plot_row].gca(),
                         xvalues=my_agg_times['ticks'],
                         yvalues=my_agg_times['bl_min_diff'],
-                        linestyle=MIN_LINESTYLE,
+                        linestyle=baseline_linestyle,
                         label='Perc. Diff-min-{}'.format(decomp_label),
                         color=DECOMP_COLORS[decomp_label],
                         **MIN_STYLE)
@@ -3064,8 +3090,14 @@ def main():
   scaling_study_type      = _arg_options['--scaling']
   baseline_df_file = None
 
+
   global FORCE_REPLOT
-  FORCE_REPLOT           = _arg_options['--force_replot']
+  FORCE_REPLOT = _arg_options['--force_replot']
+
+  global SHADE_BASELINE_COMPARISON
+  print(_arg_options)
+  SHADE_BASELINE_COMPARISON = not _arg_options['--no_baseline_comparison_shading']
+  print('SHADING:', SHADE_BASELINE_COMPARISON)
 
   if _arg_options['--min_only']:
     global PLOT_MAX
@@ -3120,6 +3152,10 @@ def main():
       HAVE_BASELINE=True
 
       print('Have baseline data: ', baseline_df_file)
+
+  if _arg_options['--baseline_linestyle']:
+    global BASELINE_LINESTYLE
+    BASELINE_LINESTYLE=_arg_options['--baseline_linestyle']
 
   if _arg_options['--legend']:
     global PLOT_LEGEND
