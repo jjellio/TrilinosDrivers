@@ -9,7 +9,7 @@ MPI_VENDOR=openmpi
 MPI_VERSION=1.10.2
 
 
-BUILD="${COMPILER_NAME}-${COMPILER_VERSION}_${MPI_VENDOR}-${MPI_VERSION}
+BUILD="${COMPILER_NAME}-${COMPILER_VERSION}_${MPI_VENDOR}-${MPI_VERSION}"
 
 # k80
 CUDA_ARCH_NAME="k40"
@@ -17,14 +17,14 @@ CUDA_ARCH_NAME="k40"
 TRILINOS_PATH=${HOME}/src/Trilinos
 
 # this assumes these directories have /lib and /include subdirs
-LAPACK_DIR=/path/to/lapack
-BLAS_DIR=/path/to/blas
+LAPACK_DIR=${LAPACK_ROOT}
+BLAS_DIR=${LAPACK_ROOT}
 
 # if using GCC configure machine tuning flags
 # intel, -xAVX2, for example
 # this enables vectorization, -O3 will be enabled by Cmake Release target
 
-EXTRA_C_FLAGS="-march=native -mtune=native"
+EXTRA_C_FLAGS="-mcpu=native -mtune=native"
 EXTRA_CXX_FLAGS="${EXTRA_C_FLAGS}"
 EXTRA_F_FLAGS="${EXTRA_C_FLAGS}"
 
@@ -84,7 +84,6 @@ if [ "${CUDA}" == "ON" ]; then
 
   EXTRA_CXX_FLAGS+=" ${CUDA_FLAG}"
   EXTRA_CXX_FLAGS+=" -lineinfo"
-  EXTRA_CXX_FLAGS+=" --expt-extended-lambda"
   EXTRA_CXX_FLAGS+=" -Xcudafe --diag_suppress=conversion_function_not_usable"
   EXTRA_CXX_FLAGS+=" -Xcudafe --diag_suppress=cc_clobber_ignored"
   EXTRA_CXX_FLAGS+=" -Xcudafe --diag_suppress=code_is_unreachable"
@@ -126,9 +125,9 @@ cmake \
    -D CMAKE_Fortran_COMPILER="mpif90" \
    -D CMAKE_C_FLAGS="$EXTRA_C_FLAGS" \
    -D CMAKE_CXX_FLAGS="$EXTRA_CXX_FLAGS" \
+   -D Trilinos_CXX11_FLAGS="-std=c++11 --expt-extended-lambda" \
    -D CMAKE_Fortran_FLAGS="$EXTRA_F_FLAGS" \
    -D CMAKE_EXE_LINKER_FLAGS="$LINK_FLAGS" \
-   -D Trilinos_CXX11_FLAGS:STRING=-std=c++11 \
    \
    -D Trilinos_VERBOSE_CONFIGURE=OFF \
    \
