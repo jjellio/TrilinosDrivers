@@ -1,0 +1,261 @@
+#!/bin/bash
+
+###
+# ./do-configure [opt|dbg] [static|shared]
+#  WARNING
+# Sparc has a "remove duplicates" cmake function.
+# this strips dupe items from the compiler flags...
+# .. this will break the cuda front end (-Xcudafe ) flags.
+# these are for suppressing annoying warnings.
+# When sparc uses trilinos' flags, and strips the dupes,
+# it will break these flags, so you will need to comment out
+# sparc's remove duplcate stuff in their CMake file.
+##
+
+EXTRA_ARGS=$@
+
+COMPILER=gcc-${CXX_VERSION}_cuda-${CUDA_VERSION}
+MPI=openmpi-${MPI_VERSION}
+
+# k80
+CUDA_ARCH_NAME="k40"
+
+TRILINOS_PATH=${HOME}/src/Trilinos
+export OMPI_CXX=${TRILINOS_PATH}/packages/kokkos/bin/nvcc_wrapper
+
+if [ "${CUDA_ARCH_NAME}" == "p100" ]; then
+CUDA_FLAG="-arch=sm_60"
+elif [ "${CUDA_ARCH_NAME}" == "k80" ]; then
+CUDA_FLAG="-arch=sm_37"
+elif [ "${CUDA_ARCH_NAME}" == "k40" ]; then
+CUDA_FLAG="-arch=sm_35"
+fi
+
+
+
+EXTRA_C_FLAGS="-mcpu=power8"
+EXTRA_CXX_FLAGS="-mcpu=power8 ${CUDA_FLAG} \
+-lineinfo \
+--expt-extended-lambda \
+-Xcudafe --diag_suppress=conversion_function_not_usable \
+-Xcudafe --diag_suppress=cc_clobber_ignored \
+-Xcudafe --diag_suppress=code_is_unreachable"
+EXTRA_F_FLAGS="-mcpu=power8"
+#LINK_FLAGS="-fuse-ld=gold"
+LINK_FLAGS=""
+
+
+
+# Shouldn't need to change anything below this line
+BUILD=${COMPILER}_${MPI}
+
+  LINK_DYNAMIC=ON
+  LINK_SUFFIX=dynamic
+
+  BUILD_TYPE=RELEASE
+  BUILD_SUFFIX=opt
+
+CUDA=ON
+OPENMP=OFF
+PTHREAD=OFF
+SERIAL=ON
+COMPLEX=OFF
+
+TESTS=ON
+EXAMPLES=OFF
+
+
+read -r -d '' MUELU_DETAILS <<- EOM
+     -D Tpetra_ENABLE_MMM_Timings:BOOL=ON
+     -D Trilinos_ENABLE_MueLu=ON
+     -D KokkosKernels_ENABLE_Experimental:BOOL=ON
+     -D TpetraKernels_ENABLE_Experimental:BOOL=ON
+     -D MueLu_ENABLE_Experimental:BOOL=ON
+     -D MueLu_ENABLE_Kokkos_Refactor:BOOL=ON
+     -D Xpetra_ENABLE_Experimental:BOOL=ON
+     -D Xpetra_ENABLE_Kokkos_Refactor:BOOL=ON
+     -D Trilinos_ENABLE_Xpetra=ON
+     -D Trilinos_ENABLE_Isorropia=ON
+     -D Trilinos_ENABLE_Galeri=ON
+     -D Trilinos_ENABLE_Teuchos=ON
+     -D Trilinos_ENABLE_Epetra=ON
+     -D Trilinos_ENABLE_EpetraExt=ON
+     -D Trilinos_ENABLE_Anasazi=ON
+     -D Anasazi_ENABLE_RBGen=ON
+     -D Trilinos_ENABLE_Stokhos=OFF
+     -D Trilinos_ENABLE_Teko=OFF
+     -D Trilinos_ENABLE_Panzer=OFF
+     -D Trilinos_ENABLE_Amesos2=ON
+     -D Amesos2_ENABLE_KLU2=ON
+     -D Trilinos_ENABLE_Ifpack2=ON
+     -D Trilinos_ENABLE_Zoltan2=ON
+EOM
+
+MUELU_DETAILS=""
+
+read -r -d '' MUELU_DETAILS <<- EOM
+     -D Tpetra_ENABLE_MMM_Timings:BOOL=ON
+     -D Trilinos_ENABLE_MueLu=ON
+     -D KokkosKernels_ENABLE_Experimental:BOOL=ON
+     -D TpetraKernels_ENABLE_Experimental:BOOL=ON
+     -D MueLu_ENABLE_Experimental:BOOL=ON
+     -D MueLu_ENABLE_Kokkos_Refactor:BOOL=ON
+     -D Xpetra_ENABLE_Experimental:BOOL=ON
+     -D Xpetra_ENABLE_Kokkos_Refactor:BOOL=ON
+     -D Trilinos_ENABLE_Xpetra=ON
+     -D Trilinos_ENABLE_Isorropia=ON
+     -D Trilinos_ENABLE_Galeri=ON
+     -D Trilinos_ENABLE_Teuchos=ON
+     -D Trilinos_ENABLE_Epetra=ON
+     -D Trilinos_ENABLE_EpetraExt=ON
+     -D Trilinos_ENABLE_Anasazi=ON
+     -D Anasazi_ENABLE_RBGen=ON
+     -D Trilinos_ENABLE_Stokhos=OFF
+     -D Trilinos_ENABLE_Teko=OFF
+     -D Trilinos_ENABLE_Panzer=OFF
+     -D Trilinos_ENABLE_Amesos2=ON
+     -D Amesos2_ENABLE_KLU2=ON
+     -D Trilinos_ENABLE_Ifpack2=ON
+     -D Trilinos_ENABLE_Zoltan2=ON
+EOM
+
+
+echo "$MUELU_DETAILS"
+
+
+
+TRILINOS_HOME=${TRILINOS_PATH}
+TRILINOS_INSTALL=${HOME}/install/Trilinos/${BUILD}_cuda-${CUDA_VERSION}_${LINK_SUFFIX}_${BUILD_SUFFIX}-${CUDA_ARCH_NAME}_muelu-experimental
+
+echo BUILD=${BUILD}
+echo TRILINOS_INSTALL=${TRILINOS_INSTALL}
+echo TRILINOS_HOME=${TRILINOS_HOME}
+echo CUDA_ARCH_NAME=${CUDA_ARCH_NAME}
+echo COMPILER_ROOT=
+echo MPI_ROOT=${MPI_ROOT}
+echo BLAS_ROOT=${BLAS_ROOT}
+echo LAPACK_ROOT=${LAPACK_ROOT}
+echo HDF5_ROOT=${HDF5_ROOT}
+echo NETCDF_ROOT=${NETCDF_ROOT}
+echo ZLIB_ROOT=${ZLIB_ROOT}
+echo BOOST_ROOT=${BOOST_ROOT}
+echo METIS_ROOT=${METIS_ROOT}
+echo PARMETIS_ROOT=${PARMETIS_ROOT}
+echo SUPERLUDIST_ROOT=${SUPERLUDIST_ROOT}
+
+
+#rm -f CMakeCache.txt; rm -rf CMakeFiles
+
+time \
+cmake \
+ -D Trilinos_ENABLE_DEBUG:BOOL=OFF \
+\
+ -D CMAKE_BUILD_TYPE=RELEASE \
+ -D CMAKE_VERBOSE_MAKEFILE=OFF \
+ -D Trilinos_ENABLE_ALL_PACKAGES=OFF \
+ -D Trilinos_ENABLE_ALL_OPTIONAL_PACKAGES=ON \
+ -D BUILD_SHARED_LIBS=${LINK_DYNAMIC} \
+ -D DART_TESTING_TIMEOUT:STRING=200 \
+ -D Trilinos_ENABLE_CXX11=ON \
+  \
+   -D CMAKE_INSTALL_PREFIX:PATH=${TRILINOS_INSTALL} \
+   \
+   -D CMAKE_C_COMPILER="mpicc" \
+   -D CMAKE_CXX_COMPILER="mpicxx" \
+   -D CMAKE_Fortran_COMPILER="mpif90" \
+   -D CMAKE_C_FLAGS="$EXTRA_C_FLAGS" \
+   -D CMAKE_CXX_FLAGS="$EXTRA_CXX_FLAGS" \
+   -D CMAKE_Fortran_FLAGS="$EXTRA_F_FLAGS" \
+   -D CMAKE_EXE_LINKER_FLAGS="$LINK_FLAGS" \
+   -D Trilinos_CXX11_FLAGS:STRING=-std=c++11 \
+   \
+   -D Trilinos_VERBOSE_CONFIGURE=OFF \
+   \
+   -D Trilinos_ENABLE_TESTS=${TESTS}\
+   -D Trilinos_ENABLE_EXAMPLES=${EXAMPLES} \
+   -D DART_TESTING_TIMEOUT:STRING="200" \
+   \
+   -D Trilinos_ENABLE_EXPLICIT_INSTANTIATION=ON \
+   -D Tpetra_INST_FLOAT=OFF \
+   -D Tpetra_INST_DOUBLE=ON \
+   -D Tpetra_INST_COMPLEX_FLOAT=OFF \
+   -D Tpetra_INST_COMPLEX_DOUBLE=OFF \
+   -D Tpetra_INST_INT_INT=ON \
+   -D Tpetra_INST_INT_LONG=OFF \
+   -D Tpetra_INST_INT_UNSIGNED=OFF \
+   -D Tpetra_INST_INT_LONG_LONG=ON \
+   -D Teuchos_ENABLE_LONG_LONG_INT=ON \
+   -D Teuchos_ENABLE_COMPLEX=OFF \
+   \
+  -D Trilinos_ENABLE_Kokkos=ON \
+  -D Kokkos_ENABLE_TESTS:BOOL=ON \
+  -D Trilinos_ENABLE_OpenMP=${OPENMP} \
+  -D Kokkos_ENABLE_Serial:BOOL=${SERIAL} \
+  -D Kokkos_ENABLE_OpenMP:BOOL=${OPENMP} \
+  -D Kokkos_ENABLE_Pthread:BOOL=${PTHREAD} \
+  -D Kokkos_ENABLE_Cuda:BOOL=${CUDA} \
+  -D TPL_ENABLE_Pthread=${PTHREAD} \
+  -D TPL_ENABLE_CUDA=${CUDA} \
+  -D Kokkos_ENABLE_Cuda_UVM:BOOL=ON \
+  -D Kokkos_ENABLE_Cuda_Lambda:BOOL=ON \
+  -D Teuchos_ENABLE_COMPLEX=OFF \
+\
+-D Trilinos_ENABLE_Tpetra=ON \
+  -D Tpetra_INST_SERIAL:BOOL=${SERIAL} \
+  -D Tpetra_INST_OPENMP:BOOL=${OPENMP} \
+  -D Tpetra_INST_PTHREAD:BOOL=${PTHREAD} \
+  -D Tpetra_INST_CUDA:BOOL=${CUDA} \
+  -D Tpetra_INST_COMPLEX_DOUBLE:BOOL=${COMPLEX} \
+  -D Tpetra_ENABLE_TESTS:BOOL=${TESTS} \
+  -D Tpetra_ENABLE_EXAMPLES:BOOL=${EXAMPLES} \
+\
+-D Trilinos_ENABLE_Belos=ON \
+\
+${MUELU_DETAILS} \
+\
+   -D TPL_ENABLE_MPI=ON \
+   -D MPI_USE_COMPILER_WRAPPERS=ON \
+   -D MPI_EXEC:PATH="mpirun" \
+   -D MPI_EXEC_NUMPROCS_FLAG:STRING="--map-by;ppr:2:NUMA:pe=4;--display-map;--bind-to;core;-np" \
+   \
+   -D TPL_ENABLE_Zlib=ON \
+   -D Zlib_LIBRARY_DIRS="${ZLIB_ROOT}/lib" \
+   \
+   -D TPL_ENABLE_DLlib=ON \
+   \
+   -D TPL_ENABLE_yaml-cpp=ON \
+   -D yaml-cpp_LIBRARY_DIRS:PATH=${MY_YAMLCPP_ROOT}/lib \
+   -D yaml-cpp_INCLUDE_DIRS:PATH=${MY_YAMLCPP_ROOT}/include \
+   \
+   -D TPL_ENABLE_BLAS=ON \
+   -D BLAS_LIBRARY_DIRS:PATH="${BLAS_ROOT}/lib;$GCC_ROOT/lib64" \
+   -D BLAS_LIBRARY_NAMES:STRING="blas;gomp;pthread" \
+   \
+   -D TPL_ENABLE_LAPACK=ON \
+   -D LAPACK_LIBRARY_DIRS:PATH="${LAPACK_ROOT}/lib;$GCC_ROOT/lib64" \
+   -D LAPACK_LIBRARY_NAMES:STRING="lapack;gfortran" \
+   \
+   -D TPL_ENABLE_Boost=ON \
+   -D Boost_INCLUDE_DIRS:PATH=${BOOST_ROOT}/include \
+   \
+   -D TPL_ENABLE_BoostLib=ON \
+   -D BoostLib_INCLUDE_DIRS:PATH=${BOOST_ROOT}/include \
+   -D BoostLib_LIBRARY_DIRS:PATH=${BOOST_ROOT}/lib \
+   \
+   -D TPL_ENABLE_Netcdf=ON \
+   -D Netcdf_INCLUDE_DIRS:PATH="${NETCDF_ROOT}/include;${HDF5_ROOT}/include" \
+   -D Netcdf_LIBRARY_DIRS:PATH="${NETCDF_ROOT}/lib;${PNETCDF_ROOT}/lib;${HDF5_ROOT}/lib;${ZLIB_ROOT}/lib" \
+   -D Netcdf_LIBRARY_NAMES:STRING="netcdf;pnetcdf;hdf5_hl;hdf5;z" \
+   \
+   -D TPL_ENABLE_METIS=ON \
+   -D METIS_INCLUDE_DIRS:PATH=${METIS_ROOT}/include \
+   -D METIS_LIBRARY_DIRS:PATH=${METIS_ROOT}/lib \
+   \
+   -D TPL_ENABLE_ParMETIS=ON \
+   -D ParMETIS_INCLUDE_DIRS:PATH="${PARMETIS_ROOT}/include;${METIS_ROOT}/include" \
+   -D ParMETIS_LIBRARY_DIRS:PATH="${PARMETIS_ROOT}/lib;${METIS_ROOT}/lib" \
+   \
+\
+$EXTRA_ARGS \
+${TRILINOS_PATH}
+
