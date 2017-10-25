@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# VERSION gathering hacks are not intended to be robust... 
+# set these appropriately so your build will be installed so you 
+# know how it was built.
+
+
 EXTRA_ARGS=$@
 
 COMPILER_NAME=gcc
@@ -17,14 +22,21 @@ CUDA_ARCH_NAME="k40"
 TRILINOS_PATH=${HOME}/src/Trilinos
 
 # this assumes these directories have /lib and /include subdirs
-LAPACK_DIR=${LAPACK_ROOT}
-BLAS_DIR=${LAPACK_ROOT}
+LAPACK_ROOT=/fix/me
+BLAS_ROOT=/fix/me
+# If you use a threaded BLAS like OpenBLAS that needs GNU OpenMP, this will be used to find it
+# MKL is more complicated, email jjellio for help
+GCC_ROOT=/fix/me
+# if using system blas.a and lapack.a, you can delete pthread;gomp from the LAPACK library names
+# For Cuda, System BLAS/Lapack is *required*, but this is not what is used for GPUs
+# CUBLAS or Kokkos will handle GPU blas commands
+
 
 # if using GCC configure machine tuning flags
 # intel, -xAVX2, for example
 # this enables vectorization, -O3 will be enabled by Cmake Release target
 
-EXTRA_C_FLAGS="-mcpu=native -mtune=native"
+EXTRA_C_FLAGS="-mtune=native"
 EXTRA_CXX_FLAGS="${EXTRA_C_FLAGS}"
 EXTRA_F_FLAGS="${EXTRA_C_FLAGS}"
 
