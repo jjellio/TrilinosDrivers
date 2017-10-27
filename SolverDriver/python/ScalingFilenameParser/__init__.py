@@ -129,6 +129,9 @@ class ScalingFileNameParser:
 
     execspace_dict = None
 
+    # track a lowercase version of this
+    my_tokens['lexecspace_name'] = my_tokens['execspace_name'].lower()
+
     # from the general tokens, gather specific information
     if my_tokens['execspace_name'] == 'OpenMP':
       execspace_matches = self.execspace_openmp_re.match(my_tokens['execspace_attributes'])

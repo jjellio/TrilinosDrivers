@@ -7,6 +7,8 @@ Usage:
               [--average=<averaging>]
               [--bl_affinity_dir=<PATH>]
               [--comparable_affinity_dir=<PATH>]
+              [--bl_log_dir=<PATH>]
+              [--comparable_log_dir=<PATH>]
               [--remove_string=<STRING>]
               [--total_time_key=<STRING>]
               [--write_percent_total]
@@ -23,6 +25,8 @@ Options:
   --total_time_key=STRING   use this timer key to compute percent total time [default: MueLu: Hierarchy: Setup (total)]
   --bl_affinity_dir=PATH          Path to directory with affinity CSV data, relative to baseline [default: .]
   --comparable_affinity_dir=PATH  Path to directory with affinity CSV data, relative to comparable [default: ../affinity]
+  --bl_log_dir=PATH          Path to directory with text logs, relative to baseline [default: .]
+  --comparable_log_dir=PATH  Path to directory with text logs, relative to comparable [default: ../affinity]
   --write_percent_total     Write a column with percent total
   --muelu_prof              Do MueLu profile output
 
@@ -76,13 +80,21 @@ def construct_dataframe(yaml_data):
                     index=timers,
                     columns=['minT', 'minC', 'meanT', 'meanC', 'maxT', 'maxC', 'meanCT', 'meanCC'])
 
-  # df['Timer Name'] = df.index
+  df['Timer Name'] = df.index
   return df
 
 
 def df_to_markdown(df):
   from tabulate import tabulate
   print(tabulate(df, headers='keys', tablefmt='simple', showindex=False))
+
+
+def demangeDF_TimerNames(df):
+  df['Timer Name'].replace(to_replace=r'N\d+MueLu\d+', value='', inplace=True, regex=True)
+  df['Timer Name'].replace(to_replace=r'I[d]*ixN\d+Kokkos\d+Compat\d+KokkosDeviceWrapperNodeINS\d+_\d+(OpenMPENS|SerialENS)\d+_\d+HostSpace[E]+', value='', inplace=True, regex=True)
+  df.index = df['Timer Name'].tolist()
+
+  return df
 
 
 def demangeYAML_TimerNames(yaml_data):
@@ -96,6 +108,7 @@ def demangeYAML_TimerNames(yaml_data):
     rebuilt_name = re.sub(r'I[d]*ixN\d+Kokkos\d+Compat\d+KokkosDeviceWrapperNodeINS\d+_\d+(OpenMPENS|SerialENS)\d+_\d+HostSpace[E]+', '', rebuilt_name)
 
     if rebuilt_name == timer_name:
+      print('Identical: {}'.format(rebuilt_name))
       continue
 
     rename_teuchos_timers_yaml_key(old_key=timer_name,
@@ -151,7 +164,7 @@ def load_yaml(filename):
   with open(filename) as data_file:
     yaml_data = yaml.safe_load(data_file)
     # try to parse c++ mangled names if needed
-    demangeYAML_TimerNames(yaml_data)
+    # demangeYAML_TimerNames(yaml_data)
     return yaml_data
 
 
@@ -359,10 +372,20 @@ def main():
   print(comparable_files)
 
   bl_yaml = load_yaml(baseline_file)
+
+  print('---------------------------------------------------------------------')
+  import pprint
+  pprint.PrettyPrinter(indent=4).pprint(bl_yaml)
+  print('---------------------------------------------------------------------', )
+
   remove_timer_string(bl_yaml, string=remove_string)
 
   my_tokens = SFP.parseYAMLFileName(baseline_file)
   baseline_df = construct_dataframe(bl_yaml)
+
+  baseline_df.to_csv('baseline_df-a.csv', index_label='Original Timer')
+  baseline_df = demangeDF_TimerNames(baseline_df)
+  baseline_df.to_csv('baseline_df.csv', index_label='Demangled Timer')
 
   # remove ignored timers
   baseline_df = baseline_df.drop(ignored_labels, errors='ignore')
@@ -373,6 +396,10 @@ def main():
   # compute the percentage of total time
   if DO_PERCENT_TOTAL:
     add_percent_total(total_time_key=total_time_key, df=baseline_df)
+
+  # this will drastically reduce the number of timer labels
+  if DO_MUELU_COMP:
+    baseline_df = annotate_muelu_dataframe(df=baseline_df, total_time_key=total_time_key)
 
   # track the global set of timer labels
   unified_timer_names = set(baseline_df.index)
@@ -410,8 +437,20 @@ def main():
     # construct the dataframe
     comparable_df = construct_dataframe(comparable_yaml)
 
+    comparable_df.to_csv('comparable_df-a.csv', index_label='Original Timer')
+    comparable_df = demangeDF_TimerNames(comparable_df)
+    comparable_df.to_csv('comparable_df.csv', index_label='Demangled Timer')
+
+    print('---------------------------------------------------------------------')
+    import pprint
+    pprint.PrettyPrinter(indent=4).pprint(comparable_yaml)
+    print('---------------------------------------------------------------------', )
+
     # drop the unwanted timers
     comparable_df = comparable_df.drop(ignored_labels, errors='ignore')
+
+    if DO_MUELU_COMP:
+      comparable_df = annotate_muelu_dataframe(df=comparable_df, total_time_key=total_time_key)
 
     # add new timers to the global set of parsed timers (required, because we do not always have the same
     # set of timers)
@@ -437,9 +476,8 @@ def main():
                            how='outer',
                            suffixes=('', '_'+short_name))
 
-    if DO_MUELU_COMP:
-      baseline_df = annotate_muelu_dataframe(df=baseline_df, total_time_key=total_time_key)
 
+  baseline_df.to_csv('happy.csv')
   timer_types = ['minT', 'maxT', 'meanT', 'meanCT']
   for timer_type in timer_types:
     output_columns = [timer_type]
