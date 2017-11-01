@@ -3,15 +3,76 @@ import numpy as np
 import yaml
 from copy import deepcopy
 
+try:
+  import ScalingFilenameParser as SFP
+  USE_SCALING_FILE_PARSER = True
+except ImportError:
+  USE_SCALING_FILE_PARSER = False
+  pass
+
+
+def demange_timer_name(timer_name):
+  import re
+  rebuilt_name = re.sub(r'N\d+MueLu\d+', '', timer_name)
+  rebuilt_name = re.sub(r'I[d]*ixN\d+Kokkos\d+Compat\d+KokkosDeviceWrapperNodeINS\d+_\d+(OpenMPENS|SerialENS)\d+_\d+HostSpace[E]+', '', rebuilt_name)
+
+  return rebuilt_name
+
+
+def demangeYAML_TimerNames(yaml_data,
+                           verbose=0):
+
+  for idx, timer_name in enumerate(yaml_data['Timer names']):
+    rebuilt_name = demange_timer_name(timer_name)
+
+    if rebuilt_name == timer_name:
+      if verbose: print('Identical: {}'.format(rebuilt_name))
+      continue
+
+    rename_teuchos_timers_yaml_key(old_key=timer_name,
+                                   yaml_data=yaml_data,
+                                   new_key=rebuilt_name,
+                                   timer_index=idx)
+
+    if verbose: print(rebuilt_name)
+
+
+def rename_teuchos_timers_yaml_key(old_key,
+                                   yaml_data,
+                                   new_key,
+                                   timer_index):
+  try:
+    yaml_data['Total times'][new_key] = yaml_data['Total times'].pop(old_key)
+    yaml_data['Call counts'][new_key] = yaml_data['Call counts'].pop(old_key)
+
+    yaml_data['Timer names'][timer_index] = new_key
+  except KeyError as e:
+    print(
+      'Attempting to remove suffix and prefix from timer names, but we have a collision: {} has already been mapped.'.format(
+        new_key))
+    raise e
+
+
+def load_yaml(filename):
+  with open(filename) as data_file:
+    yaml_data = yaml.safe_load(data_file)
+    # try to parse c++ mangled names if needed
+    # demangeYAML_TimerNames(yaml_data)
+    return yaml_data
+
 
 def write_yaml(yaml_data,
                filename=None,
+               useFileParserFieldIfPresent=True,
                verbose=1):
 
   local_yaml = yaml_data
   if local_yaml['raw_text']:
     local_yaml = deepcopy(yaml_data)
     del local_yaml['raw_text']
+
+  if useFileParserFieldIfPresent and yaml_data['experiment_file'] != '':
+    filename = yaml_data['experiment_file']
 
   with open(filename, 'x') as yaml_file:
     yaml.dump(local_yaml,
@@ -26,9 +87,13 @@ def write_yaml(yaml_data,
 def write_raw_unparsed_teuchos_table(yaml_data,
                                      write_to_stdout=True,
                                      filename=None,
+                                     useFileParserFieldIfPresent=True,
                                      verbose=1):
   if write_to_stdout:
     print(''.join(yaml_data['raw_text']))
+
+  if useFileParserFieldIfPresent and yaml_data['experiment_file'] != '':
+    filename = yaml_data['experiment_file'].replace('.yaml', '.raw.txt')
 
   if filename is not None:
     f = open(filename, 'x')
@@ -43,6 +108,7 @@ def write_raw_unparsed_teuchos_table(yaml_data,
 def yaml_dict_to_teuchos_table(yaml_data,
                                write_to_stdout=True,
                                filename=None,
+                               useFileParserFieldIfPresent=True,
                                verbose=1):
   from tabulate import tabulate
 
@@ -98,6 +164,9 @@ def yaml_dict_to_teuchos_table(yaml_data,
   if write_to_stdout:
     print('\n'.join(massaged_output))
 
+  if useFileParserFieldIfPresent and yaml_data['experiment_file'] != '':
+    filename = yaml_data['experiment_file'].replace('.yaml', '.txt')
+
   if filename is not None:
     f = open(filename, 'x')
     f.write('\n'.join(massaged_output))
@@ -112,7 +181,7 @@ def gather_timer_name_sets_from_logfile(logfile):
   import re
   from copy import deepcopy
 
-  PARSER_DEBUG = False
+  PARSER_DEBUG = True
 
   # we form N number of sets (lists technically)
   set_counter = 0
@@ -123,14 +192,16 @@ def gather_timer_name_sets_from_logfile(logfile):
                      'Call counts' : dict(),
                      'Number of processes' : int(0),
                      'Statistics collected' : ['MinOverProcs', 'MeanOverProcs', 'MaxOverProcs', 'MeanOverCallCounts'],
-                     'raw_text' : []}
+                     'raw_text' : [],
+                     'experiment_file' : ''}
 
   yaml_single_data = { 'Timer names' : list(),
                        'Total times' : dict(),
                        'Call counts' : dict(),
                        'Number of processes' : int(0),
                        'Statistics collected' : ['Total'],
-                       'raw_text': []}
+                       'raw_text': [],
+                       'experiment_file' : ''}
 
   process_banner_re = re.compile(r'^\s*TimeMonitor results over\s+(?P<num_procs>\d+)\s+processor[s]?\s*$')
   blank_line_re = re.compile(r'^\s*$')
@@ -166,6 +237,16 @@ def gather_timer_name_sets_from_logfile(logfile):
 
   raw_text_lines = []
 
+  '''
+    --------------------------------------------------------------------------------
+    ------  Laplace3D-BS-1-246x246x246_LinearAlgebra-Tpetra_numsteps-100_OpenMP-threads-8_np-8_decomp-1x8x8x1.yaml
+    --------------------------------------------------------------------------------
+
+  '''
+
+  experiment_output_match_re = re.compile(r'^------  (?P<filename>[-_0-9A-Za-z]+\.yaml)\s*$')
+  scaling_experiment_name = ''
+
   # loop line by line
   with open(logfile) as fptr:
 
@@ -185,6 +266,12 @@ def gather_timer_name_sets_from_logfile(logfile):
           continue
         else:
           # if line_counter == 0, and we don't see a region, then skip all
+          experiment_output_m = experiment_output_match_re.match(line)
+          if experiment_output_m:
+            scaling_experiment_name = experiment_output_m.group('filename')
+            if PARSER_DEBUG: print('MATCHED scaling study experiment filename: ', scaling_experiment_name)
+            continue
+
           if PARSER_DEBUG: print('Skipping: ', line)
           continue
 
@@ -223,6 +310,7 @@ def gather_timer_name_sets_from_logfile(logfile):
           # start a region, so start a new set for these timer labels
           sets[set_counter] = deepcopy(yaml_four_data)
           sets[set_counter]['Number of processes'] = teuchos_num_procs
+          sets[set_counter]['experiment_file'] = scaling_experiment_name
           raw_text_lines.append(line)
           timer_region_line_counter += 1
           continue
@@ -249,6 +337,7 @@ def gather_timer_name_sets_from_logfile(logfile):
         in_teuchos_four_timer_output_block = False
         in_teuchos_single_timer_output_block = False
         timer_region_line_counter = 0
+        scaling_experiment_name = ''
         if len(sets[set_counter]['Timer names']) == 0:
           # we didn't parse anything so delete the empty struct and continue
           sets[set_counter] = None

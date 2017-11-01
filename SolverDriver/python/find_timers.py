@@ -14,6 +14,7 @@ Options:
 from docopt import docopt
 import glob
 import TeuchosTimerUtils as ttu
+import os
 
 
 def main():
@@ -21,6 +22,7 @@ def main():
   options = docopt(__doc__)
 
   log_files_  = options['--logs']
+
   log_files = []
 
   # figure out the log files
@@ -38,16 +40,17 @@ def main():
     timer_sets = ttu.gather_timer_name_sets_from_logfile(logfile=log_file)
     print('Found ', len(timer_sets), ' timer sets')
     for timer_set_id in timer_sets:
-      filename = '{filename}_teuchos-parsed-formatted-{id}.txt'.format(filename=log_file, id=timer_set_id)
+      print(timer_sets[timer_set_id])
+      filename = '{filename}_teuchos-parsed-formatted-{id}.txt'.format(filename=os.path.basename(log_file), id=timer_set_id)
       ttu.yaml_dict_to_teuchos_table(timer_sets[timer_set_id],
                                      write_to_stdout=False,
                                      filename=filename)
-      filename = '{filename}_teuchos_timers-{id}.txt'.format(filename=log_file, id=timer_set_id)
+      filename = '{filename}_teuchos_timers-{id}.txt'.format(filename=os.path.basename(log_file), id=timer_set_id)
       ttu.write_raw_unparsed_teuchos_table(timer_sets[timer_set_id],
                                            write_to_stdout=False,
                                            filename=filename)
 
-      filename = '{filename}_teuchos_timers-{id}.yaml'.format(filename=log_file, id=timer_set_id)
+      filename = '{filename}_teuchos_timers-{id}.yaml'.format(filename=os.path.basename(log_file), id=timer_set_id)
       ttu.write_yaml(timer_sets[timer_set_id],
                      filename=filename)
 
