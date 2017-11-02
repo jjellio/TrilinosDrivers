@@ -29,12 +29,16 @@ def main():
   if isinstance(log_files_, str):
     log_files_ = [log_files_]
 
+  print(log_files_)
+
   for log_file in log_files_:
     if '*' in log_file:
       globbed_files = glob.glob(log_file)
       log_files += globbed_files
-  else:
-    log_files.append(log_file)
+    else:
+      log_files.append(log_file)
+
+  print(log_files)
 
   for log_file in log_files:
     timer_sets = ttu.gather_timer_name_sets_from_logfile(logfile=log_file)
