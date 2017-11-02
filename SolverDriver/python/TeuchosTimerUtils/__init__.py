@@ -5,13 +5,28 @@ from copy import deepcopy
 
 try:
   import ScalingFilenameParser as SFP
-  USE_SCALING_FILE_PARSER = True
+  __HAVE_SCALING_FILE_PARSER = True
 except ImportError:
-  USE_SCALING_FILE_PARSER = False
+  __HAVE_SCALING_FILE_PARSER = False
+  pass
+
+try:
+  import pandas as pd
+  __HAVE_PANDAS = True
+except ImportError:
+  __HAVE_PANDAS = False
   pass
 
 
-def demange_timer_name(timer_name):
+def demange_muelu_timer_names_df(df):
+  df['Timer Name'].replace(to_replace=r'N\d+MueLu\d+', value='', inplace=True, regex=True)
+  df['Timer Name'].replace(to_replace=r'I[d]*ixN\d+Kokkos\d+Compat\d+KokkosDeviceWrapperNodeINS\d+_\d+(OpenMPENS|SerialENS)\d+_\d+HostSpace[E]+', value='', inplace=True, regex=True)
+  df.index = df['Timer Name'].tolist()
+
+  return df
+
+
+def demangle_muelu_timer_name(timer_name):
   import re
   rebuilt_name = re.sub(r'N\d+MueLu\d+', '', timer_name)
   rebuilt_name = re.sub(r'I[d]*ixN\d+Kokkos\d+Compat\d+KokkosDeviceWrapperNodeINS\d+_\d+(OpenMPENS|SerialENS)\d+_\d+HostSpace[E]+', '', rebuilt_name)
@@ -19,11 +34,11 @@ def demange_timer_name(timer_name):
   return rebuilt_name
 
 
-def demangeYAML_TimerNames(yaml_data,
-                           verbose=0):
+def demange_muelu_timer_names_yaml(yaml_data,
+                                   verbose=0):
 
   for idx, timer_name in enumerate(yaml_data['Timer names']):
-    rebuilt_name = demange_timer_name(timer_name)
+    rebuilt_name = demangle_muelu_timer_name(timer_name)
 
     if rebuilt_name == timer_name:
       if verbose: print('Identical: {}'.format(rebuilt_name))
@@ -53,6 +68,55 @@ def rename_teuchos_timers_yaml_key(old_key,
     raise e
 
 
+def remove_timer_string(yaml_data,
+                        string=None):
+  if not string:
+    return
+
+  # we modify the yaml_data, so make a copy
+  prior_timers = deepcopy(yaml_data['Timer names'])
+
+  for idx, timer_name in enumerate(prior_timers):
+    # remove the string from the timer label, then adjust the dict
+    rebuilt_timer_name = timer_name.replace(string, '')
+
+    # no modifications so skip to the next
+    if rebuilt_timer_name == timer_name:
+      continue
+
+    rename_teuchos_timers_yaml_key(old_key=timer_name,
+                                   yaml_data=yaml_data,
+                                   new_key=rebuilt_timer_name,
+                                   timer_index=idx)
+
+
+def construct_dataframe(yaml_data):
+  """Construst a pandas DataFrame from the timers section of the provided YAML data"""
+  timers = yaml_data['Timer names']
+  data = np.ndarray([len(timers), 8])
+
+  ind = 0
+  for timer in timers:
+    t = yaml_data['Total times'][timer]
+    c = yaml_data['Call counts'][timer]
+    data[ind, 0:8] = [
+      t['MinOverProcs'], c['MinOverProcs'],
+      t['MeanOverProcs'], c['MeanOverProcs'],
+      t['MaxOverProcs'], c['MaxOverProcs'],
+      t['MeanOverCallCounts'], c['MeanOverCallCounts']
+    ]
+    ind = ind + 1
+
+  df = pd.DataFrame(data,
+                    index=timers,
+                    columns=['minT', 'minC', 'meanT', 'meanC', 'maxT', 'maxC', 'meanCT', 'meanCC'])
+
+  df['Timer Name'] = df.index
+  return df
+
+'''
+  The following two functions shouldn't be here.
+'''
 def load_yaml(filename):
   with open(filename) as data_file:
     yaml_data = yaml.safe_load(data_file)
@@ -78,7 +142,7 @@ def write_yaml(yaml_data,
     yaml.dump(local_yaml,
               yaml_file,
               canonical=True,
-              default_flow_style=True)
+              default_flow_style=False)
 
     if verbose > 0:
       print('Wrote: {filename}'.format(filename=filename))
