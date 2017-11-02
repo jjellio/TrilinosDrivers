@@ -40,7 +40,7 @@ def main():
 
     yaml_data = ttu.load_yaml(yaml_file)
     if demangle:
-      ttu.demangeYAML_TimerNames(yaml_data)
+      ttu.demange_muelu_timer_names_yaml(yaml_data)
 
     filename = '{filename}_teuchos-parsed-formatted.txt'.format(filename=yaml_file)
     try:
