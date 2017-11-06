@@ -114,8 +114,10 @@ def construct_dataframe(yaml_data):
   df['Timer Name'] = df.index
   return df
 
+
 '''
-  The following two functions shouldn't be here.
+  The following function shouldn't be here.
+  Reading is standard, but writing is non-standard, as we carry metadata
 '''
 def load_yaml(filename):
   with open(filename) as data_file:
@@ -130,14 +132,20 @@ def write_yaml(yaml_data,
                useFileParserFieldIfPresent=True,
                verbose=1):
 
+  # delete the raw text blob if it exists, we make a copy
+  # since dicts and lists are mutable (and passed by reference)
   local_yaml = yaml_data
   if local_yaml['raw_text']:
     local_yaml = deepcopy(yaml_data)
     del local_yaml['raw_text']
 
+  # check if we parsed any special filename for this data
+  # this only works with the experiment stuff from jjellio
   if useFileParserFieldIfPresent and yaml_data['experiment_file'] != '':
     filename = yaml_data['experiment_file']
 
+  # dump the data to yaml, this seems fragile and the formatting is not consistent
+  # with that produced by teuchos timers
   with open(filename, 'x') as yaml_file:
     yaml.dump(local_yaml,
               yaml_file,
@@ -270,7 +278,6 @@ def gather_timer_name_sets_from_logfile(logfile):
   process_banner_re = re.compile(r'^\s*TimeMonitor results over\s+(?P<num_procs>\d+)\s+processor[s]?\s*$')
   blank_line_re = re.compile(r'^\s*$')
   timer_line_separator_re = re.compile(r'^[-]+$')
-
 
   float_re_str = r'[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?'
   # timing_and_callcount_re_str = r'(\s+{float}\s+\({float}\))'.format(float=float_re_str)
