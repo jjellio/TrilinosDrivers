@@ -1,10 +1,20 @@
 #!/bin/bash
 
-if [[ -L "$0" ]]; then
-  SCRIPT_DIR=$(dirname $(readlink $0));
+#!/bin/bash
+called=$_
+if [ "$called" != "$0" ]; then
+  echo "Script is being sourced, $called, $0"
+  SCRIPT_DIR=$(dirname ${called});
 else
-  SCRIPT_DIR=$(dirname $0);
+  echo "ERROR: Do not run this script, source it! Bash: source /path/to/script, or . /path/to/script"
+  exit;
 fi
+
+#if [[ -L "$0" ]]; then
+#  SCRIPT_DIR=$(dirname $(readlink $0));
+#else
+#  SCRIPT_DIR=$(dirname $0);
+#fi
 
 echo $SCRIPT_DIR
 source ${SCRIPT_DIR}/cmd_parser.sh
