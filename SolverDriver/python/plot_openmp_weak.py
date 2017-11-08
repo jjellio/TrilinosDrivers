@@ -18,6 +18,10 @@ Usage:
             [--ymin=NUM]
             [--ymax=NUM]
             [--normalize_y]
+            [--annotate_filenames]
+            [--plot=FIGURES]
+            [--expected_baseline_speedup=NUM]
+
   plotter.py (-h | --help)
 
 Options:
@@ -36,14 +40,24 @@ Options:
   --max_procs_per_node=NUM  Restrict the number processes per node [default: 64]
   --min_only               Plot only the minimum values [default: False]
   --max_only               Plot only the maximum values [default: False]
-  --ymin=NUM               Restrict the number processes per node [default: -1.0]
-  --ymax=NUM               Restrict the number processes per node [default: -1.0]
+  --ymin=NUM|FIGURE=NUM,...  Restrict the number processes per node [default: -1.0]
+  --ymax=NUM|FIGURE=NUM,...  Restrict the number processes per node [default: -1.0]
   --normalize_y            Normalize the y axis between [0,1] [default: False]
+  --annotate_filenames     Add data filenames to figures [default: False]
+  --plot=FIGURE[,FIGURE]   Plot specific figures [default: raw_data]
+  --expected_baseline_speedup=NUM : draw a line on bl_speedup at this y intercept [default : 0.0]
 
 Arguments:
 
       STYLE: default - line style is the same, no change
              other - Any valid matplotlib style dotted, solid, dashed
+
+      FIGURES: raw_data : scatter plot of raw data
+               percent_total : attempt to plot a figure of this timer as a percentage of at total time
+               flat_mpi_factor : the ratio of the raw_data to the flat MPI data
+               bl_speedup : plot the speedup of the raw_data over the baseline
+               bl_perc_diff    : relative difference of baseline and data (bl-data)/bl *100
+               composite       : generate a single figure with all requested figures
 
 """
 #import matplotlib as mpl
@@ -55,7 +69,9 @@ from matplotlib.ticker import FormatStrFormatter
 import numpy as np
 import pandas as pd
 from pathlib import Path
+import os
 import copy
+import re
 import ScalingFilenameParser as SFP
 # from operator import itemgetter
 
@@ -111,12 +127,29 @@ PLOT_LEGEND         = False
 
 DO_YMIN_OVERRIDE = False
 DO_YMAX_OVERRIDE = False
-YMIN_OVERRIDE    = None
-YMAX_OVERRIDE    = None
+YMIN_OVERRIDE    = {}
+YMAX_OVERRIDE    = {}
 DO_NORMALIZE_Y   = False
 HAVE_BASELINE    = False
 BASELINE_DATASET_DF = None
 BASELINE_DRIVER_DF  = None
+
+EXPECTED_BASELINE_SPEEDUP = 0.0
+
+BASELINE_DATASET_FILE = ''
+DATASET_FILE = ''
+
+PLOTS_TO_GENERATE = {
+  'raw_data' : True,
+  'percent_total' : False,
+  'flat_mpi_factor' : False,
+  'bl_speedup' : False,
+  'bl_perc_diff' : False,
+  'composite' : False
+}
+
+ANNOTATE_DATASET_FILENAMES = False
+
 BASELINE_DECOMP = dict(procs_per_node=int(64),
                        cores_per_proc=int(1),
                        threads_per_core=int(1),
@@ -760,18 +793,19 @@ def enforce_override_ylims(figures, axes):
       # apply these limits to each plot in this column
       for axes_name, ax in column_map.items():
         current_ylims = list(ax.get_ylim())
-        if DO_YMIN_OVERRIDE:
-          current_ylims[0] = YMIN_OVERRIDE
-        if DO_YMAX_OVERRIDE:
-          current_ylims[1] = YMAX_OVERRIDE
+        if column_name in YMIN_OVERRIDE:
+          current_ylims[0] = float(YMIN_OVERRIDE[column_name])
+        if column_name in YMAX_OVERRIDE:
+          current_ylims[1] = float(YMAX_OVERRIDE[column_name])
         ax.set_ylim(current_ylims)
 
       for figure_name, fig in figures['independent'][column_name].items():
         current_ylims = list(fig.gca().get_ylim())
-        if DO_YMIN_OVERRIDE:
-          current_ylims[0] = YMIN_OVERRIDE
-        if DO_YMAX_OVERRIDE:
-          current_ylims[1] = YMAX_OVERRIDE
+        if column_name in YMIN_OVERRIDE:
+          current_ylims[0] = float(YMIN_OVERRIDE[column_name])
+        if column_name in YMAX_OVERRIDE:
+          current_ylims[1] = float(YMAX_OVERRIDE[column_name])
+        ax.set_ylim(current_ylims)
 
         fig.gca().set_ylim(current_ylims)
 
@@ -800,12 +834,13 @@ def save_figures(figures,
 
   if composite:
     try:
-      fullpath = '{path}/{fname}'.format(path=COMPOSITE_PATH, fname=filename)
+      if PLOTS_TO_GENERATE['composite']:
+        fullpath = '{path}/{fname}'.format(path=COMPOSITE_PATH, fname=filename)
 
-      figures['composite'].savefig('{path}.{format}'.format(path=fullpath,
-                                                            format=IMG_FORMAT),
-                                   format=IMG_FORMAT,
-                                   dpi=IMG_DPI)
+        figures['composite'].savefig('{path}.{format}'.format(path=fullpath,
+                                                              format=IMG_FORMAT),
+                                     format=IMG_FORMAT,
+                                     dpi=IMG_DPI)
 
       # create a second figure for the legend
       handles, labels = figures['composite'].gca().get_legend_handles_labels()
@@ -1192,21 +1227,11 @@ def plot_composite_weak(composite_group,
                        runtime.
   :return: nothing
   """
-  show_percent_total = True
-  show_factor = True
-
   total_df = pd.DataFrame()
-
-  print(kwargs.keys())
-  if kwargs is not None:
-    if 'show_percent_total' in kwargs.keys():
-      print('in the keys')
-      show_percent_total = kwargs['show_percent_total']
-    if 'show_factor' in kwargs.keys():
-      show_factor = kwargs['show_factor']
 
   # determine the flat MPI time
   composite_group = add_flat_mpi_data(composite_group, allow_baseline_override=True)
+
   if HAVE_BASELINE:
     bl_composite_group = add_flat_mpi_data(baseline_group, allow_baseline_override=True)
 
@@ -1217,7 +1242,6 @@ def plot_composite_weak(composite_group,
     print('have a baseline!')
     bl_decomp_groups = bl_composite_group.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
     bl_dr_decomp_groups = BASELINE_DRIVER_DF.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
-
 
   # determine the components that should be in the filename
   show_solver_name = (composite_group['solver_name'].nunique() == 1)
@@ -1262,24 +1286,18 @@ def plot_composite_weak(composite_group,
   fig_size_height_inflation = 1.125
   fig_size_width_inflation  = 1.5
 
-  subplot_names = ['raw_data', 'percent_total']
+  SUBPLOT_NAMES = [k for k in PLOTS_TO_GENERATE.keys() if PLOTS_TO_GENERATE[k]] #['raw_data', 'percent_total']
 
-  if show_percent_total is False:
-    subplot_names.remove('percent_total')
-  if show_factor:
-    subplot_names.append('flat_mpi_factor')
-  if HAVE_BASELINE:
-    subplot_names.append('global_baseline')
-    subplot_names.append('global_percent_baseline')
-    subplot_names.append('decomp_baseline')
+  if 'bl_speedup' in SUBPLOT_NAMES:
+    bl_speedup_expected = (EXPECTED_BASELINE_SPEEDUP > 0.0)
 
   # whether we should replot images that already exist.
   if FORCE_REPLOT is False:
-    if not need_to_replot(simple_fname, subplot_names, ht_names):
+    if not need_to_replot(simple_fname, SUBPLOT_NAMES, ht_names):
       print("Skipping {}.png".format(simple_fname))
       return
 
-  axes, figures = get_figures_and_axes(subplot_names=subplot_names,
+  axes, figures = get_figures_and_axes(subplot_names=SUBPLOT_NAMES,
                                        subplot_row_names=ht_names,
                                        fig_size=fig_size,
                                        fig_size_width_inflation=fig_size_width_inflation,
@@ -1300,7 +1318,7 @@ def plot_composite_weak(composite_group,
       if not bl_global_decomp_ht_group.empty:
         have_global_baseline = True
         # for plot_row in axes['raw_data']:
-        #   axes['decomp_baseline'][plot_row] = False
+        #   axes['bl_perc_diff'][plot_row] = False
     except:
       pass
 
@@ -1368,8 +1386,17 @@ def plot_composite_weak(composite_group,
         my_agg_times = pd.merge(my_agg_times, bl_agg_times[['bl_min', 'bl_max', 'num_nodes']],
                                 how='left',
                                 on=['num_nodes'])
-        my_agg_times['bl_max_diff'] = ((my_agg_times['bl_max'] - my_agg_times[QUANTITY_OF_INTEREST_MAX])/my_agg_times['bl_max'])*100
-        my_agg_times['bl_min_diff'] = ((my_agg_times['bl_min'] - my_agg_times[QUANTITY_OF_INTEREST_MIN])/my_agg_times['bl_min'])*100
+        
+        if PLOTS_TO_GENERATE['bl_perc_diff']:
+          my_agg_times['bl_max_diff'] = ((my_agg_times['bl_max'] - my_agg_times[QUANTITY_OF_INTEREST_MAX])
+                                         /my_agg_times['bl_max'])*100
+          my_agg_times['bl_min_diff'] = ((my_agg_times['bl_min'] - my_agg_times[QUANTITY_OF_INTEREST_MIN])
+                                         /my_agg_times['bl_min'])*100
+
+        if PLOTS_TO_GENERATE['bl_speedup']:
+          my_agg_times['bl_speedup_max'] = my_agg_times['bl_max'] / my_agg_times[QUANTITY_OF_INTEREST_MAX]
+          my_agg_times['bl_speedup_min'] = my_agg_times['bl_min'] / my_agg_times[QUANTITY_OF_INTEREST_MIN]
+
         print(my_agg_times)
 
       # this assumes that idx=0 is an SpMV aggregate figure, which appears to be worthless.
@@ -1466,15 +1493,35 @@ def plot_composite_weak(composite_group,
                         label='Prior-max-{}'.format(decomp_label),
                         color=DECOMP_COLORS[decomp_label],
                         **m)
-          # plot percent diff
-          plot_raw_data(ax=axes['decomp_baseline'][plot_row],
-                        indep_ax=figures['independent']['decomp_baseline'][plot_row].gca(),
-                        xvalues=my_agg_times['ticks'],
-                        yvalues=my_agg_times['bl_max_diff'],
-                        linestyle=baseline_linestyle,
-                        label='Perc. Diff-max-{}'.format(decomp_label),
-                        color=DECOMP_COLORS[decomp_label],
-                        **MAX_STYLE)
+
+          if PLOTS_TO_GENERATE['bl_perc_diff']:
+            # plot percent diff
+            plot_raw_data(ax=axes['bl_perc_diff'][plot_row],
+                          indep_ax=figures['independent']['bl_perc_diff'][plot_row].gca(),
+                          xvalues=my_agg_times['ticks'],
+                          yvalues=my_agg_times['bl_max_diff'],
+                          linestyle=baseline_linestyle,
+                          label='Perc. Diff-max-{}'.format(decomp_label),
+                          color=DECOMP_COLORS[decomp_label],
+                          **MAX_STYLE)
+            
+          if PLOTS_TO_GENERATE['bl_speedup']:
+            # if we draw the expected line do it first
+            if bl_speedup_expected:
+              axes['bl_speedup'][plot_row].axhline(
+                y=EXPECTED_BASELINE_SPEEDUP, color='black', linestyle='-')
+              figures['independent']['bl_speedup'][plot_row].gca().axhline(
+                y=EXPECTED_BASELINE_SPEEDUP, color='black', linestyle='-')
+
+            # plot speedup of maxT over Baseline_maxT
+            plot_raw_data(ax=axes['bl_speedup'][plot_row],
+                          indep_ax=figures['independent']['bl_speedup'][plot_row].gca(),
+                          xvalues=my_agg_times['ticks'],
+                          yvalues=my_agg_times['bl_speedup_max'],
+                          linestyle=baseline_linestyle,
+                          label='Speedup-max-{}'.format(decomp_label),
+                          color=DECOMP_COLORS[decomp_label],
+                          **MAX_STYLE)
 
         if PLOT_MIN:
           if BASELINE_LINESTYLE == 'default':
@@ -1495,16 +1542,35 @@ def plot_composite_weak(composite_group,
                         **m)
 
           # plot percent diff
-          plot_raw_data(ax=axes['decomp_baseline'][plot_row],
-                        indep_ax=figures['independent']['decomp_baseline'][plot_row].gca(),
-                        xvalues=my_agg_times['ticks'],
-                        yvalues=my_agg_times['bl_min_diff'],
-                        linestyle=baseline_linestyle,
-                        label='Perc. Diff-min-{}'.format(decomp_label),
-                        color=DECOMP_COLORS[decomp_label],
-                        **MIN_STYLE)
+          if PLOTS_TO_GENERATE['bl_perc_diff']:
+            plot_raw_data(ax=axes['bl_perc_diff'][plot_row],
+                          indep_ax=figures['independent']['bl_perc_diff'][plot_row].gca(),
+                          xvalues=my_agg_times['ticks'],
+                          yvalues=my_agg_times['bl_min_diff'],
+                          linestyle=baseline_linestyle,
+                          label='Perc. Diff-min-{}'.format(decomp_label),
+                          color=DECOMP_COLORS[decomp_label],
+                          **MIN_STYLE)
 
-      if show_percent_total:
+          # plot speedup of maxT over Baseline_maxT
+          if PLOTS_TO_GENERATE['bl_speedup']:
+            # if we draw the expected line do it first
+            if bl_speedup_expected:
+              axes['bl_speedup'][plot_row].axhline(
+                y=EXPECTED_BASELINE_SPEEDUP, color='black', linestyle='-')
+              figures['independent']['bl_speedup'][plot_row].gca().axhline(
+                y=EXPECTED_BASELINE_SPEEDUP, color='black', linestyle='-')
+
+            plot_raw_data(ax=axes['bl_speedup'][plot_row],
+                          indep_ax=figures['independent']['bl_speedup'][plot_row].gca(),
+                          xvalues=my_agg_times['ticks'],
+                          yvalues=my_agg_times['bl_speedup_min'],
+                          linestyle=baseline_linestyle,
+                          label='Speedup-max-{}'.format(decomp_label),
+                          color=DECOMP_COLORS[decomp_label],
+                          **MIN_STYLE)
+
+      if PLOTS_TO_GENERATE['percent_total']:
         # plot the data
         if PLOT_MAX:
           plot_raw_data(ax=axes['percent_total'][plot_row],
@@ -1523,7 +1589,8 @@ def plot_composite_weak(composite_group,
                         linestyle=MIN_LINESTYLE,
                         label='min-{}'.format(decomp_label),
                         color=DECOMP_COLORS[decomp_label])
-      if show_factor:
+
+      if PLOTS_TO_GENERATE['flat_mpi_factor']:
         # plot the data
         if PLOT_MAX:
           plot_raw_data(ax=axes['flat_mpi_factor'][plot_row],
@@ -1556,12 +1623,14 @@ def plot_composite_weak(composite_group,
     if SPMV_FIG:
       figures['independent']['raw_data'][ht_name].gca().set_title('')
     else:
-      figures['independent']['raw_data'][ht_name].gca().set_title('{}\n{bolding_pre}({HT_LABEL}={HT_NUM:.0f}){bolding_post}'.format(simple_title,
-                                                                                                         HT_LABEL=HYPER_THREAD_LABEL,
-                                                                                                         HT_NUM=ht_name,
-                                                                                                         bolding_pre=r'$\bf{',
-                                                                                                         bolding_post=r'}$'))
-    for plot_name in ['raw_data', 'decomp_baseline']:
+      figures['independent']['raw_data'][ht_name].gca().set_title(
+        '{}\n{bolding_pre}({HT_LABEL}={HT_NUM:.0f}){bolding_post}'.format(simple_title,
+                                                                          HT_LABEL=HYPER_THREAD_LABEL,
+                                                                          HT_NUM=ht_name,
+                                                                          bolding_pre=r'$\bf{',
+                                                                          bolding_post=r'}$'))
+    # adjust the font size for all plots
+    for plot_name in figures['independent'].keys():
       tmp_ax = figures['independent'][plot_name][ht_name].gca()
       for item in ([tmp_ax.xaxis.label, tmp_ax.yaxis.label] +
                     tmp_ax.get_xticklabels() + tmp_ax.get_yticklabels()):
@@ -1569,17 +1638,29 @@ def plot_composite_weak(composite_group,
       tmp_ax.title.set_fontsize(STANDALONE_FONT_SIZE-2)
 
     ## percent diff
-    if have_decomp_baseline:
-      figures['independent']['decomp_baseline'][ht_name].gca().set_ylabel('Percentage Improvement over Prior')
-      figures['independent']['decomp_baseline'][ht_name].gca().set_xlabel('Number of Nodes')
-      figures['independent']['decomp_baseline'][ht_name].gca().set_xticks(my_ticks)
-      figures['independent']['decomp_baseline'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
-      figures['independent']['decomp_baseline'][ht_name].gca().set_xlim([0.5, my_num_nodes + 0.5])
-      figures['independent']['decomp_baseline'][ht_name].gca().set_title('{}\n({HT_LABEL}={HT_NUM:.0f})'.format(simple_title,
-                                                                                                              HT_LABEL=HYPER_THREAD_LABEL,
-                                                                                                              HT_NUM=ht_name))
+    if have_decomp_baseline and PLOTS_TO_GENERATE['bl_perc_diff']:
+      figures['independent']['bl_perc_diff'][ht_name].gca().set_ylabel('Percentage Improvement over Prior')
+      figures['independent']['bl_perc_diff'][ht_name].gca().set_xlabel('Number of Nodes')
+      figures['independent']['bl_perc_diff'][ht_name].gca().set_xticks(my_ticks)
+      figures['independent']['bl_perc_diff'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
+      figures['independent']['bl_perc_diff'][ht_name].gca().set_xlim([0.5, my_num_nodes + 0.5])
+      figures['independent']['bl_perc_diff'][ht_name].gca().set_title(
+        '{}\n({HT_LABEL}={HT_NUM:.0f})'.format(simple_title,
+                                               HT_LABEL=HYPER_THREAD_LABEL,
+                                               HT_NUM=ht_name))
+
+    if have_decomp_baseline and PLOTS_TO_GENERATE['bl_speedup']:
+      figures['independent']['bl_speedup'][ht_name].gca().set_ylabel('Speedup')
+      figures['independent']['bl_speedup'][ht_name].gca().set_xlabel('Number of Nodes')
+      figures['independent']['bl_speedup'][ht_name].gca().set_xticks(my_ticks)
+      figures['independent']['bl_speedup'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
+      figures['independent']['bl_speedup'][ht_name].gca().set_xlim([0.5, my_num_nodes + 0.5])
+      figures['independent']['bl_speedup'][ht_name].gca().set_title(
+        '{}\n({HT_LABEL}={HT_NUM:.0f})'.format(simple_title,
+                                               HT_LABEL=HYPER_THREAD_LABEL,
+                                               HT_NUM=ht_name))
     ## percentages
-    if show_percent_total:
+    if PLOTS_TO_GENERATE['percent_total']:
       figures['independent']['percent_total'][ht_name].gca().set_ylabel('Percentage of Total Time')
       figures['independent']['percent_total'][ht_name].gca().set_xlabel('Number of Nodes')
       figures['independent']['percent_total'][ht_name].gca().set_xticks(my_ticks)
@@ -1591,7 +1672,7 @@ def plot_composite_weak(composite_group,
       figures['independent']['percent_total'][ht_name].gca().yaxis.set_major_formatter(FormatStrFormatter('%3.0f %%'))
 
     ## factors
-    if show_factor:
+    if PLOTS_TO_GENERATE['flat_mpi_factor']:
       figures['independent']['flat_mpi_factor'][ht_name].gca().set_ylabel('Ratio (smaller is better)')
       figures['independent']['flat_mpi_factor'][ht_name].gca().set_xlabel('Number of Nodes')
       figures['independent']['flat_mpi_factor'][ht_name].gca().set_xticks(my_ticks)
@@ -1604,12 +1685,12 @@ def plot_composite_weak(composite_group,
     axes['raw_data'][ht_name].set_ylabel('Runtime (s)')
     axes['raw_data'][ht_name].set_xlim([0.5, my_num_nodes + 0.5])
 
-    if show_percent_total:
+    if PLOTS_TO_GENERATE['percent_total']:
       axes['percent_total'][ht_name].set_ylabel('Percentage of Total Time')
       axes['percent_total'][ht_name].yaxis.set_major_formatter(FormatStrFormatter('%3.0f %%'))
       axes['percent_total'][ht_name].set_xlim([0.5, my_num_nodes + 0.5])
 
-    if show_factor:
+    if PLOTS_TO_GENERATE['flat_mpi_factor']:
       axes['flat_mpi_factor'][ht_name].set_ylabel('Ratio of Runtime to Flat MPI Time')
       axes['flat_mpi_factor'][ht_name].set_xlim([0.5, my_num_nodes + 0.5])
 
@@ -1621,14 +1702,14 @@ def plot_composite_weak(composite_group,
       axes['raw_data'][ht_name].set_title('{HT_LABEL}={HT_NUM:.0f}'.format(HT_LABEL=HYPER_THREAD_LABEL,
                                                                            HT_NUM=ht_name))
 
-      if show_percent_total:
+      if PLOTS_TO_GENERATE['percent_total']:
         axes['percent_total'][ht_name].set_xlabel("Number of Nodes")
         axes['percent_total'][ht_name].set_xticks(my_ticks)
         axes['percent_total'][ht_name].set_xticklabels(my_nodes, rotation=45)
         axes['percent_total'][ht_name].set_title('{HT_LABEL}={HT_NUM:.0f}'.format(HT_LABEL=HYPER_THREAD_LABEL,
                                                                                   HT_NUM=ht_name))
 
-      if show_factor:
+      if PLOTS_TO_GENERATE['flat_mpi_factor']:
         axes['flat_mpi_factor'][ht_name].set_xlabel("Number of Nodes")
         axes['flat_mpi_factor'][ht_name].set_xticks(my_ticks)
         axes['flat_mpi_factor'][ht_name].set_xticklabels(my_nodes, rotation=45)
@@ -1641,31 +1722,38 @@ def plot_composite_weak(composite_group,
                                                                                        HT_NUM=ht_name))
       axes['raw_data'][ht_name].set_xticks([])
 
-      if show_percent_total:
-        axes['percent_total'][ht_name].set_title('Percentage of Total Time\n({HT_LABEL}={HT_NUM:.0f})'.format(HT_LABEL=HYPER_THREAD_LABEL,
-                                                                                                              HT_NUM=ht_name))
+      if PLOTS_TO_GENERATE['percent_total']:
+        title = 'Percentage of Total Time\n({HT_LABEL}={HT_NUM:.0f})'.format(HT_LABEL=HYPER_THREAD_LABEL,
+                                                                             HT_NUM=ht_name)
+        axes['percent_total'][ht_name].set_title(title)
         axes['percent_total'][ht_name].set_xticks([])
 
-      if show_factor:
-        axes['flat_mpi_factor'][ht_name].set_title('Ratio of Runtime to Flat MPI Time\n({HT_LABEL}={HT_NUM:.0f})'.format(HT_LABEL=HYPER_THREAD_LABEL,
-                                                                                                                         HT_NUM=ht_name))
+      if PLOTS_TO_GENERATE['flat_mpi_factor']:
+        title = 'Ratio of Runtime to Flat MPI Time\n({HT_LABEL}={HT_NUM:.0f})'.format(HT_LABEL=HYPER_THREAD_LABEL,
+                                                                                      HT_NUM=ht_name)
+        axes['flat_mpi_factor'][ht_name].set_title(title)
         axes['flat_mpi_factor'][ht_name].set_xticks([])
 
     # otherwise, this is a middle plot, show a truncated title
     else:
-      axes['raw_data'][ht_name].set_title('{HT_LABEL}={HT_NUM:.0f}'.format(HT_LABEL=HYPER_THREAD_LABEL,
-                                                                           HT_NUM=ht_name))
+      title = '{HT_LABEL}={HT_NUM:.0f}'.format(HT_LABEL=HYPER_THREAD_LABEL,
+                                               HT_NUM=ht_name)
+      axes['raw_data'][ht_name].set_title(title)
       axes['raw_data'][ht_name].set_xticks([])
 
-      if show_percent_total:
-        axes['percent_total'][ht_name].set_title('{HT_LABEL}={HT_NUM:.0f}'.format(HT_LABEL=HYPER_THREAD_LABEL,
-                                                                                  HT_NUM=ht_name))
+      if PLOTS_TO_GENERATE['percent_total']:
+        title = '{HT_LABEL}={HT_NUM:.0f}'.format(HT_LABEL=HYPER_THREAD_LABEL,
+                                                 HT_NUM=ht_name)
+        axes['percent_total'][ht_name].set_title(title)
         axes['percent_total'][ht_name].set_xticks([])
 
-      if show_factor:
-        axes['flat_mpi_factor'][ht_name].set_title('{HT_LABEL}={HT_NUM:.0f}'.format(HT_LABEL=HYPER_THREAD_LABEL,
-                                                                                    HT_NUM=ht_name))
+      if PLOTS_TO_GENERATE['flat_mpi_factor']:
+        title = '{HT_LABEL}={HT_NUM:.0f}'.format(HT_LABEL=HYPER_THREAD_LABEL,
+                                                 HT_NUM=ht_name)
+        axes['flat_mpi_factor'][ht_name].set_title(title)
         axes['flat_mpi_factor'][ht_name].set_xticks([])
+
+  annotate_file_names(figures['independent'])
 
   # add a suptitle and configure the legend for each figure
   figures['composite'].suptitle(simple_title, fontsize=18)
@@ -1682,7 +1770,8 @@ def plot_composite_weak(composite_group,
 
   # add legends
   for column_name in figures['independent']:
-    if column_name not in ['raw_data', 'decomp_baseline']:
+    # Why?
+    if column_name not in ['raw_data', 'bl_perc_diff']:
       continue
     for fig_name, fig in figures['independent'][column_name].items():
       if PLOT_LEGEND:
@@ -1751,6 +1840,21 @@ def plot_composite_weak(composite_group,
                  close_figure=False)
 
   close_figures(figures)
+
+
+def annotate_file_names(figures):
+  if ANNOTATE_DATASET_FILENAMES:
+    for column_name in figures:
+      for fig_name, fig in figures[column_name].items():
+        fig.gca().annotate('Data: '+DATASET_FILE,
+                           xy=(0, 1), xycoords='axes fraction', fontsize=14,
+                           xytext=(0, 0), textcoords='offset points',
+                           ha='left', va='top')
+        if HAVE_BASELINE:
+          fig.gca().annotate('Baseline: '+BASELINE_DATASET_FILE,
+                             xy=(1, 1), xycoords='axes fraction', fontsize=14,
+                             xytext=(0, 0), textcoords='offset points',
+                             ha='right', va='top')
 
 
 ###########################################################################################
@@ -2558,7 +2662,8 @@ def load_dataset(dataset_filename,
                  min_num_nodes=1,
                  max_num_nodes=1000000,
                  min_procs_per_node=1,
-                 max_procs_per_node=1000000):
+                 max_procs_per_node=1000000,
+                 demangle_muelu=True):
   """
   Load a CSV datafile. This assumes the data was parsed from YAML using the parser in this directory
 
@@ -2579,6 +2684,10 @@ def load_dataset(dataset_filename,
   print('Reading {}'.format(dataset_filename))
   # write the total dataset out, index=False, because we do not drop it above
   dataset = pd.read_csv(dataset_filename, low_memory=False)
+
+  if demangle_muelu:
+    import TeuchosTimerUtils as TTU
+    dataset = TTU.demange_muelu_timer_names_df(dataset)
 
   print('Read csv complete')
 
@@ -2730,6 +2839,7 @@ def get_aggregate_groups(dataset, scaling_type,
   spmv_only_data = dataset[dataset['Timer Name'].str.match(timer_name_re_str)]
   if spmv_only_data.empty:
     spmv_only_data = dataset[dataset['Timer Name'].str.match('OPT::Apply')]
+    print('Using OPT::Apply Data')
 
   spmv_only_data.loc[:, 'Timer Name'] = timer_name_rename
 
@@ -2920,6 +3030,8 @@ def plot_dataset(dataset,
   if not os.path.exists(LATEX_CSV_PATH):
     os.makedirs(LATEX_CSV_PATH)
 
+  DO_AGGREGATE_SPMV=False
+
   # enforce all plots use the same num_nodes. i.e., the axes will be consistent
   my_nodes = np.array(list(map(int, dataset['num_nodes'].unique())))
   my_num_nodes = dataset['num_nodes'].nunique()
@@ -2937,36 +3049,35 @@ def plot_dataset(dataset,
   # optional numbered plots
   numbered_plots_idx = -1
 
-  spmv_agg_groups = get_aggregate_groups(dataset=dataset, scaling_type=scaling_type)
-  if HAVE_BASELINE:
-    baseline_spmv_agg_groups = get_aggregate_groups(dataset=BASELINE_DATASET_DF, scaling_type=scaling_type)
-    print('baseline', baseline_spmv_agg_groups)
-
-  # plot the aggregate spmv data, e.g., all data regardless of experiment so long as the problem size is the
-  for spmv_agg_name, spmv_agg_group in spmv_agg_groups:
-    # increment this counter first, because it starts at the sentinel value of -1, which means no numbers
-    if number_plots:
-      numbered_plots_idx += 1
-
+  if DO_AGGREGATE_SPMV:
+    spmv_agg_groups = get_aggregate_groups(dataset=dataset, scaling_type=scaling_type)
     if HAVE_BASELINE:
-      plot_composite(composite_group=spmv_agg_group,
-                     baseline_group=baseline_spmv_agg_groups.get_group(spmv_agg_name),
-                     my_nodes=my_nodes,
-                     my_ticks=my_ticks,
-                     scaling_study_type=scaling_type,
-                     numbered_plots_idx=numbered_plots_idx,
-                     driver_df=driver_dataset,
-                     show_percent_total=False)
-    else:
-      plot_composite(composite_group=spmv_agg_group,
-                     my_nodes=my_nodes,
-                     my_ticks=my_ticks,
-                     scaling_study_type=scaling_type,
-                     numbered_plots_idx=numbered_plots_idx,
-                     driver_df=driver_dataset,
-                     show_percent_total=False)
+      baseline_spmv_agg_groups = get_aggregate_groups(dataset=BASELINE_DATASET_DF, scaling_type=scaling_type)
+      print('baseline', baseline_spmv_agg_groups)
 
-    exit(0)
+    # plot the aggregate spmv data, e.g., all data regardless of experiment so long as the problem size is the
+    for spmv_agg_name, spmv_agg_group in spmv_agg_groups:
+      # increment this counter first, because it starts at the sentinel value of -1, which means no numbers
+      if number_plots:
+        numbered_plots_idx += 1
+
+      if HAVE_BASELINE:
+        plot_composite(composite_group=spmv_agg_group,
+                       baseline_group=baseline_spmv_agg_groups.get_group(spmv_agg_name),
+                       my_nodes=my_nodes,
+                       my_ticks=my_ticks,
+                       scaling_study_type=scaling_type,
+                       numbered_plots_idx=numbered_plots_idx,
+                       driver_df=driver_dataset,
+                       show_percent_total=False)
+      else:
+        plot_composite(composite_group=spmv_agg_group,
+                       my_nodes=my_nodes,
+                       my_ticks=my_ticks,
+                       scaling_study_type=scaling_type,
+                       numbered_plots_idx=numbered_plots_idx,
+                       driver_df=driver_dataset,
+                       show_percent_total=False)
 
   # restrict the dataset if requested
   if restriction_tokens:
@@ -3045,7 +3156,6 @@ def plot_dataset(dataset,
                      numbered_plots_idx=numbered_plots_idx,
                      show_percent_total=False)
 
-
       # plot_composite(composite_group=composite_group,
       #                my_nodes=my_nodes,
       #                my_ticks=my_ticks,
@@ -3065,12 +3175,31 @@ def plot_dataset(dataset,
       if number_plots:
         numbered_plots_idx += 1
 
+      if HAVE_BASELINE:
+        try:
+          print('querying bl groups for: ', composite_group_name)
+          bl_group = bl_composite_groups.get_group(composite_group_name)
+        except:
+          print('Failed to lookup label in bl group')
+          print('BL labels:')
+          print(bl_composite_groups.groups())
+          bl_group = None
+
       plot_composite(composite_group=composite_group,
+                     baseline_group=bl_group,
                      my_nodes=my_nodes,
                      my_ticks=my_ticks,
                      scaling_study_type=scaling_type,
                      driver_df=driver_composite_groups.get_group(tuple(driver_constructor_name)),
-                     numbered_plots_idx=numbered_plots_idx)
+                     numbered_plots_idx=numbered_plots_idx,
+                     show_percent_total=False)
+
+      # plot_composite(composite_group=composite_group,
+      #                my_nodes=my_nodes,
+      #                my_ticks=my_ticks,
+      #                scaling_study_type=scaling_type,
+      #                driver_df=driver_composite_groups.get_group(tuple(driver_constructor_name)),
+      #                numbered_plots_idx=numbered_plots_idx)
 
 
 ###############################################################################
@@ -3089,7 +3218,7 @@ def main():
   min_procs_per_node     = _arg_options['--min_procs_per_node']
   scaling_study_type      = _arg_options['--scaling']
   baseline_df_file = None
-
+  plots_to_generate = _arg_options['--plot']
 
   global FORCE_REPLOT
   FORCE_REPLOT = _arg_options['--force_replot']
@@ -3098,6 +3227,19 @@ def main():
   print(_arg_options)
   SHADE_BASELINE_COMPARISON = not _arg_options['--no_baseline_comparison_shading']
   print('SHADING:', SHADE_BASELINE_COMPARISON)
+
+  if ',' in plots_to_generate:
+    plots_to_generate = set(plots_to_generate.split(','))
+  else:
+    plots_to_generate = set([plots_to_generate])
+
+  valid_plot_names = set(PLOTS_TO_GENERATE.keys()).intersection(plots_to_generate)
+  for plot_name in valid_plot_names:
+    PLOTS_TO_GENERATE[plot_name] = True
+
+  if _arg_options['--expected_baseline_speedup']:
+    global EXPECTED_BASELINE_SPEEDUP
+    EXPECTED_BASELINE_SPEEDUP = float(_arg_options['--expected_baseline_speedup'])
 
   if _arg_options['--min_only']:
     global PLOT_MAX
@@ -3132,13 +3274,19 @@ def main():
     global YMIN_OVERRIDE
     global DO_YMIN_OVERRIDE
     DO_YMIN_OVERRIDE=True
-    YMIN_OVERRIDE = float(_arg_options['--ymin'])
+    try:
+      YMIN_OVERRIDE['raw_data'] = float(_arg_options['--ymin'])
+    except ValueError:
+      YMIN_OVERRIDE =dict(item.split('=') for item in _arg_options['--ymin'].split(','))
 
   if _arg_options['--ymax'] != -1.0:
     global YMAX_OVERRIDE
     global DO_YMAX_OVERRIDE
     DO_YMAX_OVERRIDE=True
-    YMAX_OVERRIDE = float(_arg_options['--ymax'])
+    try:
+      YMAX_OVERRIDE['raw_data'] = float(_arg_options['--ymax'])
+    except ValueError:
+      YMAX_OVERRIDE = dict(item.split('=') for item in _arg_options['--ymax'].split(','))
 
   if _arg_options['--normalize_y']:
     global DO_NORMALIZE_Y
@@ -3149,9 +3297,11 @@ def main():
 
     if baseline_df_file != dataset_filename:
       global HAVE_BASELINE
+      global BASELINE_DATASET_FILE
       HAVE_BASELINE=True
 
       print('Have baseline data: ', baseline_df_file)
+      BASELINE_DATASET_FILE = os.path.basename(baseline_df_file)
 
   if _arg_options['--baseline_linestyle']:
     global BASELINE_LINESTYLE
@@ -3161,11 +3311,17 @@ def main():
     global PLOT_LEGEND
     PLOT_LEGEND=True
 
+  if _arg_options['--annotate_filenames']:
+    global ANNOTATE_DATASET_FILENAMES
+    ANNOTATE_DATASET_FILENAMES=True
+
   print('study: {study}\nscaling_type: {scaling}\ndataset: {data}'.format(study=study_type,
                                                                           scaling=scaling_study_type,
                                                                           data=dataset_filename))
   print('Max Nodes: {max}\tMin Nodes: {min}'.format(max=max_num_nodes, min=min_num_nodes))
   print('Max PPN: {max}\tMin PPN: {min}'.format(max=max_procs_per_node, min=min_procs_per_node))
+  global DATASET_FILE
+  DATASET_FILE = os.path.basename(dataset_filename)
 
   if scaling_study_type == 'weak':
     dataset, driver_dataset = load_dataset(dataset_filename=dataset_filename,
@@ -3217,6 +3373,8 @@ def main():
     restriction_tokens = {'solver_name': 'LinearAlgebra',
                           'solver_attributes': '-Tpetra',
                           'prec_name': 'None'}
+    dataset = correct_linearAlg_timer_labels(dataset)
+    BASELINE_DATASET_DF = correct_linearAlg_timer_labels(BASELINE_DATASET_DF)
 
   elif study_type == 'muelu_prec':
     total_time_key = '5 - Solve'
@@ -3248,10 +3406,24 @@ def do_tpetra_analysis(dataset):
   unique_timers = restricted_data['Timer Name'].unique()
 
 
+def correct_linearAlg_timer_labels(dataset):
+  # if MVT::MVScale1 and MVT::MVInit0 everything is fine
+  # if you have MVT::MVScale and MVT::MVInit (unannotated) then relabel them
+  # MVT::MVScale => MVT::MVScale1::1
+  timer_labels = dataset['Timer Name'].unique()
+  if ('MVT::MVScale' in timer_labels) and ('MVT::MVScale1:1' not in timer_labels):
+    dataset[ dataset['Timer name'] == 'MVT::MVScale', 'Timer name'] = 'MVT::MVScale1::1'
+
+  return dataset
+
+
 def getMueLuLevelTimers(dataset):
   import re
+
+  restricted_data = dataset[dataset['Timer Name'].str.contains('ierarchy')]
+
   # gather all timer labels
-  timer_names = dataset['Timer Name'].sort_values().unique().tolist()
+  timer_names = restricted_data['Timer Name'].sort_values().unique().tolist()
 
   # examples:
   # MueLu: AmalgamationFactory: Build (level=[0-9]*)
@@ -3302,15 +3474,15 @@ def getMueLuLevelTimers(dataset):
     r'(?P<label_prefix>MueLu: RepartitionHeuristicFactory: Build)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
     r'(?P<label_prefix>MueLu: RebalanceTransferFactory: Build)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
     r'(?P<label_prefix>MueLu: RebalanceAcFactory: Computing Ac)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
-    r'(?P<label_prefix>MueLu: RebalanceAcFactory: Rebalancing existing Ac \(sub, total,)\s*level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
-    # Do not contain the text total
-    r'(?P<label_prefix>TpetraExt MueLu::SaP)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>Jacobi All I&X)',
-    r'(?P<label_prefix>TpetraExt MueLu::SaP)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>Jacobi All Multiply)',
-    r'(?P<label_prefix>TpetraExt MueLu::A\*P)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All I&X)',
-    r'(?P<label_prefix>TpetraExt MueLu::A\*P)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All Multiply)',
-    r'(?P<label_prefix>TpetraExt MueLu::R\*\(AP\)-implicit)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All I&X)',
-    r'(?P<label_prefix>TpetraExt MueLu::R\*\(AP\)-implicit)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All Multiply)'
+    r'(?P<label_prefix>MueLu: RebalanceAcFactory: Rebalancing existing Ac \(sub, total,)\s*level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)'
   ]
+    # # Do not contain the text total
+    # r'(?P<label_prefix>TpetraExt MueLu::SaP)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>Jacobi All I&X)',
+    # r'(?P<label_prefix>TpetraExt MueLu::SaP)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>Jacobi All Multiply)',
+    # r'(?P<label_prefix>TpetraExt MueLu::A\*P)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All I&X)',
+    # r'(?P<label_prefix>TpetraExt MueLu::A\*P)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All Multiply)',
+    # r'(?P<label_prefix>TpetraExt MueLu::R\*\(AP\)-implicit)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All I&X)',
+    # r'(?P<label_prefix>TpetraExt MueLu::R\*\(AP\)-implicit)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All Multiply)'
 
   level_timers_re = []
   for re_str in level_timers:
@@ -3346,9 +3518,10 @@ def getMueLuLevelTimers(dataset):
         level_timer_map['all'].append(timer_name)
 
   # level timers:
-  level_timer_names = []
+  # always return the total labels first
+  level_timer_names = level_timer_map['total']
   for level_id in level_timer_map:
-    if level_id == 'all':
+    if level_id == 'all' or level_id == 'total':
       continue
     print(level_id)
     level_timer_names += level_timer_map[level_id]
@@ -3653,8 +3826,6 @@ def nested_timer_analysis(dataset,
   #   annotated_df = pd.concat([annotated_df, plottable_df])
 
   exit(0)
-
-
 
   for re_str in analysis_timers:
     timer_re = re.compile(re_str)
