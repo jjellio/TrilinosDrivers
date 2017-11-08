@@ -185,8 +185,7 @@ echo -e "cmake ${CMAKE_MAIN}"
 
 time \
 cmake \
--G "Ninja" \
--DCMAKE_MAKE_PROGRAM="${HOME}/src/ninja/ninja" \
+-G "Unix Makefiles" \
 \
 -D Trilinos_LINK_SEARCH_START_STATIC:BOOL=ON \
 -D MPI_USE_COMPILER_WRAPPERS=OFF \

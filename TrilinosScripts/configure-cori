@@ -1,10 +1,20 @@
 #!/bin/bash
 
-if [[ -L "$0" ]]; then
-  SCRIPT_DIR=$(dirname $(readlink $0));
+#!/bin/bash
+called=$_
+if [ "$called" != "$0" ]; then
+  echo "Script is being sourced, $called, $0"
+  SCRIPT_DIR=$(dirname ${called});
 else
-  SCRIPT_DIR=$(dirname $0);
+  echo "ERROR: Do not run this script, source it! Bash: source /path/to/script, or . /path/to/script"
+  exit;
 fi
+
+#if [[ -L "$0" ]]; then
+#  SCRIPT_DIR=$(dirname $(readlink $0));
+#else
+#  SCRIPT_DIR=$(dirname $0);
+#fi
 
 echo $SCRIPT_DIR
 source ${SCRIPT_DIR}/cmd_parser.sh
@@ -21,12 +31,18 @@ EXTRA_INSTALL_STRING=${ARG_buildID}
 ENABLE_MUELU_="true"
 BUILD_LABEL="${ARCH_NAME_}-${EXE_SPACE_}"
 
+module -s rm PrgEnv-cray PrgEnv-gnu PrgEnv-pgi
+module -s load PrgEnv-intel
+
 if [ "$ARCH_NAME_" == "hsw" ]; then
-  module -s swap craype-mic-knl craype-haswell
+  module -s rm craype-mic-knl craype-haswell
+  module -s load craype-haswell
 elif [ "$ARCH_NAME_" == "knl" ]; then
-  module -s swap craype-haswell craype-mic-knl
+  module -s rm craype-haswell craype-mic-knl
+  module -s load craype-mic-knl
 elif [ "$ARCH_NAME_" == "hsw-knl" ]; then
-  module -s swap craype-haswell craype-mic-knl
+  module -s rm craype-haswell craype-mic-knl
+  module -s load craype-mic-knl
 fi
 
 
@@ -36,9 +52,15 @@ fi
 
 if [ "${ENABLE_HUGEPAGES_}" != "none" ]; then
   BUILD_LABEL="${BUILD_LABEL}_hp-${ENABLE_HUGEPAGES_}"
+  module -s rm craype-hugepages512M craype-hugepages256M craype-hugepages128M craype-hugepages64M craype-hugepages32M craype-hugepages16M craype-hugepages8M craype-hugepages2M craype-hugepages4M
   module load craype-hugepages${ENABLE_HUGEPAGES_}M
   echo "module load craype-hugepages${ENABLE_HUGEPAGES_}M"
 fi
+
+
+echo "Loaded modules: "
+source ${SCRIPT_DIR}/tpls.env
+module list
 
 # This script expects testbed (not SEMS!) modules to be loaded already.
 TRILINOS_INSTALL_PREFIX=${PROJECT_DIR}/install
@@ -79,11 +101,11 @@ elif [ "${EXE_SPACE_}" == "serial" ]; then
 fi
 
 if [ "${BLAS_CONCURRENCY_}" == "threaded" ]; then
-  export BLAS_DIRS="${MKLROOT}/lib/intel64;${MKLROOT}/../compiler/lib/intel64/"
+  export BLAS_DIRS="${MKLROOT}/lib/intel64;${MKLROOT}/../compiler/lib/intel64_lin/;${INTEL_PATH}/linux/lib/intel64_lin/"
   export BLAS_LIBRARIES="mkl_intel_lp64;mkl_intel_thread;mkl_core;iomp5;m;dl"
   export EXTRA_FLAGS="-mkl=parallel"
 elif [ "${BLAS_CONCURRENCY_}" == "sequential" ]; then
-  export BLAS_DIRS="${MKLROOT}/lib/intel64;${MKLROOT}/../compiler/lib/intel64/"
+  export BLAS_DIRS="${MKLROOT}/lib/intel64;${MKLROOT}/../compiler/lib/intel64_lin/;${INTEL_PATH}/linux/lib/intel64_lin/"
   export BLAS_LIBRARIES="mkl_intel_lp64;mkl_sequential;mkl_core;m;dl"
   export EXTRA_FLAGS="-mkl=sequential"
 fi
@@ -157,11 +179,7 @@ export JENKINS_ARCH_C_FLAG=${ARCH_C_FLAG}
 export JENKINS_DO_TESTS=${TESTS}
 export JENKINS_DO_EXAMPLES=${EXAMPLES}
 
-echo "Loaded modules: "
-module -s rm cmake
-module -s load cmake/3.8.2
-source ${HOME}/src/Scripts/tpls.env
-module list
+
 echo "Final set of loaded modules: "
 module list
 echo "Writing build.modules to current directory"
