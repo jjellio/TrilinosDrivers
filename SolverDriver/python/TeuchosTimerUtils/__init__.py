@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import numpy as np
 import yaml
-from copy import deepcopy
+import copy as cp
 
 try:
   import ScalingFilenameParser as SFP
@@ -18,10 +18,12 @@ except ImportError:
   pass
 
 
-def demange_muelu_timer_names_df(df):
+def demange_muelu_timer_names_df(df,
+                                 set_index=True):
   df['Timer Name'].replace(to_replace=r'N\d+MueLu\d+', value='', inplace=True, regex=True)
   df['Timer Name'].replace(to_replace=r'I[d]*ixN\d+Kokkos\d+Compat\d+KokkosDeviceWrapperNodeINS\d+_\d+(OpenMPENS|SerialENS)\d+_\d+HostSpace[E]+', value='', inplace=True, regex=True)
-  df.index = df['Timer Name'].tolist()
+  if set_index:
+    df.index = df['Timer Name'].tolist()
 
   return df
 
@@ -74,7 +76,7 @@ def remove_timer_string(yaml_data,
     return
 
   # we modify the yaml_data, so make a copy
-  prior_timers = deepcopy(yaml_data['Timer names'])
+  prior_timers = cp.deepcopy(yaml_data['Timer names'])
 
   for idx, timer_name in enumerate(prior_timers):
     # remove the string from the timer label, then adjust the dict
@@ -90,10 +92,12 @@ def remove_timer_string(yaml_data,
                                    timer_index=idx)
 
 
-def construct_dataframe(yaml_data):
+# optionally take extra columns, this is helpful when parsing data into a large CSV
+def construct_dataframe(yaml_data, extra_columns=[]):
   """Construst a pandas DataFrame from the timers section of the provided YAML data"""
   timers = yaml_data['Timer names']
-  data = np.ndarray([len(timers), 8])
+
+  data = np.ndarray([len(timers), 8+len(extra_columns)])
 
   ind = 0
   for timer in timers:
@@ -107,15 +111,40 @@ def construct_dataframe(yaml_data):
     ]
     ind = ind + 1
 
-  df = pd.DataFrame(data,
-                    index=timers,
-                    columns=['minT', 'minC', 'meanT', 'meanC', 'maxT', 'maxC', 'meanCT', 'meanCC'])
-
+  df = pd.DataFrame(data, index=timers,
+                      columns=['minT', 'minC', 'meanT', 'meanC', 'maxT', 'maxC', 'meanCT', 'meanCC']+extra_columns)
   df['Timer Name'] = df.index
   return df
 
+
+# def construct_dataframe(yaml_data):
+#   """Construst a pandas DataFrame from the timers section of the provided YAML data"""
+#   timers = yaml_data['Timer names']
+#   data = np.ndarray([len(timers), 8])
+#
+#   ind = 0
+#   for timer in timers:
+#     t = yaml_data['Total times'][timer]
+#     c = yaml_data['Call counts'][timer]
+#     data[ind, 0:8] = [
+#       t['MinOverProcs'], c['MinOverProcs'],
+#       t['MeanOverProcs'], c['MeanOverProcs'],
+#       t['MaxOverProcs'], c['MaxOverProcs'],
+#       t['MeanOverCallCounts'], c['MeanOverCallCounts']
+#     ]
+#     ind = ind + 1
+#
+#   df = pd.DataFrame(data,
+#                     index=timers,
+#                     columns=['minT', 'minC', 'meanT', 'meanC', 'maxT', 'maxC', 'meanCT', 'meanCC'])
+#
+#   df['Timer Name'] = df.index
+#   return df
+
+
 '''
-  The following two functions shouldn't be here.
+  The following function shouldn't be here.
+  Reading is standard, but writing is non-standard, as we carry metadata
 '''
 def load_yaml(filename):
   with open(filename) as data_file:
@@ -130,14 +159,20 @@ def write_yaml(yaml_data,
                useFileParserFieldIfPresent=True,
                verbose=1):
 
+  # delete the raw text blob if it exists, we make a copy
+  # since dicts and lists are mutable (and passed by reference)
   local_yaml = yaml_data
   if local_yaml['raw_text']:
     local_yaml = deepcopy(yaml_data)
     del local_yaml['raw_text']
 
+  # check if we parsed any special filename for this data
+  # this only works with the experiment stuff from jjellio
   if useFileParserFieldIfPresent and yaml_data['experiment_file'] != '':
     filename = yaml_data['experiment_file']
 
+  # dump the data to yaml, this seems fragile and the formatting is not consistent
+  # with that produced by teuchos timers
   with open(filename, 'x') as yaml_file:
     yaml.dump(local_yaml,
               yaml_file,
@@ -270,7 +305,6 @@ def gather_timer_name_sets_from_logfile(logfile):
   process_banner_re = re.compile(r'^\s*TimeMonitor results over\s+(?P<num_procs>\d+)\s+processor[s]?\s*$')
   blank_line_re = re.compile(r'^\s*$')
   timer_line_separator_re = re.compile(r'^[-]+$')
-
 
   float_re_str = r'[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?'
   # timing_and_callcount_re_str = r'(\s+{float}\s+\({float}\))'.format(float=float_re_str)

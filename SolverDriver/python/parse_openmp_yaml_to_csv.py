@@ -2,7 +2,7 @@
 """analysis.py
 
 Usage:
-  analysis.py -i INPUT... [-o OUTPUT] [-a MODE] [-d DISPLAY] [-s STYLE] [-t TOP]
+  analysis.py --input-files=FILES [--output-csv=FILE] [--affinity-dir=PATH]
   analysis.py (-h | --help)
 
 Options:
@@ -20,6 +20,7 @@ import yaml
 from pathlib import Path
 import re
 import ScalingFilenameParser as SFP
+import TeuchosTimerUtils as TTU
 
 # this is used to preallocate the dataframe. It does not need to be perfect, simply large enough
 MAX_NUM_TIMERS = 1024
@@ -85,30 +86,6 @@ def parse_affinity_data(affinity_path, tokens):
   tokens['timestamp'] = timestamp
 
 
-# this file can be refactored into a single parse YAML to CSV.
-# it is a quick hack
-def construct_dataframe(yaml_data, extra_columns):
-  """Construst a pandas DataFrame from the timers section of the provided YAML data"""
-  timers = yaml_data['Timer names']
-  data = np.ndarray([len(timers), 8+len(extra_columns)])
-
-  ind = 0
-  for timer in timers:
-    t = yaml_data['Total times'][timer]
-    c = yaml_data['Call counts'][timer]
-    data[ind, 0:8] = [
-      t['MinOverProcs'], c['MinOverProcs'],
-      t['MeanOverProcs'], c['MeanOverProcs'],
-      t['MaxOverProcs'], c['MaxOverProcs'],
-      t['MeanOverCallCounts'], c['MeanOverCallCounts']
-    ]
-    ind = ind + 1
-
-  df = pd.DataFrame(data, index=timers,
-                      columns=['minT', 'minC', 'meanT', 'meanC', 'maxT', 'maxC', 'meanCT', 'meanCC']+extra_columns)
-  df['Timer Name'] = df.index
-  return df
-
 def string_split_by_numbers(x):
   r = re.compile('(\d+)')
   l = r.split(x)
@@ -130,13 +107,12 @@ if __name__ == '__main__':
 
   SCALING_TYPE = 'weak'
 
-  if len(input_files) == 1:
-    input_files = glob.glob(input_files[0])
-    # Impose sorted order (similar to bash "sort -n"
-    input_files = sorted(input_files, key=string_split_by_numbers)
+  if isinstance(input_files, str) and '*' in input_files:
+    print('Globbing')
+    input_files = glob.glob(input_files)
+  else:
+    input_files = [input_files]
 
-  #df_cols = ['Experiment', 'Problem', 'Timer Name', 'num_nodes', 'procs_per_node', 'cores_per_proc', 'threads_per_core',
-  #           'Num Threads', 'Max Aggregate Time']
   dataset = pd.DataFrame()
   df_idx = -1
   future_index = SFP.getIndexColumns(execspace_name='OpenMP')
@@ -158,17 +134,12 @@ if __name__ == '__main__':
 
     print(my_tokens)
 
-    #experiment_id = "{solver_name}{solver_attributes}_{prec_name}{prec_attributes}".format(**my_tokens)
-
     # parse the YAML timers
-    timer_data = construct_dataframe(yaml_data, list(my_tokens.keys()))
+    timer_data = TTU.construct_dataframe(yaml_data, list(my_tokens.keys()))
 
     # add the experiment's other data (cores, threads, timestamp, etc..)
     for key, value in my_tokens.items():
       timer_data[key] = my_tokens[key]
-
-    # timer_data['Max Aggregate Time'] = timer_data['maxT'] / timer_data['maxC']
-    # timer_data['Experiment'] = experiment_id
 
     # pre allocate the dataframe, this could fail. Currently, we allocate the number of timers, in the first file
     # read, times 4, and then assume that will be true for all files read.
@@ -178,25 +149,20 @@ if __name__ == '__main__':
       num_timers = timer_data['Timer Name'].nunique()
       num_files  = len(input_files)
 
-      # dtypes = SFP.getColumnsDTypes(execspace_name='OpenMP')
-      # print(dtypes)
-
       dataset = pd.DataFrame(columns=list(timer_data), index=np.arange(MAX_NUM_TIMERS*num_files*4))
 
-    #timer_data = timer_data.reindex_like(dataset)
-
-    #dataset = pd.concat([dataset, timer_data])
     for index, row in timer_data.iterrows():
       df_idx += 1
       dataset.loc[df_idx] = row[:]
 
   # drop over allocated data
   dataset = dataset[pd.notnull(dataset['Timer Name'])]
-  # set the index, verify it, and sort
-  dataset.set_index(keys=SFP.getIndexColumns(execspace_name='OpenMP'),
-                    drop=False, inplace=True, verify_integrity=True)
 
-  dataset.sort_index(inplace=True)
+  # set the index, verify it, and sort
+  dataset = dataset.set_index(keys=SFP.getIndexColumns(execspace_name='OpenMP'),
+                              drop=False, verify_integrity=True)
+
+  dataset = dataset.sort_index()
 
   # write the total dataset out, index=False, because we do not drop it above
   dataset.to_csv(output_csv, index=False)
