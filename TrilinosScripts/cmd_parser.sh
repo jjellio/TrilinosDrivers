@@ -34,7 +34,7 @@ while true ; do
             echo "      --hugepages="`echo ${ARG_hugepages_valid} | tr -d '(@)'`", build with hugepage support";
             echo "      --prec , enable -fp-model precise";
             echo "      --buildID=<string>, string (no whitespace) that will be added to build install path."
-            exit 0 ;;
+            return 1 ;;
         -a|--arch)
             case "$2" in
                 ${ARG_arch_valid})
@@ -43,7 +43,7 @@ while true ; do
                 *) 
                    echo "$1 $2";
                    echo "Invalid arch requested: $2, valid options are ${ARG_arch_valid}";
-                   exit 1 ;;
+                   return 1 ;;
             esac ;;
         -e|--execSpace)
             case "$2" in
@@ -53,7 +53,7 @@ while true ; do
                 *) 
                    echo "$1 $2";
                    echo "Invalid execSpace requested: $2, valid options are ${ARG_execSpace_valid}";
-                   exit 1 ;;
+                   return 1 ;;
             esac ;;
         -p|--prec) 
             ARG_prec=true;
@@ -66,7 +66,7 @@ while true ; do
                 *) 
                    echo "$1 $2";
                    echo "Invalid hugepages requested: $2, valid options are ${ARG_hugepages_valid}";
-                   exit 1 ;;
+                   return 1 ;;
             esac ;;
         -i|--buildID)
             ARG_buildID="${2}"
@@ -79,16 +79,17 @@ while true ; do
                 *) 
                    echo "$1 $2";
                    echo "Invalid blasThreaded requested: $2, valid options are ${ARG_blasThreaded_valid}";
-                   exit 1 ;;
+                   return 1 ;;
             esac ;;
         --) shift ; break ;;
         *) 
         echo "$1 $2";
-        echo "Internal error!" ; exit 1 ;;
+        echo "Internal error!" ; return 1 ;;
     esac
 done
 
 shopt -u extglob
+ARG_EXIT=0;
 }
 
 input_args=("$@") 
@@ -99,11 +100,12 @@ ARG_prec="false"
 ARG_hugepages=none
 ARG_blasThreaded=openmp
 ARG_buildID=""
+ARG_EXIT=-1
 
 ARG_arch_valid='@(hsw|knl|hsw-knl|none)'
 ARG_execSpace_valid='@(serial|openmp)'
 ARG_hugepages_valid='@(2|4|8|16|32|64|128|256|512)'
 ARG_blasThreaded_valid='@(threaded|sequential)'
 
-parse_cmd "${input_args[@]}";
-
+parse_cmd "${input_args[@]}"
+echo "${rc}"

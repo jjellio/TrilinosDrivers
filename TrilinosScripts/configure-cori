@@ -1,13 +1,14 @@
 #!/bin/bash
 
-#!/bin/bash
-called=$_
+called="${BASH_SOURCE[0]}"
+echo $called
+
 if [ "$called" != "$0" ]; then
   echo "Script is being sourced, $called, $0"
-  SCRIPT_DIR=$(dirname ${called});
+  SCRIPT_DIR=`dirname "${called}"`;
 else
   echo "ERROR: Do not run this script, source it! Bash: source /path/to/script, or . /path/to/script"
-  exit;
+  return;
 fi
 
 #if [[ -L "$0" ]]; then
@@ -18,6 +19,10 @@ fi
 
 echo $SCRIPT_DIR
 source ${SCRIPT_DIR}/cmd_parser.sh
+
+if [ "$ARG_EXIT" != "0" ]; then
+  return;
+fi
 
 print_vars;
 
@@ -65,7 +70,7 @@ module list
 # This script expects testbed (not SEMS!) modules to be loaded already.
 TRILINOS_INSTALL_PREFIX=${PROJECT_DIR}/install
 #Set path to Trilinos:
-TRILINOS_PATH=${HOME}/src/Trilinos
+TRILINOS_PATH=${HOME}/src/Trilinos-jjellio
 TRILINOS_VERSION=`grep "Trilinos_VERSION " ${TRILINOS_PATH}/Version.cmake | cut -f2 -d' ' | tr -d ')'`
 COMPILER_NAME=intel
 COMPILER_VERSION=${INTEL_VERSION}
