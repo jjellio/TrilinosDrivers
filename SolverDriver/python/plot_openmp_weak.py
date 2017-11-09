@@ -20,6 +20,7 @@ Usage:
             [--normalize_y]
             [--annotate_filenames]
             [--plot=FIGURES]
+            [--plot_titles]
             [--expected_baseline_speedup=NUM]
 
   plotter.py (-h | --help)
@@ -45,6 +46,7 @@ Options:
   --normalize_y            Normalize the y axis between [0,1] [default: False]
   --annotate_filenames     Add data filenames to figures [default: False]
   --plot=FIGURE[,FIGURE]   Plot specific figures [default: raw_data]
+  --plot_titles            Plot titles [default: False]
   --expected_baseline_speedup=NUM : draw a line on bl_speedup at this y intercept [default : 0.0]
 
 Arguments:
@@ -124,6 +126,7 @@ SMOOTH_OUTLIERS     = False
 HT_CONSISTENT_YAXES = True
 ANNOTATE_BEST       = False
 PLOT_LEGEND         = False
+PLOT_TITLES         = False
 
 DO_YMIN_OVERRIDE = False
 DO_YMAX_OVERRIDE = False
@@ -1261,6 +1264,8 @@ def plot_composite_weak(composite_group,
                                         prec_name=show_prec_name,
                                         prec_attributes=show_prec_attributes)
   simple_title = SFP.getScalingTitle(my_tokens, weak=True, composite=True)
+  print(my_tokens)
+  max_num_nodes = int(my_tokens['max_num_nodes'])
 
   # if numbered, then prepend the number to the filename
   # and increment the count.
@@ -1611,6 +1616,11 @@ def plot_composite_weak(composite_group,
                         color=DECOMP_COLORS[decomp_label])
 
   # configure the axes for the plotted data
+  standard_title = '{}\n{bolding_pre}({HT_LABEL}={HT_NUM:.0f}){bolding_post}'.format(simple_title,
+                                                                                     HT_LABEL=HYPER_THREAD_LABEL,
+                                                                                     HT_NUM=ht_name,
+                                                                                     bolding_pre=r'$\bf{',
+                                                                                     bolding_post=r'}$')
   for row_idx in range(0, len(ht_names)):
     ht_name = ht_names[row_idx]
     # for independent plots (e.g., the subplot plotted separately) we show all axes labels
@@ -1620,15 +1630,9 @@ def plot_composite_weak(composite_group,
     figures['independent']['raw_data'][ht_name].gca().set_xticks(my_ticks)
     figures['independent']['raw_data'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
     figures['independent']['raw_data'][ht_name].gca().set_xlim([0.5, my_num_nodes + 0.5])
-    if SPMV_FIG:
-      figures['independent']['raw_data'][ht_name].gca().set_title('')
-    else:
-      figures['independent']['raw_data'][ht_name].gca().set_title(
-        '{}\n{bolding_pre}({HT_LABEL}={HT_NUM:.0f}){bolding_post}'.format(simple_title,
-                                                                          HT_LABEL=HYPER_THREAD_LABEL,
-                                                                          HT_NUM=ht_name,
-                                                                          bolding_pre=r'$\bf{',
-                                                                          bolding_post=r'}$'))
+    if PLOT_TITLES:
+      figures['independent']['raw_data'][ht_name].gca().set_title(standard_title)
+
     # adjust the font size for all plots
     for plot_name in figures['independent'].keys():
       tmp_ax = figures['independent'][plot_name][ht_name].gca()
@@ -1644,10 +1648,8 @@ def plot_composite_weak(composite_group,
       figures['independent']['bl_perc_diff'][ht_name].gca().set_xticks(my_ticks)
       figures['independent']['bl_perc_diff'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
       figures['independent']['bl_perc_diff'][ht_name].gca().set_xlim([0.5, my_num_nodes + 0.5])
-      figures['independent']['bl_perc_diff'][ht_name].gca().set_title(
-        '{}\n({HT_LABEL}={HT_NUM:.0f})'.format(simple_title,
-                                               HT_LABEL=HYPER_THREAD_LABEL,
-                                               HT_NUM=ht_name))
+      if PLOT_TITLES:
+        figures['independent']['bl_perc_diff'][ht_name].gca().set_title(standard_title)
 
     if have_decomp_baseline and PLOTS_TO_GENERATE['bl_speedup']:
       figures['independent']['bl_speedup'][ht_name].gca().set_ylabel('Speedup')
@@ -1655,10 +1657,9 @@ def plot_composite_weak(composite_group,
       figures['independent']['bl_speedup'][ht_name].gca().set_xticks(my_ticks)
       figures['independent']['bl_speedup'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
       figures['independent']['bl_speedup'][ht_name].gca().set_xlim([0.5, my_num_nodes + 0.5])
-      figures['independent']['bl_speedup'][ht_name].gca().set_title(
-        '{}\n({HT_LABEL}={HT_NUM:.0f})'.format(simple_title,
-                                               HT_LABEL=HYPER_THREAD_LABEL,
-                                               HT_NUM=ht_name))
+      if PLOT_TITLES:
+        figures['independent']['bl_speedup'][ht_name].gca().set_title(standard_title)
+
     ## percentages
     if PLOTS_TO_GENERATE['percent_total']:
       figures['independent']['percent_total'][ht_name].gca().set_ylabel('Percentage of Total Time')
@@ -1666,9 +1667,9 @@ def plot_composite_weak(composite_group,
       figures['independent']['percent_total'][ht_name].gca().set_xticks(my_ticks)
       figures['independent']['percent_total'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
       figures['independent']['percent_total'][ht_name].gca().set_xlim([0.5, my_num_nodes + 0.5])
-      figures['independent']['percent_total'][ht_name].gca().set_title('{}\n({HT_LABEL}={HT_NUM:.0f})'.format(simple_title,
-                                                                                                              HT_LABEL=HYPER_THREAD_LABEL,
-                                                                                                              HT_NUM=ht_name))
+      if PLOT_TITLES:
+        figures['independent']['percent_total'][ht_name].gca().set_title(standard_title)
+
       figures['independent']['percent_total'][ht_name].gca().yaxis.set_major_formatter(FormatStrFormatter('%3.0f %%'))
 
     ## factors
@@ -1678,9 +1679,8 @@ def plot_composite_weak(composite_group,
       figures['independent']['flat_mpi_factor'][ht_name].gca().set_xticks(my_ticks)
       figures['independent']['flat_mpi_factor'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
       figures['independent']['flat_mpi_factor'][ht_name].gca().set_xlim([0.5, my_num_nodes + 0.5])
-      figures['independent']['flat_mpi_factor'][ht_name].gca().set_title('{}\n({HT_LABEL}={HT_NUM:.0f})'.format(simple_title,
-                                                                                                                HT_LABEL=HYPER_THREAD_LABEL,
-                                                                                                                HT_NUM=ht_name))
+      if PLOT_TITLES:
+        figures['independent']['flat_mpi_factor'][ht_name].gca().set_title(standard_title)
 
     axes['raw_data'][ht_name].set_ylabel('Runtime (s)')
     axes['raw_data'][ht_name].set_xlim([0.5, my_num_nodes + 0.5])
@@ -1770,9 +1770,9 @@ def plot_composite_weak(composite_group,
 
   # add legends
   for column_name in figures['independent']:
-    # Why?
-    if column_name not in ['raw_data', 'bl_perc_diff']:
-      continue
+    # # Why?
+    # if column_name not in ['raw_data', 'bl_perc_diff']:
+    #   continue
     for fig_name, fig in figures['independent'][column_name].items():
       if PLOT_LEGEND:
         fig.legend(handles, labels,
@@ -1780,9 +1780,15 @@ def plot_composite_weak(composite_group,
                    loc='lower center', ncol=ndecomps, bbox_to_anchor=(0.5, 0.0))
         # add space since the titles are typically large
         fig.subplots_adjust(bottom=0.20)
-      else:
-        fig.subplots_adjust(bottom=0.14)
-        fig.tight_layout()
+      # use a tight layout, this can trim padding, it can also be a pain
+      fig.tight_layout()
+        # if max_num_nodes > 999:
+        #   print('Hu hu')
+        #   fig.subplots_adjust(bottom=0.25)
+        #   fig.tight_layout()
+        # else:
+        #   fig.subplots_adjust(bottom=0.14)
+        #   fig.tight_layout()
 
   # save the free axis version of the figures
   save_figures(figures,
@@ -3240,6 +3246,10 @@ def main():
   if _arg_options['--expected_baseline_speedup']:
     global EXPECTED_BASELINE_SPEEDUP
     EXPECTED_BASELINE_SPEEDUP = float(_arg_options['--expected_baseline_speedup'])
+
+  if _arg_options['--plot_titles']:
+    global PLOT_TITLES
+    PLOT_TITLES = True
 
   if _arg_options['--min_only']:
     global PLOT_MAX
