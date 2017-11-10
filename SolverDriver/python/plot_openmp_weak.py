@@ -1074,6 +1074,8 @@ def need_to_replot(simple_fname, subplot_names, ht_names,
     my_file = Path(filepath)
     try:
       temp = my_file.resolve()
+      if temp.is_file() is False:
+        need_to_replot_ = True
     except FileNotFoundError or RuntimeError:
       print("File {} does not exist triggering replot".format(filepath))
       need_to_replot_ = True
@@ -1092,6 +1094,8 @@ def need_to_replot(simple_fname, subplot_names, ht_names,
       my_file = Path(fullpath)
       try:
         temp = my_file.resolve()
+        if temp.is_file() is False:
+          need_to_replot_ = True
       except FileNotFoundError or RuntimeError:
         print("File {} does not exist triggering replot".format(fullpath))
         need_to_replot_ = True
