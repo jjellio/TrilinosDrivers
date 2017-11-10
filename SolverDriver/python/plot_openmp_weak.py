@@ -3427,6 +3427,67 @@ def plot_dataset(dataset,
 
 ###############################################################################
 def main():
+  global VERBOSITY
+  global SPMV_FIG
+  global COMPOSITE_PATH
+  global INDEPENDENT_PATH
+  global LATEX_CSV_PATH
+  global IMG_FORMAT
+  global IMG_DPI
+  global FORCE_REPLOT
+  global QUANTITY_OF_INTEREST
+  global QUANTITY_OF_INTEREST_COUNT
+  global QUANTITY_OF_INTEREST_MIN
+  global QUANTITY_OF_INTEREST_MIN_COUNT
+  global QUANTITY_OF_INTEREST_MAX
+  global QUANTITY_OF_INTEREST_MAX_COUNT
+  global QUANTITY_OF_INTEREST_THING
+  global QUANTITY_OF_INTEREST_THING_COUNT
+
+  global MIN_LINESTYLE
+  global MAX_LINESTYLE
+
+  global BASELINE_LINESTYLE
+  global SHADE_BASELINE_COMPARISON
+
+  global MIN_MARKER
+  global MAX_MARKER
+  global STANDALONE_FONT_SIZE
+
+  global MIN_STYLE
+  global MAX_STYLE
+
+  global PLOT_MIN
+  global PLOT_MAX
+  global SMOOTH_OUTLIERS
+  global HT_CONSISTENT_YAXES
+  global ANNOTATE_BEST
+  global PLOT_LEGEND
+  global PLOT_TITLES
+  global PLOT_TITLES_FULL
+  global PLOT_TITLES_HT
+  global PLOT_TITLES_NONE
+
+  global DO_YMIN_OVERRIDE
+  global DO_YMAX_OVERRIDE
+  global YMIN_OVERRIDE
+  global YMAX_OVERRIDE
+  global DO_NORMALIZE_Y
+  global HAVE_BASELINE
+  global BASELINE_DATASET_DF
+  global BASELINE_DRIVER_DF
+
+  global EXPECTED_BASELINE_SPEEDUP
+  global BASELINE_DATASET_FILE
+  global DATASET_FILE
+  global PLOTS_TO_GENERATE
+  global ANNOTATE_DATASET_FILENAMES
+
+  global BASELINE_DECOMP
+  global BASELINE_DECOMP_TUPLE
+
+  global HYPER_THREAD_LABEL
+  global DECOMP_COLORS
 
   sanity_check()
 
