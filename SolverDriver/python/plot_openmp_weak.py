@@ -1073,6 +1073,12 @@ def need_to_replot(simple_fname, subplot_names, ht_names,
                                 composite=True)
     my_file = Path(filepath)
     try:
+      # this is very annoying. PathLib seems to behave differently across versions and operating systems
+      # what we do, is attempt to resolve the path. On Linux, this will attempt to locate the file
+      # on Mac OS, this resolves the directory (which will always exist as it is created before plotting)
+      # to handle this, we resolve then test if the resolve thing is a file.
+      # We could return instantly on failure, but waiting until the end allows us to print out all of the
+      # missing files.
       temp = my_file.resolve()
       if temp.is_file() is False:
         need_to_replot_ = True
@@ -1158,7 +1164,12 @@ def add_flat_mpi_data(composite_group,
   # ideally, we would want to query the Serial execution space here... but that is kinda complicated, we likely
   # need to add an argument that is a serial execution space dataframe, as the groupby logic expects the execution
   # space to be the same
-  serial_data = composite_group[composite_group['execspace_name'] == 'Serial']
+  try:
+    serial_data = composite_group[composite_group['execspace_name'] == 'Serial']
+  except Exception as e:
+    composite_group.to_csv('failed.csv')
+    raise e
+
   if serial_data.empty:
     # try to use OpenMP instead
     groupby_cols = ['procs_per_node', 'cores_per_proc', 'threads_per_core']
@@ -1352,6 +1363,10 @@ def plot_composite_weak(composite_group,
   composite_group = add_flat_mpi_data(composite_group, allow_baseline_override=True)
 
   if HAVE_BASELINE:
+    if baseline_group is None:
+      print("Skipping, have a baseline but don't have this timer in the baseline")
+      return
+    
     bl_composite_group = add_flat_mpi_data(baseline_group, allow_baseline_override=True)
 
   decomp_groups = composite_group.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
@@ -3522,6 +3537,7 @@ def main():
   if _arg_options['--number_plots']:
     number_plots = (_arg_options['--number_plots'].lower() == 'true')
 
+  restrict_timer_labels = False
   if _arg_options['--restrict_timer_labels']:
     restrict_timer_labels = _arg_options['--restrict_timer_labels']
 
