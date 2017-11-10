@@ -101,73 +101,6 @@ import re
 import ScalingFilenameParser as SFP
 # from operator import itemgetter
 
-#
-# global VERBOSITY
-#
-# global SPMV_FIG
-#
-# global COMPOSITE_PATH
-# global INDEPENDENT_PATH
-# global LATEX_CSV_PATH
-# global IMG_FORMAT
-# global IMG_DPI
-#
-# global FORCE_REPLOT
-# global QUANTITY_OF_INTEREST
-# global QUANTITY_OF_INTEREST_COUNT
-#
-# global QUANTITY_OF_INTEREST_MIN
-# global QUANTITY_OF_INTEREST_MIN_COUNT
-# global QUANTITY_OF_INTEREST_MAX
-# global QUANTITY_OF_INTEREST_MAX_COUNT
-# global QUANTITY_OF_INTEREST_THING
-# global QUANTITY_OF_INTEREST_THING_COUNT
-#
-# global MIN_LINESTYLE
-# global MAX_LINESTYLE
-#
-# global BASELINE_LINESTYLE
-# global SHADE_BASELINE_COMPARISON
-#
-# global MIN_MARKER
-# global MAX_MARKER
-# global STANDALONE_FONT_SIZE
-#
-# global MIN_STYLE
-# global MAX_STYLE
-#
-# global PLOT_MIN
-# global PLOT_MAX
-# global SMOOTH_OUTLIERS
-# global HT_CONSISTENT_YAXES
-# global ANNOTATE_BEST
-# global PLOT_LEGEND
-# global PLOT_TITLES
-# global PLOT_TITLES_FULL
-# global PLOT_TITLES_HT
-# global PLOT_TITLES_NONE
-#
-# global DO_YMIN_OVERRIDE
-# global DO_YMAX_OVERRIDE
-# global YMIN_OVERRIDE
-# global YMAX_OVERRIDE
-# global DO_NORMALIZE_Y
-# global HAVE_BASELINE
-# global BASELINE_DATASET_DF
-# global BASELINE_DRIVER_DF
-#
-# global EXPECTED_BASELINE_SPEEDUP
-# global BASELINE_DATASET_FILE
-# global DATASET_FILE
-# global PLOTS_TO_GENERATE
-# global ANNOTATE_DATASET_FILENAMES
-#
-# global BASELINE_DECOMP
-# global BASELINE_DECOMP_TUPLE
-#
-# global HYPER_THREAD_LABEL
-# global DECOMP_COLORS
-
 VERBOSITY = 0
 
 SPMV_FIG=True
@@ -3443,20 +3376,20 @@ def main():
   global QUANTITY_OF_INTEREST_MAX_COUNT
   global QUANTITY_OF_INTEREST_THING
   global QUANTITY_OF_INTEREST_THING_COUNT
-
+  
   global MIN_LINESTYLE
   global MAX_LINESTYLE
-
+  
   global BASELINE_LINESTYLE
   global SHADE_BASELINE_COMPARISON
-
+  
   global MIN_MARKER
   global MAX_MARKER
   global STANDALONE_FONT_SIZE
-
+  
   global MIN_STYLE
   global MAX_STYLE
-
+  
   global PLOT_MIN
   global PLOT_MAX
   global SMOOTH_OUTLIERS
@@ -3467,7 +3400,7 @@ def main():
   global PLOT_TITLES_FULL
   global PLOT_TITLES_HT
   global PLOT_TITLES_NONE
-
+  
   global DO_YMIN_OVERRIDE
   global DO_YMAX_OVERRIDE
   global YMIN_OVERRIDE
@@ -3476,16 +3409,16 @@ def main():
   global HAVE_BASELINE
   global BASELINE_DATASET_DF
   global BASELINE_DRIVER_DF
-
+  
   global EXPECTED_BASELINE_SPEEDUP
   global BASELINE_DATASET_FILE
   global DATASET_FILE
   global PLOTS_TO_GENERATE
   global ANNOTATE_DATASET_FILENAMES
-
+  
   global BASELINE_DECOMP
   global BASELINE_DECOMP_TUPLE
-
+  
   global HYPER_THREAD_LABEL
   global DECOMP_COLORS
 
@@ -3493,8 +3426,6 @@ def main():
 
   # Process input
   _arg_options = docopt(__doc__)
-
-  global VERBOSITY
   VERBOSITY = int(_arg_options['--verbose'])
 
   dataset_filename  = _arg_options['--dataset']
@@ -3506,11 +3437,7 @@ def main():
   scaling_study_type      = _arg_options['--scaling']
   baseline_df_file = None
   plots_to_generate = _arg_options['--plot']
-
-  global FORCE_REPLOT
   FORCE_REPLOT = _arg_options['--force_replot']
-
-  global SHADE_BASELINE_COMPARISON
   print(_arg_options)
   SHADE_BASELINE_COMPARISON = not _arg_options['--no_baseline_comparison_shading']
   print('SHADING:', SHADE_BASELINE_COMPARISON)
@@ -3525,44 +3452,25 @@ def main():
     PLOTS_TO_GENERATE[plot_name] = True
 
   if _arg_options['--expected_baseline_speedup']:
-    global EXPECTED_BASELINE_SPEEDUP
     EXPECTED_BASELINE_SPEEDUP = float(_arg_options['--expected_baseline_speedup'])
 
   if _arg_options['--plot_titles']:
-    global PLOT_TITLES
     PLOT_TITLES = str(_arg_options['--plot_titles']).lower()
 
   if _arg_options['--min_only']:
-    global PLOT_MAX
     PLOT_MAX = False
-
-    global MIN_LINESTYLE
     MIN_LINESTYLE='solid'
-
-    global COMPOSITE_PATH
     COMPOSITE_PATH = 'min_only/{}'.format(COMPOSITE_PATH)
-
-    global INDEPENDENT_PATH
     INDEPENDENT_PATH = 'min_only/{}'.format(INDEPENDENT_PATH)
-
-    global LATEX_CSV_PATH
     LATEX_CSV_PATH = 'min_only/{}'.format(LATEX_CSV_PATH)
 
   if _arg_options['--max_only']:
-    global PLOT_MIN
     PLOT_MIN = False
-
-    global COMPOSITE_PATH
     COMPOSITE_PATH = 'max_only/{}'.format(COMPOSITE_PATH)
-
-    global INDEPENDENT_PATH
     INDEPENDENT_PATH = 'max_only/{}'.format(INDEPENDENT_PATH)
-
-    global LATEX_CSV_PATH
     LATEX_CSV_PATH = 'max_only/{}'.format(LATEX_CSV_PATH)
 
   if _arg_options['--ymin'] != -1.0:
-    global YMIN_OVERRIDE
     global DO_YMIN_OVERRIDE
     DO_YMIN_OVERRIDE=True
     try:
@@ -3571,7 +3479,6 @@ def main():
       YMIN_OVERRIDE =dict(item.split('=') for item in _arg_options['--ymin'].split(','))
 
   if _arg_options['--ymax'] != -1.0:
-    global YMAX_OVERRIDE
     global DO_YMAX_OVERRIDE
     DO_YMAX_OVERRIDE=True
     try:
@@ -3580,14 +3487,12 @@ def main():
       YMAX_OVERRIDE = dict(item.split('=') for item in _arg_options['--ymax'].split(','))
 
   if _arg_options['--normalize_y']:
-    global DO_NORMALIZE_Y
     DO_NORMALIZE_Y = _arg_options['--normalize_y']
 
   if _arg_options['--baseline']:
     baseline_df_file = _arg_options['--baseline']
 
     if baseline_df_file != dataset_filename:
-      global HAVE_BASELINE
       global BASELINE_DATASET_FILE
       HAVE_BASELINE=True
 
@@ -3595,15 +3500,12 @@ def main():
       BASELINE_DATASET_FILE = os.path.basename(baseline_df_file)
 
   if _arg_options['--baseline_linestyle']:
-    global BASELINE_LINESTYLE
     BASELINE_LINESTYLE=_arg_options['--baseline_linestyle']
 
   if _arg_options['--legend']:
-    global PLOT_LEGEND
     PLOT_LEGEND=True
 
   if _arg_options['--annotate_filenames']:
-    global ANNOTATE_DATASET_FILENAMES
     ANNOTATE_DATASET_FILENAMES=True
 
   sort_timer_labels = None
@@ -3624,7 +3526,6 @@ def main():
                                                                           data=dataset_filename))
   print('Max Nodes: {max}\tMin Nodes: {min}'.format(max=max_num_nodes, min=min_num_nodes))
   print('Max PPN: {max}\tMin PPN: {min}'.format(max=max_procs_per_node, min=min_procs_per_node))
-  global DATASET_FILE
   DATASET_FILE = os.path.basename(dataset_filename)
 
   if scaling_study_type == 'weak':
@@ -3634,8 +3535,6 @@ def main():
                                            min_procs_per_node=min_procs_per_node,
                                            max_procs_per_node=max_procs_per_node)
     if HAVE_BASELINE:
-      global BASELINE_DRIVER_DF
-      global BASELINE_DATASET_DF
       BASELINE_DATASET_DF, BASELINE_DRIVER_DF = load_dataset(dataset_filename=baseline_df_file,
                                                              min_num_nodes=min_num_nodes,
                                                              max_num_nodes=max_num_nodes,
@@ -3649,8 +3548,6 @@ def main():
                                            max_procs_per_node=max_procs_per_node)
 
     if HAVE_BASELINE:
-      global BASELINE_DRIVER_DF
-      global BASELINE_DATASET_DF
       BASELINE_DATASET_DF, BASELINE_DRIVER_DF = load_dataset(dataset_filename=baseline_df_file,
                                                              min_num_nodes=min_num_nodes,
                                                              max_num_nodes=max_num_nodes,
