@@ -1,0 +1,207 @@
+#!/bin/bash
+
+# VERSION gathering hacks are not intended to be robust... 
+# set these appropriately so your build will be installed so you 
+# know how it was built.
+
+
+EXTRA_ARGS=$@
+
+COMPILER_NAME=gcc
+COMPILER_VERSION=`gcc --version | grep GCC | cut -f3 -d' '`
+
+MPI_VENDOR=openmpi
+MPI_VERSION=1.10.2
+
+
+BUILD="${COMPILER_NAME}-${COMPILER_VERSION}_${MPI_VENDOR}-${MPI_VERSION}"
+
+# k80
+CUDA_ARCH_NAME="k40"
+
+TRILINOS_PATH=${HOME}/src/Trilinos
+
+# this assumes these directories have /lib and /include subdirs
+LAPACK_ROOT=/fix/me
+BLAS_ROOT=/fix/me
+# If you use a threaded BLAS like OpenBLAS that needs GNU OpenMP, this will be used to find it
+# MKL is more complicated, email jjellio for help
+GCC_ROOT=/fix/me
+# if using system blas.a and lapack.a, you can delete pthread;gomp from the LAPACK library names
+# For Cuda, System BLAS/Lapack is *required*, but this is not what is used for GPUs
+# CUBLAS or Kokkos will handle GPU blas commands
+
+
+# if using GCC configure machine tuning flags
+# intel, -xAVX2, for example
+# this enables vectorization, -O3 will be enabled by Cmake Release target
+
+EXTRA_C_FLAGS="-mtune=native"
+EXTRA_CXX_FLAGS="${EXTRA_C_FLAGS}"
+EXTRA_F_FLAGS="${EXTRA_C_FLAGS}"
+
+
+CUDA=ON
+OPENMP=OFF
+PTHREAD=OFF
+SERIAL=ON
+COMPLEX=OFF
+
+TESTS=ON
+EXAMPLES=OFF
+
+
+read -r -d '' MUELU_DETAILS <<- EOM
+     -D Tpetra_ENABLE_MMM_Timings:BOOL=ON
+     -D Trilinos_ENABLE_MueLu=ON
+     -D KokkosKernels_ENABLE_Experimental:BOOL=ON
+     -D TpetraKernels_ENABLE_Experimental:BOOL=ON
+     -D MueLu_ENABLE_Experimental:BOOL=ON
+     -D MueLu_ENABLE_Kokkos_Refactor:BOOL=ON
+     -D Xpetra_ENABLE_Experimental:BOOL=ON
+     -D Xpetra_ENABLE_Kokkos_Refactor:BOOL=ON
+     -D Trilinos_ENABLE_Xpetra=ON
+     -D Trilinos_ENABLE_Isorropia=ON
+     -D Trilinos_ENABLE_Galeri=ON
+     -D Trilinos_ENABLE_Teuchos=ON
+     -D Trilinos_ENABLE_Epetra=ON
+     -D Trilinos_ENABLE_EpetraExt=ON
+     -D Trilinos_ENABLE_Anasazi=ON
+     -D Anasazi_ENABLE_RBGen=ON
+     -D Trilinos_ENABLE_Stokhos=OFF
+     -D Trilinos_ENABLE_Teko=OFF
+     -D Trilinos_ENABLE_Panzer=OFF
+     -D Trilinos_ENABLE_Amesos2=ON
+     -D Amesos2_ENABLE_KLU2=ON
+     -D Trilinos_ENABLE_Ifpack2=ON
+     -D Trilinos_ENABLE_Zoltan2=ON
+EOM
+
+
+echo "$MUELU_DETAILS"
+
+if [ "${CUDA}" == "ON" ]; then
+  CUDA_VERSION=`nvcc --version | grep release | cut -f6 -d' ' | tr -d 'V'`
+  BUILD+="_cuda-${CUDA_VERSION}-${CUDA_ARCH_NAME}"
+
+  if [ "${CUDA_ARCH_NAME}" == "p100" ]; then
+    CUDA_FLAG="-arch=sm_60"
+  elif [ "${CUDA_ARCH_NAME}" == "k80" ]; then
+    CUDA_FLAG="-arch=sm_37"
+  elif [ "${CUDA_ARCH_NAME}" == "k40" ]; then
+    CUDA_FLAG="-arch=sm_35"
+  fi
+
+  export OMPI_CXX=${TRILINOS_PATH}/packages/kokkos/bin/nvcc_wrapper
+
+  EXTRA_CXX_FLAGS+=" ${CUDA_FLAG}"
+  EXTRA_CXX_FLAGS+=" -lineinfo"
+  EXTRA_CXX_FLAGS+=" -Xcudafe --diag_suppress=conversion_function_not_usable"
+  EXTRA_CXX_FLAGS+=" -Xcudafe --diag_suppress=cc_clobber_ignored"
+  EXTRA_CXX_FLAGS+=" -Xcudafe --diag_suppress=code_is_unreachable"
+fi
+
+if [ "${OPENMP}" == "ON" ]; then
+  BUILD+="_openmp"
+
+fi
+
+TRILINOS_HOME=${TRILINOS_PATH}
+TRILINOS_INSTALL=${HOME}/install/Trilinos/${BUILD}_muelu-experimental
+
+echo BUILD=${BUILD}
+echo TRILINOS_INSTALL=${TRILINOS_INSTALL}
+echo TRILINOS_HOME=${TRILINOS_HOME}
+echo CUDA_ARCH_NAME=${CUDA_ARCH_NAME}
+echo BLAS_DIR=${BLAS_DIR}
+echo LAPACK_DIR=${LAPACK_DIR}
+
+
+#rm -f CMakeCache.txt; rm -rf CMakeFiles
+
+time \
+cmake \
+ -D Trilinos_ENABLE_DEBUG:BOOL=OFF \
+\
+ -D CMAKE_BUILD_TYPE=RELEASE \
+ -D CMAKE_VERBOSE_MAKEFILE=OFF \
+ -D Trilinos_ENABLE_ALL_PACKAGES=OFF \
+ -D Trilinos_ENABLE_ALL_OPTIONAL_PACKAGES=ON \
+ -D BUILD_SHARED_LIBS=ON \
+ -D Trilinos_ENABLE_CXX11=ON \
+  \
+   -D CMAKE_INSTALL_PREFIX:PATH=${TRILINOS_INSTALL} \
+   \
+   -D CMAKE_C_COMPILER="mpicc" \
+   -D CMAKE_CXX_COMPILER="mpicxx" \
+   -D CMAKE_Fortran_COMPILER="mpif90" \
+   -D CMAKE_C_FLAGS="$EXTRA_C_FLAGS" \
+   -D CMAKE_CXX_FLAGS="$EXTRA_CXX_FLAGS" \
+   -D Trilinos_CXX11_FLAGS="-std=c++11 --expt-extended-lambda" \
+   -D CMAKE_Fortran_FLAGS="$EXTRA_F_FLAGS" \
+   -D CMAKE_EXE_LINKER_FLAGS="$LINK_FLAGS" \
+   \
+   -D Trilinos_VERBOSE_CONFIGURE=OFF \
+   \
+   -D Trilinos_ENABLE_TESTS=${TESTS}\
+   -D Trilinos_ENABLE_EXAMPLES=${EXAMPLES} \
+   -D DART_TESTING_TIMEOUT:STRING="200" \
+   \
+   -D Trilinos_ENABLE_EXPLICIT_INSTANTIATION=ON \
+   -D Tpetra_INST_FLOAT=OFF \
+   -D Tpetra_INST_DOUBLE=ON \
+   -D Tpetra_INST_COMPLEX_FLOAT=OFF \
+   -D Tpetra_INST_COMPLEX_DOUBLE=OFF \
+   -D Tpetra_INST_INT_INT=ON \
+   -D Tpetra_INST_INT_LONG=OFF \
+   -D Tpetra_INST_INT_UNSIGNED=OFF \
+   -D Tpetra_INST_INT_LONG_LONG=ON \
+   -D Teuchos_ENABLE_LONG_LONG_INT=ON \
+   -D Teuchos_ENABLE_COMPLEX=OFF \
+   \
+  -D Trilinos_ENABLE_Kokkos=ON \
+  -D Kokkos_ENABLE_TESTS:BOOL=ON \
+  -D Trilinos_ENABLE_OpenMP=${OPENMP} \
+  -D Kokkos_ENABLE_Serial:BOOL=${SERIAL} \
+  -D Kokkos_ENABLE_OpenMP:BOOL=${OPENMP} \
+  -D Kokkos_ENABLE_Pthread:BOOL=${PTHREAD} \
+  -D Kokkos_ENABLE_Cuda:BOOL=${CUDA} \
+  -D TPL_ENABLE_Pthread=${PTHREAD} \
+  -D TPL_ENABLE_CUDA=${CUDA} \
+  -D Kokkos_ENABLE_Cuda_UVM:BOOL=ON \
+  -D Kokkos_ENABLE_Cuda_Lambda:BOOL=ON \
+  -D Teuchos_ENABLE_COMPLEX=OFF \
+\
+-D Trilinos_ENABLE_Tpetra=ON \
+  -D Tpetra_INST_SERIAL:BOOL=${SERIAL} \
+  -D Tpetra_INST_OPENMP:BOOL=${OPENMP} \
+  -D Tpetra_INST_PTHREAD:BOOL=${PTHREAD} \
+  -D Tpetra_INST_CUDA:BOOL=${CUDA} \
+  -D Tpetra_INST_COMPLEX_DOUBLE:BOOL=${COMPLEX} \
+  -D Tpetra_ENABLE_TESTS:BOOL=${TESTS} \
+  -D Tpetra_ENABLE_EXAMPLES:BOOL=${EXAMPLES} \
+\
+-D Trilinos_ENABLE_Belos=ON \
+\
+${MUELU_DETAILS} \
+\
+   -D TPL_ENABLE_MPI=ON \
+   -D MPI_USE_COMPILER_WRAPPERS=ON \
+   -D MPI_EXEC:PATH="mpirun" \
+   -D MPI_EXEC_NUMPROCS_FLAG:STRING="--map-by;ppr:2:NUMA:pe=4;--display-map;--bind-to;core;-np" \
+   \
+   -D TPL_ENABLE_DLlib=ON \
+   \
+   -D TPL_ENABLE_BLAS=ON \
+   -D BLAS_LIBRARY_DIRS:PATH="${BLAS_ROOT}/lib;$GCC_ROOT/lib64" \
+   -D BLAS_LIBRARY_NAMES:STRING="blas;gomp;pthread" \
+   \
+   -D TPL_ENABLE_LAPACK=ON \
+   -D LAPACK_LIBRARY_DIRS:PATH="${LAPACK_ROOT}/lib;$GCC_ROOT/lib64" \
+   -D LAPACK_LIBRARY_NAMES:STRING="lapack;gfortran" \
+   \
+\
+$EXTRA_ARGS \
+${TRILINOS_PATH}
+
+

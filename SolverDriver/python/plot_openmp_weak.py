@@ -6,6 +6,8 @@ Usage:
             [--scaling=SCALING_TYPE]
             [--dataset=DATASET]
             [--baseline=DATASET]
+            [--no_baseline_comparison_shading]
+            [--baseline_linestyle=STYLE]
             [--legend]
             [--force_replot]
             [--max_nodes=NUM]
@@ -16,12 +18,23 @@ Usage:
             [--ymin=NUM]
             [--ymax=NUM]
             [--normalize_y]
+            [--annotate_filenames]
+            [--plot=FIGURES]
+            [--plot_titles=TITLES]
+            [--expected_baseline_speedup=NUM]
+            [--restrict_timer_labels=LABEL_RESTRICTION]
+            [--sort_timer_labels=TIMING]
+            [--number_plots=BOOL]
+            [--verbose=N]
+
   plotter.py (-h | --help)
 
 Options:
   -h --help                Show this screen.
   --dataset=DATASET        Input file [default: all_data.csv]
   --baseline=DATASET       Input file that should be used to form baseline comparisons
+  --baseline_linestyle=STYLE  Override the default line style [default: default]
+  --no_baseline_comparison_shading  Shade the dataset that is compared to the baseline [default: False]
   --study=STUDY_TYPE       muelu_constructor, muelu_prec, solvers
   --scaling=SCALING_TYPE   Type of analysis, weak/strong [default: strong]
   --force_replot           Force replotting of existing data [default: False]
@@ -32,9 +45,46 @@ Options:
   --max_procs_per_node=NUM  Restrict the number processes per node [default: 64]
   --min_only               Plot only the minimum values [default: False]
   --max_only               Plot only the maximum values [default: False]
-  --ymin=NUM               Restrict the number processes per node [default: -1.0]
-  --ymax=NUM               Restrict the number processes per node [default: -1.0]
+  --ymin=NUM|FIGURE=NUM,...  Restrict the number processes per node [default: -1.0]
+  --ymax=NUM|FIGURE=NUM,...  Restrict the number processes per node [default: -1.0]
   --normalize_y            Normalize the y axis between [0,1] [default: False]
+  --annotate_filenames     Add data filenames to figures [default: False]
+  --plot=FIGURE[,FIGURE]   Plot specific figures [default: raw_data]
+  --plot_titles=TITLES     Plot titles [default: none]
+  --expected_baseline_speedup=NUM   draw a line on bl_speedup at this y intercept [default : 0.0]
+  --restrict_timer_labels=LABEL_RESTRICTION   Plot timer labels matching REGEX [default : '']
+  --sort_timer_labels=TIMING  sort the timer labels by a specific timing [default: None]
+  --number_plots=BOOL  Number the plots [default: True]
+  --verbose=N  Print details as execution goes [default: 1]
+
+Arguments:
+
+      STYLE: default - line style is the same, no change
+             other - Any valid matplotlib style dotted, solid, dashed
+
+      FIGURES: raw_data : scatter plot of raw data
+               percent_total : attempt to plot a figure of this timer as a percentage of at total time
+               flat_mpi_factor : the ratio of the raw_data to the flat MPI data
+               bl_speedup : plot the speedup of the raw_data over the baseline
+               bl_perc_diff    : relative difference of baseline and data (bl-data)/bl *100
+               composite       : generate a single figure with all requested figures
+
+      LABEL_RESTRICTION:
+        spmv : aggregate SpMVs that make sense
+        muelu_levels : analyze only muelu top level timers
+        regex : a valid regular expression
+
+      TIMING:
+        maxT : MaxOverProcs
+        minT : MinOverProcs
+        meanT : MeanOverProcs
+        meanCT : MeanOverCallCounts
+
+      TITLES:
+        none : print no title
+        ht   : only label hyperthreads
+        full : complete descriptive title
+
 """
 #import matplotlib as mpl
 # mpl.use('TkAgg')
@@ -45,9 +95,13 @@ from matplotlib.ticker import FormatStrFormatter
 import numpy as np
 import pandas as pd
 from pathlib import Path
+import os
 import copy
+import re
 import ScalingFilenameParser as SFP
 # from operator import itemgetter
+
+VERBOSITY = 0
 
 SPMV_FIG=True
 
@@ -57,7 +111,7 @@ LATEX_CSV_PATH = 'latex_csv'
 IMG_FORMAT = "png"
 IMG_DPI = 150
 
-FORCE_REPLOT  = False
+FORCE_REPLOT  = True
 QUANTITY_OF_INTEREST       = 'minT'
 QUANTITY_OF_INTEREST_COUNT = 'minC'
 
@@ -70,6 +124,9 @@ QUANTITY_OF_INTEREST_THING_COUNT = 'meanCC'
 
 MIN_LINESTYLE = 'dotted'
 MAX_LINESTYLE = 'solid'
+
+BASELINE_LINESTYLE = 'default'
+SHADE_BASELINE_COMPARISON = True
 
 MIN_MARKER = 's'
 MAX_MARKER = 'o'
@@ -95,15 +152,36 @@ SMOOTH_OUTLIERS     = False
 HT_CONSISTENT_YAXES = True
 ANNOTATE_BEST       = False
 PLOT_LEGEND         = False
+PLOT_TITLES         = 'none'
+PLOT_TITLES_FULL    = 'full'
+PLOT_TITLES_HT      = 'ht'
+PLOT_TITLES_NONE    = 'none'
 
 DO_YMIN_OVERRIDE = False
 DO_YMAX_OVERRIDE = False
-YMIN_OVERRIDE    = None
-YMAX_OVERRIDE    = None
+YMIN_OVERRIDE    = {}
+YMAX_OVERRIDE    = {}
 DO_NORMALIZE_Y   = False
 HAVE_BASELINE    = False
 BASELINE_DATASET_DF = None
 BASELINE_DRIVER_DF  = None
+
+EXPECTED_BASELINE_SPEEDUP = 0.0
+
+BASELINE_DATASET_FILE = ''
+DATASET_FILE = ''
+
+PLOTS_TO_GENERATE = {
+  'raw_data' : True,
+  'percent_total' : False,
+  'flat_mpi_factor' : False,
+  'bl_speedup' : False,
+  'bl_perc_diff' : False,
+  'composite' : False
+}
+
+ANNOTATE_DATASET_FILENAMES = False
+
 BASELINE_DECOMP = dict(procs_per_node=int(64),
                        cores_per_proc=int(1),
                        threads_per_core=int(1),
@@ -201,11 +279,19 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
   DIVIDE_BY_NUMSTEPS = True
   TAKE_COLUMNWISE_MINMAX = False
 
+  # global FOO
+  # print('FOO', FOO)
+
   if DEBUG_plottable_dataframe:
     pd.set_option('display.expand_frame_repr', False)
+    print('=========== DATA GROUP ===============')
     print(data_name)
-    data_group.to_csv('datagroup-{}.csv'.format(data_name))
+    data_group.to_csv('datagroup-{}-{}.csv'.format(data_name, FOO))
+    FOO+=1
 
+    if FOO == 25:
+      print('Decomp: ' + magic)
+      raise IndexError
   # Use aggregation. This typically will do nothing, but in some cases there are many data points
   # per node count, and we need some way to flatten that data.  This assumes that experiments performed were the same
   # which is how the groupby() logic works  at the highest level. For strong scaling problem_type, problem size (global)
@@ -239,9 +325,15 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
                                                                                  'numsteps']].sum()
 
   if DEBUG_plottable_dataframe:
-    driver_groups.get_group(data_name).to_csv('driver_timings-{timer}-{d}.csv'.format(
+    driver_groups.get_group(data_name).to_csv('driver_timings-{timer}-{d}-{foo}.csv'.format(
       timer=driver_groups.get_group(data_name)['Timer Name'].unique(),
-      d=magic))
+      d=magic,
+      foo=FOO))
+    FOO += 1
+
+    if FOO == 25:
+      print(magic)
+      raise IndexError
 
   driver_timings = driver_timings[['num_nodes',
                                    QUANTITY_OF_INTEREST_MIN,
@@ -278,6 +370,11 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
   plottable_df = plottable_df.merge(driver_timings, on='num_nodes', how='left')
 
   if DEBUG_plottable_dataframe: print(plottable_df)
+
+  if DEBUG_plottable_dataframe:
+    if timings['numsteps'].unique() != driver_timings['driver_numsteps'].unique():
+      plottable_df.to_csv('plottable-{}.csv'.format(FOO), index=True)
+      raise IndexError
 
   # attempt to deal with the outliers
   # this is risky, because there is no promise there are the same number of data points for every node count
@@ -747,18 +844,19 @@ def enforce_override_ylims(figures, axes):
       # apply these limits to each plot in this column
       for axes_name, ax in column_map.items():
         current_ylims = list(ax.get_ylim())
-        if DO_YMIN_OVERRIDE:
-          current_ylims[0] = YMIN_OVERRIDE
-        if DO_YMAX_OVERRIDE:
-          current_ylims[1] = YMAX_OVERRIDE
+        if column_name in YMIN_OVERRIDE:
+          current_ylims[0] = float(YMIN_OVERRIDE[column_name])
+        if column_name in YMAX_OVERRIDE:
+          current_ylims[1] = float(YMAX_OVERRIDE[column_name])
         ax.set_ylim(current_ylims)
 
       for figure_name, fig in figures['independent'][column_name].items():
         current_ylims = list(fig.gca().get_ylim())
-        if DO_YMIN_OVERRIDE:
-          current_ylims[0] = YMIN_OVERRIDE
-        if DO_YMAX_OVERRIDE:
-          current_ylims[1] = YMAX_OVERRIDE
+        if column_name in YMIN_OVERRIDE:
+          current_ylims[0] = float(YMIN_OVERRIDE[column_name])
+        if column_name in YMAX_OVERRIDE:
+          current_ylims[1] = float(YMAX_OVERRIDE[column_name])
+        ax.set_ylim(current_ylims)
 
         fig.gca().set_ylim(current_ylims)
 
@@ -766,10 +864,11 @@ def enforce_override_ylims(figures, axes):
 ###########################################################################################
 def save_figures(figures,
                  filename,
+                 sub_dir=None,
                  close_figure=False,
+                 independent_names=None,
                  composite=True,
-                 independent=True,
-                 independent_names=None):
+                 independent=True):
   """
   Helper to save figures. Plots the composite figure, as well as the independent figures.
 
@@ -784,71 +883,87 @@ def save_figures(figures,
                             them into a 'best' figure.
   :return:
   """
+  fullpath = ''
 
-  if composite:
+  # write the composite image if it was requested
+  if PLOTS_TO_GENERATE['composite']:
     try:
-      fullpath = '{path}/{fname}'.format(path=COMPOSITE_PATH, fname=filename)
+      fullpath = get_img_filepath(base_name=filename,
+                                  ext=IMG_FORMAT,
+                                  path=COMPOSITE_PATH,
+                                  sub_dir=sub_dir,
+                                  composite=True)
 
-      figures['composite'].savefig('{path}.{format}'.format(path=fullpath,
-                                                            format=IMG_FORMAT),
+      print(fullpath)
+      figures['composite'].savefig(fullpath,
                                    format=IMG_FORMAT,
                                    dpi=IMG_DPI)
-
-      # create a second figure for the legend
-      handles, labels = figures['composite'].gca().get_legend_handles_labels()
-      ncols = len(labels)
-      legend_path = '{path}/legend-{ncols}.{format}'.format(path=COMPOSITE_PATH, ncols=ncols, format=IMG_FORMAT)
-      legend_file = Path(legend_path)
-      try:
-        temp = legend_file.resolve()
-      except FileNotFoundError or RuntimeError:
-        import pylab
-        figLegend = pylab.figure(figsize=(11, 4))
-        figLegend.legend(handles, labels,
-                         title="Procs per Node x Cores per Proc",
-                         ncol=ncols,
-                         loc='lower center')
-        figLegend.savefig(legend_path,
-                          format=IMG_FORMAT,
-                          dpi=IMG_DPI)
-
-      print('Wrote: {}'.format(filename))
+      print('Wrote: {}'.format(os.path.basename(fullpath)))
     except:
-      print('FAILED writing {}'.format(filename))
+      print('FAILED writing {}'.format(os.path.basename(fullpath)))
       raise
 
-    if close_figure:
-      plt.close(figures['composite'])
+  # create a second figure for the legend
+  # we assume the composite figure has a legend attached always
+  handles, labels = figures['composite'].gca().get_legend_handles_labels()
+  ncols = len(labels)
+  legend_path = '{path}/legend-{ncols}.{format}'.format(path=COMPOSITE_PATH, ncols=ncols, format=IMG_FORMAT)
+  legend_file = Path(legend_path)
+  try:
+    temp = legend_file.resolve()
+  except FileNotFoundError or RuntimeError:
+    import pylab
+    try:
+      figLegend = pylab.figure(figsize=(11, 4))
+      figLegend.legend(handles, labels,
+                       title="Procs per Node x Cores per Proc",
+                       ncol=ncols,
+                       loc='lower center')
+      figLegend.savefig(legend_path,
+                        format=IMG_FORMAT,
+                        dpi=IMG_DPI)
 
-  if independent:
-    if independent_names is None:
-      fig_names = None
-    elif isinstance(independent_names, list):
-      fig_names = independent_names
-    else:
-      fig_names = [independent_names]
+      print('Wrote: {}'.format(os.path.basename(legend_path)))
+    except:
+      print('FAILED writing {}'.format(os.path.basename(legend_path)))
+      raise
 
-    for column_name in figures['independent']:
+  if close_figure:
+    plt.close(figures['composite'])
 
-      if fig_names is None:
-        fig_names = figures['independent'][column_name].keys()
+  if independent_names is None:
+    fig_names = None
+  elif isinstance(independent_names, list):
+    fig_names = independent_names
+  else:
+    fig_names = [independent_names]
 
-      for ht_name in fig_names:
-        fig_filename = '{base}-{col}-{ht}.{format}'.format(base=filename, col=column_name, ht=ht_name, format=IMG_FORMAT)
+  for column_name in figures['independent']:
 
-        try:
-          fullpath = '{path}/{fname}'.format(path=INDEPENDENT_PATH, fname=fig_filename)
+    if fig_names is None:
+      fig_names = figures['independent'][column_name].keys()
 
-          figures['independent'][column_name][ht_name].savefig(fullpath,
-                                                               format=IMG_FORMAT,
-                                                               dpi=IMG_DPI)
-          print('Wrote: {}'.format(fig_filename))
-        except:
-          print('FAILED writing {}'.format(fig_filename))
-          raise
+    for ht_name in fig_names:
 
-        if close_figure:
-          plt.close(figures['independent'][column_name][ht_name])
+      try:
+        fullpath = get_img_filepath(base_name=filename,
+                                    plot_name=column_name,
+                                    ht_name=ht_name,
+                                    ext=IMG_FORMAT,
+                                    path=INDEPENDENT_PATH,
+                                    sub_dir=sub_dir,
+                                    independent=True)
+
+        figures['independent'][column_name][ht_name].savefig(fullpath,
+                                                             format=IMG_FORMAT,
+                                                             dpi=IMG_DPI)
+        print('Wrote: {}'.format(os.path.basename(fullpath)))
+      except:
+        print('FAILED writing {}'.format(os.path.basename(fullpath)))
+        raise
+
+      if close_figure:
+        plt.close(figures['independent'][column_name][ht_name])
 
 
 ###########################################################################################
@@ -934,7 +1049,9 @@ def plot_raw_data(ax, indep_ax, xvalues, yvalues, linestyle, label, color,
 
 
 ###############################################################################
-def need_to_replot(simple_fname, subplot_names, ht_names):
+def need_to_replot(simple_fname, subplot_names, ht_names,
+                   composite=False,
+                   independent=True):
   """
   determine if a set of files exist.
 
@@ -948,28 +1065,83 @@ def need_to_replot(simple_fname, subplot_names, ht_names):
   :return: Nothing
   """
   need_to_replot_ = False
-  filepath = '{path}/{fname}.png'.format(path=COMPOSITE_PATH,
-                                         fname=simple_fname)
-  my_file = Path(filepath)
-  try:
-    temp = my_file.resolve()
-  except FileNotFoundError or RuntimeError:
-    print("File {}.png does not exist triggering replot".format(filepath))
-    need_to_replot_ = True
+
+  if composite:
+    filepath = get_img_filepath(base_name=simple_fname,
+                                ext=IMG_FORMAT,
+                                path=COMPOSITE_PATH,
+                                composite=True)
+    my_file = Path(filepath)
+    try:
+      # this is very annoying. PathLib seems to behave differently across versions and operating systems
+      # what we do, is attempt to resolve the path. On Linux, this will attempt to locate the file
+      # on Mac OS, this resolves the directory (which will always exist as it is created before plotting)
+      # to handle this, we resolve then test if the resolve thing is a file.
+      # We could return instantly on failure, but waiting until the end allows us to print out all of the
+      # missing files.
+      temp = my_file.resolve()
+      if temp.is_file() is False:
+        need_to_replot_ = True
+    except FileNotFoundError or RuntimeError:
+      print("File {} does not exist triggering replot".format(filepath))
+      need_to_replot_ = True
+
+  if independent is False:
+    return need_to_replot_
 
   for column_name in subplot_names:
     for ht_name in ht_names:
-      fig_filename = '{base}-{col}-{ht}.png'.format(base=simple_fname, col=column_name, ht=ht_name)
-      filepath = '{path}/{fname}'.format(path=INDEPENDENT_PATH,
-                                         fname=fig_filename)
-      my_file = Path(filepath)
+      fullpath = get_img_filepath(base_name=simple_fname,
+                                  plot_name=column_name,
+                                  ht_name=ht_name,
+                                  ext=IMG_FORMAT,
+                                  path=INDEPENDENT_PATH,
+                                  independent=True)
+      my_file = Path(fullpath)
       try:
         temp = my_file.resolve()
+        if temp.is_file() is False:
+          need_to_replot_ = True
       except FileNotFoundError or RuntimeError:
-        print("File {} does not exist triggering replot".format(filepath))
+        print("File {} does not exist triggering replot".format(fullpath))
         need_to_replot_ = True
 
   return need_to_replot_
+
+
+def get_img_filepath(base_name,
+                     plot_name=None,
+                     ht_name=None,
+                     sub_dir=None,
+                     ext=None,
+                     path=None,
+                     composite=False,
+                     independent=False):
+  if sub_dir is None:
+    sub_dir = ''
+  else:
+    sub_dir = '/' + sub_dir
+
+  fullpath = ''
+  if composite:
+    fullpath = '{path}{sub_dir}/{base_name}.{ext}'.format(path=path,
+                                                          sub_dir=sub_dir,
+                                                          base_name=base_name,
+                                                          ext=ext)
+  elif independent:
+    fig_filename = '{base}-{ht}.{ext}'.format(base=base_name,
+                                              ht=ht_name,
+                                              ext=ext)
+
+    fullpath = '{path}/{plot_name}{sub_dir}/{fname}'.format(path=path,
+                                                            sub_dir=sub_dir,
+                                                            plot_name=plot_name,
+                                                            fname=fig_filename)
+  else:
+    print('get_img_filepath called without composite or independent set')
+    exit(-1)
+
+  return fullpath
 
 
 ###############################################################################
@@ -992,7 +1164,12 @@ def add_flat_mpi_data(composite_group,
   # ideally, we would want to query the Serial execution space here... but that is kinda complicated, we likely
   # need to add an argument that is a serial execution space dataframe, as the groupby logic expects the execution
   # space to be the same
-  serial_data = composite_group[composite_group['execspace_name'] == 'Serial']
+  try:
+    serial_data = composite_group[composite_group['execspace_name'] == 'Serial']
+  except Exception as e:
+    composite_group.to_csv('failed.csv')
+    raise e
+
   if serial_data.empty:
     # try to use OpenMP instead
     groupby_cols = ['procs_per_node', 'cores_per_proc', 'threads_per_core']
@@ -1149,6 +1326,7 @@ def plot_composite_weak(composite_group,
                         numbered_plots_idx=-1,
                         write_latex_and_csv=True,
                         baseline_group=None,
+                        baseline_dr_df=None,
                         kwargs={}):
   """
   Plot all decompositions on a single figure.
@@ -1179,31 +1357,25 @@ def plot_composite_weak(composite_group,
                        runtime.
   :return: nothing
   """
-  show_percent_total = True
-  show_factor = True
-
   total_df = pd.DataFrame()
-
-  print(kwargs.keys())
-  if kwargs is not None:
-    if 'show_percent_total' in kwargs.keys():
-      print('in the keys')
-      show_percent_total = kwargs['show_percent_total']
-    if 'show_factor' in kwargs.keys():
-      show_factor = kwargs['show_factor']
 
   # determine the flat MPI time
   composite_group = add_flat_mpi_data(composite_group, allow_baseline_override=True)
+
   if HAVE_BASELINE:
+    if baseline_group is None:
+      print("Skipping, have a baseline but don't have this timer in the baseline")
+      return
+    
     bl_composite_group = add_flat_mpi_data(baseline_group, allow_baseline_override=True)
 
   decomp_groups = composite_group.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
   driver_decomp_groups = driver_df.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
 
   if HAVE_BASELINE:
+    print('have a baseline!')
     bl_decomp_groups = bl_composite_group.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
-    bl_dr_decomp_groups = BASELINE_DRIVER_DF.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
-
+    bl_dr_decomp_groups = baseline_dr_df.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
 
   # determine the components that should be in the filename
   show_solver_name = (composite_group['solver_name'].nunique() == 1)
@@ -1233,11 +1405,6 @@ def plot_composite_weak(composite_group,
   if SMOOTH_OUTLIERS:
     simple_fname = '{}-outliers-smoothed'.format(simple_fname)
 
-  if (PLOT_MAX is True) and (PLOT_MIN is False):
-    simple_fname = '{}-max-only'.format(simple_fname)
-  elif (PLOT_MAX is False) and (PLOT_MIN is True):
-    simple_fname = '{}-min-only'.format(simple_fname)
-
   # the number of HT combos we have
   ht_names = composite_group['threads_per_core'].sort_values(ascending=True).unique()
   ndecomps = len(decomp_groups)
@@ -1248,24 +1415,18 @@ def plot_composite_weak(composite_group,
   fig_size_height_inflation = 1.125
   fig_size_width_inflation  = 1.5
 
-  subplot_names = ['raw_data', 'percent_total']
+  SUBPLOT_NAMES = [k for k in PLOTS_TO_GENERATE.keys() if PLOTS_TO_GENERATE[k]] #['raw_data', 'percent_total']
 
-  if show_percent_total is False:
-    subplot_names.remove('percent_total')
-  if show_factor:
-    subplot_names.append('flat_mpi_factor')
-  if HAVE_BASELINE:
-    subplot_names.append('global_baseline')
-    subplot_names.append('global_percent_baseline')
-    subplot_names.append('decomp_baseline')
+  if 'bl_speedup' in SUBPLOT_NAMES:
+    bl_speedup_expected = (EXPECTED_BASELINE_SPEEDUP > 0.0)
 
   # whether we should replot images that already exist.
   if FORCE_REPLOT is False:
-    if not need_to_replot(simple_fname, subplot_names, ht_names):
+    if not need_to_replot(simple_fname, SUBPLOT_NAMES, ht_names):
       print("Skipping {}.png".format(simple_fname))
       return
 
-  axes, figures = get_figures_and_axes(subplot_names=subplot_names,
+  axes, figures = get_figures_and_axes(subplot_names=SUBPLOT_NAMES,
                                        subplot_row_names=ht_names,
                                        fig_size=fig_size,
                                        fig_size_width_inflation=fig_size_width_inflation,
@@ -1286,7 +1447,7 @@ def plot_composite_weak(composite_group,
       if not bl_global_decomp_ht_group.empty:
         have_global_baseline = True
         # for plot_row in axes['raw_data']:
-        #   axes['decomp_baseline'][plot_row] = False
+        #   axes['bl_perc_diff'][plot_row] = False
     except:
       pass
 
@@ -1347,16 +1508,23 @@ def plot_composite_weak(composite_group,
 
       bl_agg_times = pd.DataFrame(columns=['num_nodes', 'ticks'], data=np.column_stack((my_nodes, my_ticks)))
       if have_decomp_baseline:
-        bl_agg_times = get_plottable_dataframe(bl_agg_times, bl_decomp_ht_group, ht_name, bl_dr_decomp_ht_groups, magic=magic_str)
+        bl_agg_times = get_plottable_dataframe(bl_agg_times, bl_decomp_ht_group, ht_name, bl_dr_decomp_ht_groups, magic='bl'+magic_str)
         bl_agg_times.rename(columns={QUANTITY_OF_INTEREST_MIN: 'bl_min',
                                      QUANTITY_OF_INTEREST_MAX: 'bl_max'},
                             inplace=True)
         my_agg_times = pd.merge(my_agg_times, bl_agg_times[['bl_min', 'bl_max', 'num_nodes']],
                                 how='left',
                                 on=['num_nodes'])
-        my_agg_times['bl_max_diff'] = ((my_agg_times['bl_max'] - my_agg_times[QUANTITY_OF_INTEREST_MAX])/my_agg_times['bl_max'])*100
-        my_agg_times['bl_min_diff'] = ((my_agg_times['bl_min'] - my_agg_times[QUANTITY_OF_INTEREST_MIN])/my_agg_times['bl_min'])*100
-        print(my_agg_times)
+        
+        if PLOTS_TO_GENERATE['bl_perc_diff']:
+          my_agg_times['bl_max_diff'] = ((my_agg_times['bl_max'] - my_agg_times[QUANTITY_OF_INTEREST_MAX])
+                                         /my_agg_times['bl_max'])*100
+          my_agg_times['bl_min_diff'] = ((my_agg_times['bl_min'] - my_agg_times[QUANTITY_OF_INTEREST_MIN])
+                                         /my_agg_times['bl_min'])*100
+
+        if PLOTS_TO_GENERATE['bl_speedup']:
+          my_agg_times['bl_speedup_max'] = my_agg_times['bl_max'] / my_agg_times[QUANTITY_OF_INTEREST_MAX]
+          my_agg_times['bl_speedup_min'] = my_agg_times['bl_min'] / my_agg_times[QUANTITY_OF_INTEREST_MIN]
 
       # this assumes that idx=0 is an SpMV aggregate figure, which appears to be worthless.
       if write_latex_and_csv and plot_row == ht_name:
@@ -1384,10 +1552,13 @@ def plot_composite_weak(composite_group,
 
       # plot the data
       if PLOT_MAX:
-        import matplotlib.patheffects as pe
-
         # plot the max if requested
-        MAX_STYLE['path_effects'] = [pe.Stroke(linewidth=18, foreground=DECOMP_COLORS[decomp_label], alpha=0.25), pe.Normal()]
+
+        # if we are doing baseline comparisons, then make sure this data is shaded
+        if HAVE_BASELINE and SHADE_BASELINE_COMPARISON:
+          import matplotlib.patheffects as pe
+          MAX_STYLE['path_effects'] = [pe.Stroke(linewidth=18, foreground=DECOMP_COLORS[decomp_label], alpha=0.25), pe.Normal()]
+
         plot_raw_data(ax=axes['raw_data'][plot_row],
                       indep_ax=figures['independent']['raw_data'][plot_row].gca(),
                       xvalues=my_agg_times['ticks'],
@@ -1396,12 +1567,17 @@ def plot_composite_weak(composite_group,
                       label='max-{}'.format(decomp_label),
                       color=DECOMP_COLORS[decomp_label],
                       **MAX_STYLE)
-        MAX_STYLE['path_effects'] = None
+
+        if HAVE_BASELINE:
+          MAX_STYLE['path_effects'] = None
 
       if PLOT_MIN:
-        import matplotlib.patheffects as pe
 
-        MIN_STYLE['path_effects'] = [pe.Stroke(linewidth=18, foreground=DECOMP_COLORS[decomp_label], alpha=0.25), pe.Normal()]
+        # if we are doing baseline comparisons, then make sure this data is shaded
+        if HAVE_BASELINE and SHADE_BASELINE_COMPARISON:
+          import matplotlib.patheffects as pe
+          MIN_STYLE['path_effects'] = [pe.Stroke(linewidth=18, foreground=DECOMP_COLORS[decomp_label], alpha=0.25), pe.Normal()]
+
         # plot the max if requested
         plot_raw_data(ax=axes['raw_data'][plot_row],
                       indep_ax=figures['independent']['raw_data'][plot_row].gca(),
@@ -1411,12 +1587,19 @@ def plot_composite_weak(composite_group,
                       label='min-{}'.format(decomp_label),
                       color=DECOMP_COLORS[decomp_label],
                       **MIN_STYLE)
-        MIN_STYLE['path_effects'] = None
+
+        if HAVE_BASELINE:
+          MIN_STYLE['path_effects'] = None
 
       if have_decomp_baseline:
         import copy
         import matplotlib.patheffects as pe
         if PLOT_MAX:
+          if BASELINE_LINESTYLE == 'default':
+            baseline_linestyle = MAX_LINESTYLE
+          else:
+            baseline_linestyle = BASELINE_LINESTYLE
+
           m=copy.deepcopy(MAX_STYLE)
           m['marker'] = None
           #m['path_effects'] = [pe.Stroke(linewidth=15, foreground=DECOMP_COLORS[decomp_label], alpha=0.25), pe.Normal()]
@@ -1427,7 +1610,7 @@ def plot_composite_weak(composite_group,
                         indep_ax=figures['independent']['raw_data'][plot_row].gca(),
                         xvalues=my_agg_times['ticks'],
                         yvalues=my_agg_times['bl_max'],
-                        linestyle=MAX_LINESTYLE,
+                        linestyle=baseline_linestyle,
                         label=None,
                         color='black',
                         **m)
@@ -1437,21 +1620,46 @@ def plot_composite_weak(composite_group,
                         indep_ax=figures['independent']['raw_data'][plot_row].gca(),
                         xvalues=my_agg_times['ticks'],
                         yvalues=my_agg_times['bl_max'],
-                        linestyle=MAX_LINESTYLE,
+                        linestyle=baseline_linestyle,
                         label='Prior-max-{}'.format(decomp_label),
                         color=DECOMP_COLORS[decomp_label],
                         **m)
-          # plot percent diff
-          plot_raw_data(ax=axes['decomp_baseline'][plot_row],
-                        indep_ax=figures['independent']['decomp_baseline'][plot_row].gca(),
-                        xvalues=my_agg_times['ticks'],
-                        yvalues=my_agg_times['bl_max_diff'],
-                        linestyle=MAX_LINESTYLE,
-                        label='Perc. Diff-max-{}'.format(decomp_label),
-                        color=DECOMP_COLORS[decomp_label],
-                        **MAX_STYLE)
+
+          if PLOTS_TO_GENERATE['bl_perc_diff']:
+            # plot percent diff
+            plot_raw_data(ax=axes['bl_perc_diff'][plot_row],
+                          indep_ax=figures['independent']['bl_perc_diff'][plot_row].gca(),
+                          xvalues=my_agg_times['ticks'],
+                          yvalues=my_agg_times['bl_max_diff'],
+                          linestyle=baseline_linestyle,
+                          label='Perc. Diff-max-{}'.format(decomp_label),
+                          color=DECOMP_COLORS[decomp_label],
+                          **MAX_STYLE)
+            
+          if PLOTS_TO_GENERATE['bl_speedup']:
+            # if we draw the expected line do it first
+            if bl_speedup_expected:
+              axes['bl_speedup'][plot_row].axhline(
+                y=EXPECTED_BASELINE_SPEEDUP, color='black', linestyle='-')
+              figures['independent']['bl_speedup'][plot_row].gca().axhline(
+                y=EXPECTED_BASELINE_SPEEDUP, color='black', linestyle='-')
+
+            # plot speedup of maxT over Baseline_maxT
+            plot_raw_data(ax=axes['bl_speedup'][plot_row],
+                          indep_ax=figures['independent']['bl_speedup'][plot_row].gca(),
+                          xvalues=my_agg_times['ticks'],
+                          yvalues=my_agg_times['bl_speedup_max'],
+                          linestyle=baseline_linestyle,
+                          label='Speedup-max-{}'.format(decomp_label),
+                          color=DECOMP_COLORS[decomp_label],
+                          **MAX_STYLE)
 
         if PLOT_MIN:
+          if BASELINE_LINESTYLE == 'default':
+            baseline_linestyle = MIN_LINESTYLE
+          else:
+            baseline_linestyle = BASELINE_LINESTYLE
+
           m=copy.deepcopy(MIN_STYLE)
           m['marker'] = '*'
           # plot the max if requested
@@ -1459,22 +1667,41 @@ def plot_composite_weak(composite_group,
                         indep_ax=figures['independent']['raw_data'][plot_row].gca(),
                         xvalues=my_agg_times['ticks'],
                         yvalues=my_agg_times['bl_min'],
-                        linestyle='dashed',
+                        linestyle=baseline_linestyle,
                         label='Prior-{}'.format(decomp_label),
                         color=DECOMP_COLORS[decomp_label],
                         **m)
 
           # plot percent diff
-          plot_raw_data(ax=axes['decomp_baseline'][plot_row],
-                        indep_ax=figures['independent']['decomp_baseline'][plot_row].gca(),
-                        xvalues=my_agg_times['ticks'],
-                        yvalues=my_agg_times['bl_min_diff'],
-                        linestyle=MIN_LINESTYLE,
-                        label='Perc. Diff-min-{}'.format(decomp_label),
-                        color=DECOMP_COLORS[decomp_label],
-                        **MIN_STYLE)
+          if PLOTS_TO_GENERATE['bl_perc_diff']:
+            plot_raw_data(ax=axes['bl_perc_diff'][plot_row],
+                          indep_ax=figures['independent']['bl_perc_diff'][plot_row].gca(),
+                          xvalues=my_agg_times['ticks'],
+                          yvalues=my_agg_times['bl_min_diff'],
+                          linestyle=baseline_linestyle,
+                          label='Perc. Diff-min-{}'.format(decomp_label),
+                          color=DECOMP_COLORS[decomp_label],
+                          **MIN_STYLE)
 
-      if show_percent_total:
+          # plot speedup of maxT over Baseline_maxT
+          if PLOTS_TO_GENERATE['bl_speedup']:
+            # if we draw the expected line do it first
+            if bl_speedup_expected:
+              axes['bl_speedup'][plot_row].axhline(
+                y=EXPECTED_BASELINE_SPEEDUP, color='black', linestyle='-')
+              figures['independent']['bl_speedup'][plot_row].gca().axhline(
+                y=EXPECTED_BASELINE_SPEEDUP, color='black', linestyle='-')
+
+            plot_raw_data(ax=axes['bl_speedup'][plot_row],
+                          indep_ax=figures['independent']['bl_speedup'][plot_row].gca(),
+                          xvalues=my_agg_times['ticks'],
+                          yvalues=my_agg_times['bl_speedup_min'],
+                          linestyle=baseline_linestyle,
+                          label='Speedup-max-{}'.format(decomp_label),
+                          color=DECOMP_COLORS[decomp_label],
+                          **MIN_STYLE)
+
+      if PLOTS_TO_GENERATE['percent_total']:
         # plot the data
         if PLOT_MAX:
           plot_raw_data(ax=axes['percent_total'][plot_row],
@@ -1493,7 +1720,8 @@ def plot_composite_weak(composite_group,
                         linestyle=MIN_LINESTYLE,
                         label='min-{}'.format(decomp_label),
                         color=DECOMP_COLORS[decomp_label])
-      if show_factor:
+
+      if PLOTS_TO_GENERATE['flat_mpi_factor']:
         # plot the data
         if PLOT_MAX:
           plot_raw_data(ax=axes['flat_mpi_factor'][plot_row],
@@ -1516,6 +1744,18 @@ def plot_composite_weak(composite_group,
   # configure the axes for the plotted data
   for row_idx in range(0, len(ht_names)):
     ht_name = ht_names[row_idx]
+    # construct a standard title, which may not be used
+    standard_title = '{}\n{bolding_pre}({HT_LABEL}={HT_NUM:.0f}){bolding_post}'.format(simple_title,
+                                                                                       HT_LABEL=HYPER_THREAD_LABEL,
+                                                                                       HT_NUM=ht_name,
+                                                                                       bolding_pre=r'$\bf{',
+                                                                                       bolding_post=r'}$')
+
+    ht_title = '{bolding_pre}{HT_LABEL}={HT_NUM:.0f}{bolding_post}'.format(HT_LABEL=HYPER_THREAD_LABEL,
+                                                                           HT_NUM=ht_name,
+                                                                           bolding_pre=r'$\bf{',
+                                                                           bolding_post=r'}$')
+
     # for independent plots (e.g., the subplot plotted separately) we show all axes labels
     ## raw data
     figures['independent']['raw_data'][ht_name].gca().set_ylabel('Runtime (s)')
@@ -1523,62 +1763,77 @@ def plot_composite_weak(composite_group,
     figures['independent']['raw_data'][ht_name].gca().set_xticks(my_ticks)
     figures['independent']['raw_data'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
     figures['independent']['raw_data'][ht_name].gca().set_xlim([0.5, my_num_nodes + 0.5])
-    if SPMV_FIG:
-      figures['independent']['raw_data'][ht_name].gca().set_title('')
-    else:
-      figures['independent']['raw_data'][ht_name].gca().set_title('{}\n{bolding_pre}({HT_LABEL}={HT_NUM:.0f}){bolding_post}'.format(simple_title,
-                                                                                                         HT_LABEL=HYPER_THREAD_LABEL,
-                                                                                                         HT_NUM=ht_name,
-                                                                                                         bolding_pre=r'$\bf{',
-                                                                                                         bolding_post=r'}$'))
-    tmp_ax = figures['independent']['raw_data'][ht_name].gca()
-    for item in ([tmp_ax.xaxis.label, tmp_ax.yaxis.label] +
-                  tmp_ax.get_xticklabels() + tmp_ax.get_yticklabels()):
-      item.set_fontsize(STANDALONE_FONT_SIZE)
-    tmp_ax.title.set_fontsize(STANDALONE_FONT_SIZE-2)
+    if PLOT_TITLES == PLOT_TITLES_FULL:
+      figures['independent']['raw_data'][ht_name].gca().set_title(standard_title)
+    elif PLOT_TITLES == PLOT_TITLES_HT:
+      figures['independent']['raw_data'][ht_name].gca().set_title(ht_title)
 
     ## percent diff
-    if show_percent_total:
-      figures['independent']['decomp_baseline'][ht_name].gca().set_ylabel('Percentage Improvement over Prior')
-      figures['independent']['decomp_baseline'][ht_name].gca().set_xlabel('Number of Nodes')
-      figures['independent']['decomp_baseline'][ht_name].gca().set_xticks(my_ticks)
-      figures['independent']['decomp_baseline'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
-      figures['independent']['decomp_baseline'][ht_name].gca().set_xlim([0.5, my_num_nodes + 0.5])
-      figures['independent']['decomp_baseline'][ht_name].gca().set_title('{}\n({HT_LABEL}={HT_NUM:.0f})'.format(simple_title,
-                                                                                                              HT_LABEL=HYPER_THREAD_LABEL,
-                                                                                                              HT_NUM=ht_name))
+    if have_decomp_baseline and PLOTS_TO_GENERATE['bl_perc_diff']:
+      figures['independent']['bl_perc_diff'][ht_name].gca().set_ylabel('Percentage Improvement over Prior')
+      figures['independent']['bl_perc_diff'][ht_name].gca().set_xlabel('Number of Nodes')
+      figures['independent']['bl_perc_diff'][ht_name].gca().set_xticks(my_ticks)
+      figures['independent']['bl_perc_diff'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
+      figures['independent']['bl_perc_diff'][ht_name].gca().set_xlim([0.5, my_num_nodes + 0.5])
+      if PLOT_TITLES == PLOT_TITLES_FULL:
+          figures['independent']['bl_perc_diff'][ht_name].gca().set_title(standard_title)
+      elif PLOT_TITLES == PLOT_TITLES_HT:
+          figures['independent']['bl_perc_diff'][ht_name].gca().set_title(ht_title)
+
+    if have_decomp_baseline and PLOTS_TO_GENERATE['bl_speedup']:
+      figures['independent']['bl_speedup'][ht_name].gca().set_ylabel('Speedup')
+      figures['independent']['bl_speedup'][ht_name].gca().set_xlabel('Number of Nodes')
+      figures['independent']['bl_speedup'][ht_name].gca().set_xticks(my_ticks)
+      figures['independent']['bl_speedup'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
+      figures['independent']['bl_speedup'][ht_name].gca().set_xlim([0.5, my_num_nodes + 0.5])
+      if PLOT_TITLES == PLOT_TITLES_FULL:
+          figures['independent']['bl_speedup'][ht_name].gca().set_title(standard_title)
+      elif PLOT_TITLES == PLOT_TITLES_HT:
+          figures['independent']['bl_speedup'][ht_name].gca().set_title(ht_title)
+
     ## percentages
-    if show_percent_total:
+    if PLOTS_TO_GENERATE['percent_total']:
       figures['independent']['percent_total'][ht_name].gca().set_ylabel('Percentage of Total Time')
       figures['independent']['percent_total'][ht_name].gca().set_xlabel('Number of Nodes')
       figures['independent']['percent_total'][ht_name].gca().set_xticks(my_ticks)
       figures['independent']['percent_total'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
       figures['independent']['percent_total'][ht_name].gca().set_xlim([0.5, my_num_nodes + 0.5])
-      figures['independent']['percent_total'][ht_name].gca().set_title('{}\n({HT_LABEL}={HT_NUM:.0f})'.format(simple_title,
-                                                                                                              HT_LABEL=HYPER_THREAD_LABEL,
-                                                                                                              HT_NUM=ht_name))
+      if PLOT_TITLES == PLOT_TITLES_FULL:
+          figures['independent']['percent_total'][ht_name].gca().set_title(standard_title)
+      elif PLOT_TITLES == PLOT_TITLES_HT:
+          figures['independent']['percent_total'][ht_name].gca().set_title(ht_title)
+
       figures['independent']['percent_total'][ht_name].gca().yaxis.set_major_formatter(FormatStrFormatter('%3.0f %%'))
 
     ## factors
-    if show_factor:
+    if PLOTS_TO_GENERATE['flat_mpi_factor']:
       figures['independent']['flat_mpi_factor'][ht_name].gca().set_ylabel('Ratio (smaller is better)')
       figures['independent']['flat_mpi_factor'][ht_name].gca().set_xlabel('Number of Nodes')
       figures['independent']['flat_mpi_factor'][ht_name].gca().set_xticks(my_ticks)
       figures['independent']['flat_mpi_factor'][ht_name].gca().set_xticklabels(my_nodes, rotation=45)
       figures['independent']['flat_mpi_factor'][ht_name].gca().set_xlim([0.5, my_num_nodes + 0.5])
-      figures['independent']['flat_mpi_factor'][ht_name].gca().set_title('{}\n({HT_LABEL}={HT_NUM:.0f})'.format(simple_title,
-                                                                                                                HT_LABEL=HYPER_THREAD_LABEL,
-                                                                                                                HT_NUM=ht_name))
+      if PLOT_TITLES == PLOT_TITLES_FULL:
+          figures['independent']['flat_mpi_factor'][ht_name].gca().set_title(standard_title)
+      elif PLOT_TITLES == PLOT_TITLES_HT:
+          figures['independent']['flat_mpi_factor'][ht_name].gca().set_title(ht_title)
+
+    # adjust the font size for all plots
+    for plot_name in figures['independent'].keys():
+      tmp_ax = figures['independent'][plot_name][ht_name].gca()
+      for item in ([tmp_ax.xaxis.label, tmp_ax.yaxis.label] +
+                    tmp_ax.get_xticklabels() + tmp_ax.get_yticklabels()):
+        item.set_fontsize(STANDALONE_FONT_SIZE)
+      tmp_ax.title.set_fontsize(STANDALONE_FONT_SIZE)
 
     axes['raw_data'][ht_name].set_ylabel('Runtime (s)')
     axes['raw_data'][ht_name].set_xlim([0.5, my_num_nodes + 0.5])
 
-    if show_percent_total:
+    if PLOTS_TO_GENERATE['percent_total']:
       axes['percent_total'][ht_name].set_ylabel('Percentage of Total Time')
       axes['percent_total'][ht_name].yaxis.set_major_formatter(FormatStrFormatter('%3.0f %%'))
       axes['percent_total'][ht_name].set_xlim([0.5, my_num_nodes + 0.5])
 
-    if show_factor:
+    if PLOTS_TO_GENERATE['flat_mpi_factor']:
       axes['flat_mpi_factor'][ht_name].set_ylabel('Ratio of Runtime to Flat MPI Time')
       axes['flat_mpi_factor'][ht_name].set_xlim([0.5, my_num_nodes + 0.5])
 
@@ -1590,14 +1845,14 @@ def plot_composite_weak(composite_group,
       axes['raw_data'][ht_name].set_title('{HT_LABEL}={HT_NUM:.0f}'.format(HT_LABEL=HYPER_THREAD_LABEL,
                                                                            HT_NUM=ht_name))
 
-      if show_percent_total:
+      if PLOTS_TO_GENERATE['percent_total']:
         axes['percent_total'][ht_name].set_xlabel("Number of Nodes")
         axes['percent_total'][ht_name].set_xticks(my_ticks)
         axes['percent_total'][ht_name].set_xticklabels(my_nodes, rotation=45)
         axes['percent_total'][ht_name].set_title('{HT_LABEL}={HT_NUM:.0f}'.format(HT_LABEL=HYPER_THREAD_LABEL,
                                                                                   HT_NUM=ht_name))
 
-      if show_factor:
+      if PLOTS_TO_GENERATE['flat_mpi_factor']:
         axes['flat_mpi_factor'][ht_name].set_xlabel("Number of Nodes")
         axes['flat_mpi_factor'][ht_name].set_xticks(my_ticks)
         axes['flat_mpi_factor'][ht_name].set_xticklabels(my_nodes, rotation=45)
@@ -1610,31 +1865,38 @@ def plot_composite_weak(composite_group,
                                                                                        HT_NUM=ht_name))
       axes['raw_data'][ht_name].set_xticks([])
 
-      if show_percent_total:
-        axes['percent_total'][ht_name].set_title('Percentage of Total Time\n({HT_LABEL}={HT_NUM:.0f})'.format(HT_LABEL=HYPER_THREAD_LABEL,
-                                                                                                              HT_NUM=ht_name))
+      if PLOTS_TO_GENERATE['percent_total']:
+        title = 'Percentage of Total Time\n({HT_LABEL}={HT_NUM:.0f})'.format(HT_LABEL=HYPER_THREAD_LABEL,
+                                                                             HT_NUM=ht_name)
+        axes['percent_total'][ht_name].set_title(title)
         axes['percent_total'][ht_name].set_xticks([])
 
-      if show_factor:
-        axes['flat_mpi_factor'][ht_name].set_title('Ratio of Runtime to Flat MPI Time\n({HT_LABEL}={HT_NUM:.0f})'.format(HT_LABEL=HYPER_THREAD_LABEL,
-                                                                                                                         HT_NUM=ht_name))
+      if PLOTS_TO_GENERATE['flat_mpi_factor']:
+        title = 'Ratio of Runtime to Flat MPI Time\n({HT_LABEL}={HT_NUM:.0f})'.format(HT_LABEL=HYPER_THREAD_LABEL,
+                                                                                      HT_NUM=ht_name)
+        axes['flat_mpi_factor'][ht_name].set_title(title)
         axes['flat_mpi_factor'][ht_name].set_xticks([])
 
     # otherwise, this is a middle plot, show a truncated title
     else:
-      axes['raw_data'][ht_name].set_title('{HT_LABEL}={HT_NUM:.0f}'.format(HT_LABEL=HYPER_THREAD_LABEL,
-                                                                           HT_NUM=ht_name))
+      title = '{HT_LABEL}={HT_NUM:.0f}'.format(HT_LABEL=HYPER_THREAD_LABEL,
+                                               HT_NUM=ht_name)
+      axes['raw_data'][ht_name].set_title(title)
       axes['raw_data'][ht_name].set_xticks([])
 
-      if show_percent_total:
-        axes['percent_total'][ht_name].set_title('{HT_LABEL}={HT_NUM:.0f}'.format(HT_LABEL=HYPER_THREAD_LABEL,
-                                                                                  HT_NUM=ht_name))
+      if PLOTS_TO_GENERATE['percent_total']:
+        title = '{HT_LABEL}={HT_NUM:.0f}'.format(HT_LABEL=HYPER_THREAD_LABEL,
+                                                 HT_NUM=ht_name)
+        axes['percent_total'][ht_name].set_title(title)
         axes['percent_total'][ht_name].set_xticks([])
 
-      if show_factor:
-        axes['flat_mpi_factor'][ht_name].set_title('{HT_LABEL}={HT_NUM:.0f}'.format(HT_LABEL=HYPER_THREAD_LABEL,
-                                                                                    HT_NUM=ht_name))
+      if PLOTS_TO_GENERATE['flat_mpi_factor']:
+        title = '{HT_LABEL}={HT_NUM:.0f}'.format(HT_LABEL=HYPER_THREAD_LABEL,
+                                                 HT_NUM=ht_name)
+        axes['flat_mpi_factor'][ht_name].set_title(title)
         axes['flat_mpi_factor'][ht_name].set_xticks([])
+
+  annotate_file_names(figures['independent'])
 
   # add a suptitle and configure the legend for each figure
   figures['composite'].suptitle(simple_title, fontsize=18)
@@ -1651,8 +1913,9 @@ def plot_composite_weak(composite_group,
 
   # add legends
   for column_name in figures['independent']:
-    if column_name not in ['raw_data', 'decomp_baseline']:
-      continue
+    # # Why?
+    # if column_name not in ['raw_data', 'bl_perc_diff']:
+    #   continue
     for fig_name, fig in figures['independent'][column_name].items():
       if PLOT_LEGEND:
         fig.legend(handles, labels,
@@ -1660,13 +1923,13 @@ def plot_composite_weak(composite_group,
                    loc='lower center', ncol=ndecomps, bbox_to_anchor=(0.5, 0.0))
         # add space since the titles are typically large
         fig.subplots_adjust(bottom=0.20)
-      else:
-        fig.subplots_adjust(bottom=0.14)
-        fig.tight_layout()
+      # use a tight layout, this can trim padding, it can also be a pain
+      fig.tight_layout()
 
   # save the free axis version of the figures
   save_figures(figures,
-               filename='{basename}-free-yaxis'.format(basename=simple_fname),
+               filename='{basename}'.format(basename=simple_fname),
+               sub_dir='free-yaxis',
                close_figure=False)
 
   if write_latex_and_csv:
@@ -1686,7 +1949,8 @@ def plot_composite_weak(composite_group,
 
     # save the free axis version of the figures
     save_figures(figures,
-                 filename='{basename}-free-yaxis-best'.format(basename=simple_fname),
+                 filename='{basename}'.format(basename=simple_fname),
+                 sub_dir='free-yaxis-best',
                  close_figure=False)
 
   # if we want consistent axes by column, then enforce that here.
@@ -1705,7 +1969,8 @@ def plot_composite_weak(composite_group,
 
     # save the figures with the axes shared
     save_figures(figures,
-                 filename='{fname}-overall'.format(fname=simple_fname),
+                 filename='{fname}'.format(fname=simple_fname),
+                 sub_dir='overall',
                  composite=False,
                  independent=True,
                  independent_names=ht_names[0])
@@ -1716,10 +1981,26 @@ def plot_composite_weak(composite_group,
 
     # save the override axis version of the figures
     save_figures(figures,
-                 filename='{basename}-or'.format(basename=simple_fname),
+                 filename='{basename}'.format(basename=simple_fname),
+                 sub_dir='or',
                  close_figure=False)
 
   close_figures(figures)
+
+
+def annotate_file_names(figures):
+  if ANNOTATE_DATASET_FILENAMES:
+    for column_name in figures:
+      for fig_name, fig in figures[column_name].items():
+        fig.gca().annotate('Data: '+DATASET_FILE,
+                           xy=(0, 1), xycoords='axes fraction', fontsize=14,
+                           xytext=(0, 0), textcoords='offset points',
+                           ha='left', va='top')
+        if HAVE_BASELINE:
+          fig.gca().annotate('Baseline: '+BASELINE_DATASET_FILE,
+                             xy=(1, 1), xycoords='axes fraction', fontsize=14,
+                             xytext=(0, 0), textcoords='offset points',
+                             ha='right', va='top')
 
 
 ###########################################################################################
@@ -2527,7 +2808,8 @@ def load_dataset(dataset_filename,
                  min_num_nodes=1,
                  max_num_nodes=1000000,
                  min_procs_per_node=1,
-                 max_procs_per_node=1000000):
+                 max_procs_per_node=1000000,
+                 demangle_muelu=True):
   """
   Load a CSV datafile. This assumes the data was parsed from YAML using the parser in this directory
 
@@ -2545,11 +2827,17 @@ def load_dataset(dataset_filename,
            driver_dataset contains data generated by the driver which includes total time,
            preconditioner setup time, and solve time.
   """
-  print('Reading {}'.format(dataset_filename))
+  if VERBOSITY & 1:
+    print('Reading {}'.format(dataset_filename))
   # write the total dataset out, index=False, because we do not drop it above
   dataset = pd.read_csv(dataset_filename, low_memory=False)
 
-  print('Read csv complete')
+  if demangle_muelu:
+    import TeuchosTimerUtils as TTU
+    dataset = TTU.demange_muelu_timer_names_df(dataset)
+
+  if VERBOSITY & 1:
+    print('Read csv complete')
 
   # integral_columns = SFP.getIndexColumns(execspace_name='OpenMP')
   # non_integral_names = ['Timer Name',
@@ -2566,7 +2854,8 @@ def load_dataset(dataset_filename,
   # set the index, verify it, and sort
   dataset = dataset.set_index(keys=SFP.getIndexColumns(execspace_name='OpenMP'),
                               drop=False, verify_integrity=True)
-  print('Verified index')
+  if VERBOSITY & 1:
+    print('Verified index')
 
   # optionally restrict the data processed
   # Elasticity data is incomplete.
@@ -2583,8 +2872,9 @@ def load_dataset(dataset_filename,
 
   dataset = dataset.query(restriction_query)
   dataset = dataset[dataset['procs_per_node'].isin([64, 4])]
-  dataset = dataset[~dataset['num_nodes'].isin([4, 32])]
-  print('Restricted dataset')
+  dataset = dataset[~dataset['num_nodes'].isin([4, 32, 768])]
+  if VERBOSITY & 1:
+    print('Restricted dataset')
 
   dataset = dataset.fillna(value='None')
 
@@ -2592,7 +2882,8 @@ def load_dataset(dataset_filename,
   # dataset.sort_values(inplace=True,
   #                     by=SFP.getIndexColumns(execspace_name='OpenMP'))
   dataset = dataset.sort_index()
-  print('Sorted')
+  if VERBOSITY & 1:
+    print('Sorted')
 
   # remove the timers the driver adds
   driver_dataset = dataset[dataset['Timer Name'].isin(['0 - Total Time',
@@ -2601,7 +2892,8 @@ def load_dataset(dataset_filename,
                                                   '3 - Constructing Preconditioner',
                                                   '4 - Constructing Solver',
                                                   '5 - Solve'])]
-  print('Gathered driver timers')
+  if VERBOSITY & 1:
+    print('Gathered driver timers')
 
   # remove the timers the driver adds
   dataset = dataset[~dataset['Timer Name'].isin(['0 - Total Time',
@@ -2610,7 +2902,8 @@ def load_dataset(dataset_filename,
                                                   '3 - Constructing Preconditioner',
                                                   '4 - Constructing Solver',
                                                   '5 - Solve'])]
-  print('Removed driver timers')
+  if VERBOSITY & 1:
+    print('Removed driver timers')
 
   # reindex
   # set the index, verify it, and sort
@@ -2621,7 +2914,8 @@ def load_dataset(dataset_filename,
   driver_dataset = driver_dataset.set_index(keys=SFP.getIndexColumns(execspace_name='OpenMP'),
                                             drop=False,
                                             verify_integrity=True)
-  print('Rebuilt truncated index')
+  if VERBOSITY & 1:
+    print('Rebuilt truncated index')
 
   return dataset, driver_dataset
 
@@ -2637,13 +2931,18 @@ def get_ordered_timers(dataset, rank_by_column_name):
   :return: list of timer names in sorted order (descending)
   """
   # find an order of timer names based on aggregate time
-  ordered_timers = dataset.groupby(['Timer Name',
-                                    'problem_type',
-                                    'solver_name',
-                                    'solver_attributes',
-                                    'prec_name',
-                                    'prec_attributes'], as_index=False).sum().sort_values(
-    by=rank_by_column_name, ascending=False)['Timer Name'].tolist()
+  # life would be easier if we cleaned up the indexing.
+  # use the index to verify, then reindex so we always use columns
+  tmp = dataset.groupby(['Timer Name',
+                          'problem_type',
+                          'solver_name',
+                          'solver_attributes',
+                          'prec_name',
+                          'prec_attributes'])[rank_by_column_name].sum()
+
+  ordered_timers = tmp.reset_index().sort_values(by=rank_by_column_name,
+
+                                                 ascending=False)['Timer Name'].tolist()
 
   return ordered_timers
 
@@ -2699,6 +2998,8 @@ def get_aggregate_groups(dataset, scaling_type,
   spmv_only_data = dataset[dataset['Timer Name'].str.match(timer_name_re_str)]
   if spmv_only_data.empty:
     spmv_only_data = dataset[dataset['Timer Name'].str.match('OPT::Apply')]
+    if VERBOSITY & 1024:
+      print('Using OPT::Apply Data')
 
   spmv_only_data.loc[:, 'Timer Name'] = timer_name_rename
 
@@ -2714,10 +3015,12 @@ def plot_composite(composite_group,
                    numbered_plots_idx,
                    driver_df,
                    baseline_group=None,
+                   baseline_dr_df=None,
                    **kwargs):
   if scaling_study_type == 'weak':
     plot_composite_weak(composite_group=composite_group,
                         baseline_group=baseline_group,
+                        baseline_dr_df=baseline_dr_df,
                         my_nodes=my_nodes,
                         my_ticks=my_ticks,
                         numbered_plots_idx=numbered_plots_idx,
@@ -2727,6 +3030,7 @@ def plot_composite(composite_group,
   elif scaling_study_type == 'strong':
     plot_composite_strong(composite_group=composite_group,
                           baseline_group=baseline_group,
+                          baseline_dr_df=baseline_dr_df,
                           my_nodes=my_nodes,
                           my_ticks=my_ticks,
                           numbered_plots_idx=numbered_plots_idx,
@@ -2881,6 +3185,10 @@ def plot_dataset(dataset,
                        This will create plots with a numeric value prepended to the filename that ranks the timers
   :return: nothing
   """
+  if HAVE_BASELINE:
+    global BASELINE_DATASET_DF
+    global BASELINE_DRIVER_DF
+
   import os as os
   if not os.path.exists(COMPOSITE_PATH):
     os.makedirs(COMPOSITE_PATH)
@@ -2889,15 +3197,32 @@ def plot_dataset(dataset,
   if not os.path.exists(LATEX_CSV_PATH):
     os.makedirs(LATEX_CSV_PATH)
 
+  sub_dirs = ['', 'free-yaxis']
+  if ANNOTATE_BEST : sub_dirs += ['free-yaxis-best', 'overall']
+  if DO_YMAX_OVERRIDE or DO_YMIN_OVERRIDE: sub_dirs += ['or']
+
+  SUBPLOT_NAMES = [k for k in PLOTS_TO_GENERATE.keys() if PLOTS_TO_GENERATE[k]]
+  for plot_name in SUBPLOT_NAMES:
+    plot_path = INDEPENDENT_PATH + '/' + plot_name
+    if not os.path.exists(plot_path):
+      os.makedirs(plot_path)
+    for sub_dir in sub_dirs:
+      plot_path = INDEPENDENT_PATH + '/' + plot_name + '/' + sub_dir
+      if not os.path.exists(plot_path):
+        os.makedirs(plot_path)
+
+  DO_AGGREGATE_SPMV=False
+
   # enforce all plots use the same num_nodes. i.e., the axes will be consistent
   my_nodes = np.array(list(map(int, dataset['num_nodes'].unique())))
   my_num_nodes = dataset['num_nodes'].nunique()
   #
   my_ticks = np.arange(start=1, stop=my_num_nodes+1, step=1, dtype=int)
 
-  print(my_num_nodes)
-  print(my_nodes)
-  print(my_ticks)
+  if VERBOSITY & 512:
+    print(my_num_nodes)
+    print(my_nodes)
+    print(my_ticks)
 
   if len(my_nodes) != len(my_ticks):
     print('Length of ticks and nodes are different')
@@ -2906,47 +3231,47 @@ def plot_dataset(dataset,
   # optional numbered plots
   numbered_plots_idx = -1
 
-  spmv_agg_groups = get_aggregate_groups(dataset=dataset, scaling_type=scaling_type)
-  if HAVE_BASELINE:
-    baseline_spmv_agg_groups = get_aggregate_groups(dataset=BASELINE_DATASET_DF, scaling_type=scaling_type)
-    print('baseline', baseline_spmv_agg_groups)
-
-  # plot the aggregate spmv data, e.g., all data regardless of experiment so long as the problem size is the
-  for spmv_agg_name, spmv_agg_group in spmv_agg_groups:
-    # increment this counter first, because it starts at the sentinel value of -1, which means no numbers
-    if number_plots:
-      numbered_plots_idx += 1
-
+  if DO_AGGREGATE_SPMV:
+    spmv_agg_groups = get_aggregate_groups(dataset=dataset, scaling_type=scaling_type)
     if HAVE_BASELINE:
-      plot_composite(composite_group=spmv_agg_group,
-                     baseline_group=baseline_spmv_agg_groups.get_group(spmv_agg_name),
-                     my_nodes=my_nodes,
-                     my_ticks=my_ticks,
-                     scaling_study_type=scaling_type,
-                     numbered_plots_idx=numbered_plots_idx,
-                     driver_df=driver_dataset,
-                     show_percent_total=False)
-    else:
-      plot_composite(composite_group=spmv_agg_group,
-                     my_nodes=my_nodes,
-                     my_ticks=my_ticks,
-                     scaling_study_type=scaling_type,
-                     numbered_plots_idx=numbered_plots_idx,
-                     driver_df=driver_dataset,
-                     show_percent_total=False)
+      baseline_spmv_agg_groups = get_aggregate_groups(dataset=BASELINE_DATASET_DF, scaling_type=scaling_type)
+      if VERBOSITY & 512:
+        print('baseline', baseline_spmv_agg_groups)
 
-    exit(0)
+    # plot the aggregate spmv data, e.g., all data regardless of experiment so long as the problem size is the
+    for spmv_agg_name, spmv_agg_group in spmv_agg_groups:
+      # increment this counter first, because it starts at the sentinel value of -1, which means no numbers
+      if number_plots:
+        numbered_plots_idx += 1
+
+      if HAVE_BASELINE:
+        plot_composite(composite_group=spmv_agg_group,
+                       baseline_group=baseline_spmv_agg_groups.get_group(spmv_agg_name),
+                       my_nodes=my_nodes,
+                       my_ticks=my_ticks,
+                       scaling_study_type=scaling_type,
+                       numbered_plots_idx=numbered_plots_idx,
+                       driver_df=driver_dataset,
+                       show_percent_total=False)
+      else:
+        plot_composite(composite_group=spmv_agg_group,
+                       my_nodes=my_nodes,
+                       my_ticks=my_ticks,
+                       scaling_study_type=scaling_type,
+                       numbered_plots_idx=numbered_plots_idx,
+                       driver_df=driver_dataset,
+                       show_percent_total=False)
 
   # restrict the dataset if requested
   if restriction_tokens:
     restriction_query_string = dict_to_pandas_query_string(restriction_tokens)
 
-    print(restriction_query_string)
+    if VERBOSITY & 1024:
+      print(restriction_query_string)
+
     dataset = dataset.query(restriction_query_string)
     driver_dataset = driver_dataset.query(restriction_query_string)
     if HAVE_BASELINE:
-      global BASELINE_DATASET_DF
-      global BASELINE_DRIVER_DF
       BASELINE_DATASET_DF = BASELINE_DATASET_DF.query(restriction_query_string)
       BASELINE_DRIVER_DF  = BASELINE_DRIVER_DF.query(restriction_query_string)
 
@@ -2980,7 +3305,8 @@ def plot_dataset(dataset,
     # # This approach is not stable. That is, it does not preserve the order of
     # # multiple occurences of the same name.
     sorted_composite_groups = sorted(foo, key=lambda x: ordered_timers.index(x[0]))
-    print(sorted_composite_groups)
+    if VERBOSITY & 1024:
+      print(sorted_composite_groups)
     #sorted_composite_groups = composite_groups.groups.keys()
 
     # loop over the sorted names, which are index tuples
@@ -2997,30 +3323,25 @@ def plot_dataset(dataset,
 
       if HAVE_BASELINE:
         try:
-          print('querying bl groups for: ', composite_group_name)
+          if VERBOSITY & 1024:
+            print('querying bl groups for: ', composite_group_name)
           bl_group = bl_composite_groups.get_group(composite_group_name)
         except:
-          print('Failed to lookup label in bl group')
-          print('BL labels:')
-          print(bl_composite_groups.groups())
+          if VERBOSITY & 1024:
+            print('Failed to lookup label in bl group')
+            print('BL labels:')
+            print(bl_composite_groups.groups())
           bl_group = None
 
       plot_composite(composite_group=composite_group,
                      baseline_group=bl_group,
+                     baseline_dr_df=bl_driver_composite_groups.get_group(tuple(driver_constructor_name)),
                      my_nodes=my_nodes,
                      my_ticks=my_ticks,
                      scaling_study_type=scaling_type,
                      driver_df=driver_composite_groups.get_group(tuple(driver_constructor_name)),
                      numbered_plots_idx=numbered_plots_idx,
                      show_percent_total=False)
-
-
-      # plot_composite(composite_group=composite_group,
-      #                my_nodes=my_nodes,
-      #                my_ticks=my_ticks,
-      #                scaling_study_type=scaling_type,
-      #                driver_df=driver_composite_groups.get_group(tuple(driver_constructor_name)),
-      #                numbered_plots_idx=numbered_plots_idx)
 
   else:
     # loop over the groups using the built in iterator (name,group)
@@ -3034,21 +3355,97 @@ def plot_dataset(dataset,
       if number_plots:
         numbered_plots_idx += 1
 
+      if HAVE_BASELINE:
+        try:
+          if VERBOSITY & 1024:
+            print('querying bl groups for: ', composite_group_name)
+          bl_group = bl_composite_groups.get_group(composite_group_name)
+        except:
+          if VERBOSITY & 1024:
+            print('Failed to lookup label in bl group')
+            print('BL labels:')
+            print(bl_composite_groups.groups())
+          bl_group = None
+
       plot_composite(composite_group=composite_group,
+                     baseline_group=bl_group,
                      my_nodes=my_nodes,
                      my_ticks=my_ticks,
                      scaling_study_type=scaling_type,
                      driver_df=driver_composite_groups.get_group(tuple(driver_constructor_name)),
-                     numbered_plots_idx=numbered_plots_idx)
+                     numbered_plots_idx=numbered_plots_idx,
+                     show_percent_total=False)
 
 
 ###############################################################################
 def main():
+  global VERBOSITY
+  global SPMV_FIG
+  global COMPOSITE_PATH
+  global INDEPENDENT_PATH
+  global LATEX_CSV_PATH
+  global IMG_FORMAT
+  global IMG_DPI
+  global FORCE_REPLOT
+  global QUANTITY_OF_INTEREST
+  global QUANTITY_OF_INTEREST_COUNT
+  global QUANTITY_OF_INTEREST_MIN
+  global QUANTITY_OF_INTEREST_MIN_COUNT
+  global QUANTITY_OF_INTEREST_MAX
+  global QUANTITY_OF_INTEREST_MAX_COUNT
+  global QUANTITY_OF_INTEREST_THING
+  global QUANTITY_OF_INTEREST_THING_COUNT
+  
+  global MIN_LINESTYLE
+  global MAX_LINESTYLE
+  
+  global BASELINE_LINESTYLE
+  global SHADE_BASELINE_COMPARISON
+  
+  global MIN_MARKER
+  global MAX_MARKER
+  global STANDALONE_FONT_SIZE
+  
+  global MIN_STYLE
+  global MAX_STYLE
+  
+  global PLOT_MIN
+  global PLOT_MAX
+  global SMOOTH_OUTLIERS
+  global HT_CONSISTENT_YAXES
+  global ANNOTATE_BEST
+  global PLOT_LEGEND
+  global PLOT_TITLES
+  global PLOT_TITLES_FULL
+  global PLOT_TITLES_HT
+  global PLOT_TITLES_NONE
+  
+  global DO_YMIN_OVERRIDE
+  global DO_YMAX_OVERRIDE
+  global YMIN_OVERRIDE
+  global YMAX_OVERRIDE
+  global DO_NORMALIZE_Y
+  global HAVE_BASELINE
+  global BASELINE_DATASET_DF
+  global BASELINE_DRIVER_DF
+  
+  global EXPECTED_BASELINE_SPEEDUP
+  global BASELINE_DATASET_FILE
+  global DATASET_FILE
+  global PLOTS_TO_GENERATE
+  global ANNOTATE_DATASET_FILENAMES
+  
+  global BASELINE_DECOMP
+  global BASELINE_DECOMP_TUPLE
+  
+  global HYPER_THREAD_LABEL
+  global DECOMP_COLORS
 
   sanity_check()
 
   # Process input
   _arg_options = docopt(__doc__)
+  VERBOSITY = int(_arg_options['--verbose'])
 
   dataset_filename  = _arg_options['--dataset']
   study_type        = _arg_options['--study']
@@ -3058,73 +3455,98 @@ def main():
   min_procs_per_node     = _arg_options['--min_procs_per_node']
   scaling_study_type      = _arg_options['--scaling']
   baseline_df_file = None
+  plots_to_generate = _arg_options['--plot']
+  FORCE_REPLOT = _arg_options['--force_replot']
+  print(_arg_options)
+  SHADE_BASELINE_COMPARISON = not _arg_options['--no_baseline_comparison_shading']
+  print('SHADING:', SHADE_BASELINE_COMPARISON)
 
-  global FORCE_REPLOT
-  FORCE_REPLOT           = _arg_options['--force_replot']
+  if ',' in plots_to_generate:
+    plots_to_generate = set(plots_to_generate.split(','))
+  else:
+    plots_to_generate = set([plots_to_generate])
+
+  valid_plot_names = set(PLOTS_TO_GENERATE.keys()).intersection(plots_to_generate)
+  for plot_name in valid_plot_names:
+    PLOTS_TO_GENERATE[plot_name] = True
+
+  if _arg_options['--expected_baseline_speedup']:
+    EXPECTED_BASELINE_SPEEDUP = float(_arg_options['--expected_baseline_speedup'])
+
+  if _arg_options['--plot_titles']:
+    PLOT_TITLES = str(_arg_options['--plot_titles']).lower()
 
   if _arg_options['--min_only']:
-    global PLOT_MAX
     PLOT_MAX = False
-
-    global MIN_LINESTYLE
     MIN_LINESTYLE='solid'
-
-    global COMPOSITE_PATH
     COMPOSITE_PATH = 'min_only/{}'.format(COMPOSITE_PATH)
-
-    global INDEPENDENT_PATH
     INDEPENDENT_PATH = 'min_only/{}'.format(INDEPENDENT_PATH)
-
-    global LATEX_CSV_PATH
     LATEX_CSV_PATH = 'min_only/{}'.format(LATEX_CSV_PATH)
 
   if _arg_options['--max_only']:
-    global PLOT_MIN
     PLOT_MIN = False
-
-    global COMPOSITE_PATH
     COMPOSITE_PATH = 'max_only/{}'.format(COMPOSITE_PATH)
-
-    global INDEPENDENT_PATH
     INDEPENDENT_PATH = 'max_only/{}'.format(INDEPENDENT_PATH)
-
-    global LATEX_CSV_PATH
     LATEX_CSV_PATH = 'max_only/{}'.format(LATEX_CSV_PATH)
 
   if _arg_options['--ymin'] != -1.0:
-    global YMIN_OVERRIDE
     global DO_YMIN_OVERRIDE
     DO_YMIN_OVERRIDE=True
-    YMIN_OVERRIDE = float(_arg_options['--ymin'])
+    try:
+      YMIN_OVERRIDE['raw_data'] = float(_arg_options['--ymin'])
+    except ValueError:
+      YMIN_OVERRIDE =dict(item.split('=') for item in _arg_options['--ymin'].split(','))
 
   if _arg_options['--ymax'] != -1.0:
-    global YMAX_OVERRIDE
     global DO_YMAX_OVERRIDE
     DO_YMAX_OVERRIDE=True
-    YMAX_OVERRIDE = float(_arg_options['--ymax'])
+    try:
+      YMAX_OVERRIDE['raw_data'] = float(_arg_options['--ymax'])
+    except ValueError:
+      YMAX_OVERRIDE = dict(item.split('=') for item in _arg_options['--ymax'].split(','))
 
   if _arg_options['--normalize_y']:
-    global DO_NORMALIZE_Y
     DO_NORMALIZE_Y = _arg_options['--normalize_y']
 
   if _arg_options['--baseline']:
     baseline_df_file = _arg_options['--baseline']
 
     if baseline_df_file != dataset_filename:
-      global HAVE_BASELINE
+      global BASELINE_DATASET_FILE
       HAVE_BASELINE=True
 
       print('Have baseline data: ', baseline_df_file)
+      BASELINE_DATASET_FILE = os.path.basename(baseline_df_file)
+
+  if _arg_options['--baseline_linestyle']:
+    BASELINE_LINESTYLE=_arg_options['--baseline_linestyle']
 
   if _arg_options['--legend']:
-    global PLOT_LEGEND
     PLOT_LEGEND=True
+
+  if _arg_options['--annotate_filenames']:
+    ANNOTATE_DATASET_FILENAMES=True
+
+  sort_timer_labels = None
+  if _arg_options['--sort_timer_labels']:
+    sort_timer_labels = _arg_options['--sort_timer_labels']
+    if sort_timer_labels == 'None':
+      sort_timer_labels = None
+
+  number_plots = False
+  if _arg_options['--number_plots']:
+    number_plots = (_arg_options['--number_plots'].lower() == 'true')
+
+  restrict_timer_labels = False
+  if _arg_options['--restrict_timer_labels']:
+    restrict_timer_labels = _arg_options['--restrict_timer_labels']
 
   print('study: {study}\nscaling_type: {scaling}\ndataset: {data}'.format(study=study_type,
                                                                           scaling=scaling_study_type,
                                                                           data=dataset_filename))
   print('Max Nodes: {max}\tMin Nodes: {min}'.format(max=max_num_nodes, min=min_num_nodes))
   print('Max PPN: {max}\tMin PPN: {min}'.format(max=max_procs_per_node, min=min_procs_per_node))
+  DATASET_FILE = os.path.basename(dataset_filename)
 
   if scaling_study_type == 'weak':
     dataset, driver_dataset = load_dataset(dataset_filename=dataset_filename,
@@ -3133,8 +3555,6 @@ def main():
                                            min_procs_per_node=min_procs_per_node,
                                            max_procs_per_node=max_procs_per_node)
     if HAVE_BASELINE:
-      global BASELINE_DRIVER_DF
-      global BASELINE_DATASET_DF
       BASELINE_DATASET_DF, BASELINE_DRIVER_DF = load_dataset(dataset_filename=baseline_df_file,
                                                              min_num_nodes=min_num_nodes,
                                                              max_num_nodes=max_num_nodes,
@@ -3148,16 +3568,43 @@ def main():
                                            max_procs_per_node=max_procs_per_node)
 
     if HAVE_BASELINE:
-      global BASELINE_DRIVER_DF
-      global BASELINE_DATASET_DF
       BASELINE_DATASET_DF, BASELINE_DRIVER_DF = load_dataset(dataset_filename=baseline_df_file,
                                                              min_num_nodes=min_num_nodes,
                                                              max_num_nodes=max_num_nodes,
                                                              min_procs_per_node=min_procs_per_node,
                                                              max_procs_per_node=max_procs_per_node)
 
-  ordered_timers = []
+  ###########################################################################################################
+  # restrict the labels if requested
+  restricted_timers = dataset['Timer Name'].unique().tolist()
 
+  if restrict_timer_labels:
+    if restrict_timer_labels == 'muelu_levels':
+      restricted_timers = get_muelu_level_timers(timer_names=restricted_timers)
+    elif restrict_timer_labels == 'spmv':
+      restrict_timer_labels = r'(.*Operation Op\*x.*)|(.*OPT::Apply.*)'
+      if VERBOSITY & 64:
+        print('Restricting timer labels with: ', restrict_timer_labels)
+      timer_label_re = re.compile(restrict_timer_labels)
+      restricted_timers = [label for label in restricted_timers if timer_label_re.match(label)]
+    else:
+      if VERBOSITY & 64:
+        print('Restricting timer labels with: ', restrict_timer_labels)
+      timer_label_re = re.compile(restrict_timer_labels)
+      restricted_timers = [label for label in restricted_timers if timer_label_re.match(label)]
+    if VERBOSITY & 64:
+      print('Analyzing Timers: ')
+      print(restricted_timers)
+    if len(restricted_timers) == 0:
+      print('Timer label restriction produced no timers to analyze.')
+      exit(-1)
+
+  dataset = dataset[ dataset['Timer Name'].isin(restricted_timers) ]
+  if HAVE_BASELINE:
+    BASELINE_DATASET_DF = BASELINE_DATASET_DF[ BASELINE_DATASET_DF['Timer Name'].isin(restricted_timers) ]
+
+  ###########################################################################################################
+  # restrict the datasets for a study
   if study_type == 'muelu_constructor':
     total_time_key = '3 - Constructing Preconditioner'
     restriction_tokens = {'solver_name' : 'Constructor',
@@ -3165,17 +3612,14 @@ def main():
                           'prec_name' : 'MueLu',
                           'prec_attributes' : '-repartition'}
 
-    # obtain a list of timer names ordered the aggregate time spent in each
-    # ordered_timers = get_ordered_timers(dataset=dataset,
-    #                                     rank_by_column_name=QUANTITY_OF_INTEREST)
-    ordered_timers = getMueLuLevelTimers(dataset=dataset)
-    print(ordered_timers)
-
   elif study_type == 'linearAlg':
     total_time_key = '0 - Total Time'
     restriction_tokens = {'solver_name': 'LinearAlgebra',
                           'solver_attributes': '-Tpetra',
                           'prec_name': 'None'}
+    dataset = correct_linearAlg_timer_labels(dataset)
+    if HAVE_BASELINE:
+      BASELINE_DATASET_DF = correct_linearAlg_timer_labels(BASELINE_DATASET_DF)
 
   elif study_type == 'muelu_prec':
     total_time_key = '5 - Solve'
@@ -3184,21 +3628,41 @@ def main():
                           'prec_name' : 'MueLu',
                           'prec_attributes' : '-repartition'}
 
-    # obtain a list of timer names ordered the aggregate time spent in each
-    ordered_timers = get_ordered_timers(dataset=dataset,
-                                        rank_by_column_name=QUANTITY_OF_INTEREST)
   elif study_type == 'solvers':
     total_time_key = '5 - Solve'
     restriction_tokens = {'prec_name' : 'None'}
   else:
     raise ValueError('unknown study_type ({})'.format(study_type))
 
+  ###########################################################################################################
+  # sort the labels if desired
+  if sort_timer_labels is not None:
+    if VERBOSITY & 128:
+      print(sort_timer_labels)
+    ordered_timers = get_ordered_timers(dataset,
+                                        rank_by_column_name=sort_timer_labels)
+  else:
+    if VERBOSITY & 128:
+      print('No sort, ' + sort_timer_labels)
+    ordered_timers = dataset['Timer Name'].unique().tolist()
+
+  if len(ordered_timers) != len(set(ordered_timers)):
+    print('Timer labels have duplicates after sorting and filtering!')
+    exit(-1)
+
+  ###########################################################################################################
+  # analyze the timers
+  if VERBOSITY & 256:
+    print('Final set of timers to analyze:')
+    print(ordered_timers)
+
   plot_dataset(dataset=dataset,
                driver_dataset=driver_dataset,
                ordered_timers=ordered_timers,
                total_time_key=total_time_key,
                scaling_type=scaling_study_type,
-               restriction_tokens=restriction_tokens)
+               restriction_tokens=restriction_tokens,
+               number_plots=number_plots)
 
 
 def do_tpetra_analysis(dataset):
@@ -3207,10 +3671,20 @@ def do_tpetra_analysis(dataset):
   unique_timers = restricted_data['Timer Name'].unique()
 
 
-def getMueLuLevelTimers(dataset):
+def correct_linearAlg_timer_labels(dataset):
+  # if MVT::MVScale1 and MVT::MVInit0 everything is fine
+  # if you have MVT::MVScale and MVT::MVInit (unannotated) then relabel them
+  # MVT::MVScale => MVT::MVScale1::1
+  timer_labels = dataset['Timer Name'].unique()
+  if ('MVT::MVScale' in timer_labels) and ('MVT::MVScale1:1' not in timer_labels):
+    dataset[ dataset['Timer name'] == 'MVT::MVScale', 'Timer name'] = 'MVT::MVScale1::1'
+
+  return dataset
+
+
+def get_muelu_level_timers(timer_names=[],
+                           dataset=None):
   import re
-  # gather all timer labels
-  timer_names = dataset['Timer Name'].sort_values().unique().tolist()
 
   # examples:
   # MueLu: AmalgamationFactory: Build (level=[0-9]*)
@@ -3261,15 +3735,15 @@ def getMueLuLevelTimers(dataset):
     r'(?P<label_prefix>MueLu: RepartitionHeuristicFactory: Build)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
     r'(?P<label_prefix>MueLu: RebalanceTransferFactory: Build)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
     r'(?P<label_prefix>MueLu: RebalanceAcFactory: Computing Ac)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
-    r'(?P<label_prefix>MueLu: RebalanceAcFactory: Rebalancing existing Ac \(sub, total,)\s*level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
-    # Do not contain the text total
-    r'(?P<label_prefix>TpetraExt MueLu::SaP)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>Jacobi All I&X)',
-    r'(?P<label_prefix>TpetraExt MueLu::SaP)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>Jacobi All Multiply)',
-    r'(?P<label_prefix>TpetraExt MueLu::A\*P)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All I&X)',
-    r'(?P<label_prefix>TpetraExt MueLu::A\*P)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All Multiply)',
-    r'(?P<label_prefix>TpetraExt MueLu::R\*\(AP\)-implicit)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All I&X)',
-    r'(?P<label_prefix>TpetraExt MueLu::R\*\(AP\)-implicit)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All Multiply)'
+    r'(?P<label_prefix>MueLu: RebalanceAcFactory: Rebalancing existing Ac \(sub, total,)\s*level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)'
   ]
+    # # Do not contain the text total
+    # r'(?P<label_prefix>TpetraExt MueLu::SaP)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>Jacobi All I&X)',
+    # r'(?P<label_prefix>TpetraExt MueLu::SaP)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>Jacobi All Multiply)',
+    # r'(?P<label_prefix>TpetraExt MueLu::A\*P)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All I&X)',
+    # r'(?P<label_prefix>TpetraExt MueLu::A\*P)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All Multiply)',
+    # r'(?P<label_prefix>TpetraExt MueLu::R\*\(AP\)-implicit)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All I&X)',
+    # r'(?P<label_prefix>TpetraExt MueLu::R\*\(AP\)-implicit)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All Multiply)'
 
   level_timers_re = []
   for re_str in level_timers:
@@ -3286,8 +3760,8 @@ def getMueLuLevelTimers(dataset):
                      8: list(),
                      9: list(),
                      10: list(),
-                     'total': list(),
-                     'all' : list()}
+                     'total': list()}
+
   # populate the map's level specific timer names
   for level_timer_re in level_timers_re:
     for timer_name in timer_names:
@@ -3300,16 +3774,13 @@ def getMueLuLevelTimers(dataset):
       m = re.search(r'\(\s*total\s*\)', timer_name)
       if m:
         level_timer_map['total'].append(timer_name)
-      m = re.search(r'\(\s*level=[0-9]+\s*\)', timer_name)
-      if m:
-        level_timer_map['all'].append(timer_name)
 
   # level timers:
-  level_timer_names = []
+  # always return the total labels first
+  level_timer_names = level_timer_map['total']
   for level_id in level_timer_map:
-    if level_id == 'all':
+    if level_id == 'all' or level_id == 'total':
       continue
-    print(level_id)
     level_timer_names += level_timer_map[level_id]
 
   return level_timer_names
@@ -3612,8 +4083,6 @@ def nested_timer_analysis(dataset,
   #   annotated_df = pd.concat([annotated_df, plottable_df])
 
   exit(0)
-
-
 
   for re_str in analysis_timers:
     timer_re = re.compile(re_str)

@@ -16,17 +16,17 @@ Usage:
   analysis.py (-h | --help)
 
 Options:
-  -h, --help               Show this screen.
-  --baseline=<FILE>       Use this file as the baseline
-  --comparable=<FILES>   YAMLS that can be compared to the baseline
-  --average=<averaging>   Average the times using callcounts, numsteps, or none [default: none]
-  --output_csv=<FILE>     Output file [default: all_data.csv]
-  --remove_string=STRING    remove the STRING from timer labels [default: _kokkos]
-  --total_time_key=STRING   use this timer key to compute percent total time [default: MueLu: Hierarchy: Setup (total)]
+  -h, --help                 Show this screen.
+  --baseline=<FILE>          Use this file as the baseline
+  --comparable=<FILES>       YAMLS that can be compared to the baseline
+  --average=<averaging>      Average the times using callcounts, numsteps, or none [default: none]
+  --output_csv=<FILE>        Output file [default: all_data.csv]
+  --remove_string=STRING     remove the STRING from timer labels [default: _kokkos]
+  --total_time_key=STRING    use this timer key to compute percent total time [default: MueLu: Hierarchy: Setup (total)]
   --bl_affinity_dir=PATH          Path to directory with affinity CSV data, relative to baseline [default: .]
   --comparable_affinity_dir=PATH  Path to directory with affinity CSV data, relative to comparable [default: ../affinity]
   --bl_log_dir=PATH          Path to directory with text logs, relative to baseline [default: .]
-  --comparable_log_dir=PATH  Path to directory with text logs, relative to comparable [default: ../affinity]
+  --comparable_log_dir=PATH  Path to directory with text logs, relative to comparable [default: .]
   --write_percent_total     Write a column with percent total
   --muelu_prof              Do MueLu profile output
 
@@ -97,6 +97,14 @@ def demangeDF_TimerNames(df):
   return df
 
 
+def demange_timer_name(timer_name):
+  import re
+  rebuilt_name = re.sub(r'N\d+MueLu\d+', '', timer_name)
+  rebuilt_name = re.sub(r'I[d]*ixN\d+Kokkos\d+Compat\d+KokkosDeviceWrapperNodeINS\d+_\d+(OpenMPENS|SerialENS)\d+_\d+HostSpace[E]+', '', rebuilt_name)
+
+  return rebuilt_name
+
+
 def demangeYAML_TimerNames(yaml_data):
   import re
   # import copy
@@ -104,8 +112,7 @@ def demangeYAML_TimerNames(yaml_data):
   # prior_timers = copy.deepcopy(yaml_data['Timer names'])
 
   for idx, timer_name in enumerate(yaml_data['Timer names']):
-    rebuilt_name = re.sub(r'N\d+MueLu\d+', '', timer_name)
-    rebuilt_name = re.sub(r'I[d]*ixN\d+Kokkos\d+Compat\d+KokkosDeviceWrapperNodeINS\d+_\d+(OpenMPENS|SerialENS)\d+_\d+HostSpace[E]+', '', rebuilt_name)
+    rebuilt_name = demange_timer_name(timer_name)
 
     if rebuilt_name == timer_name:
       print('Identical: {}'.format(rebuilt_name))
@@ -309,6 +316,153 @@ def relableTpetraExperimentTimers(df):
   return df
 
 
+def parse_teuchos_timers_from_log_file(YAML_filename, relative_log_dir):
+  import os
+
+  # parse the YAML filename
+  my_tokens = SFP.parseYAMLFileName(YAML_filename)
+
+  # weakscaling_openmp_Laplace3D-246x246x246_decomp-1x64x1x1_knl-quad-cache-onyx.log-ok
+  logfile_fmt_str = 'weakscaling_{lexecspace_name}_' \
+                    '{problem_type}-{problem_nx}x{problem_ny}x{problem_nz}_' \
+                    'decomp-{num_nodes}x{procs_per_node}x{cores_per_proc}x{threads_per_core}_' \
+                    '*.log-ok'
+  # construct the log file's name
+  logfile_name = logfile_fmt_str.format(**my_tokens)
+
+  # form an absolute path
+  log_dir = os.path.dirname(os.path.realpath(YAML_filename)) + '/' + relative_log_dir
+  print('log_dir: ', os.path.dirname(os.path.realpath(YAML_filename)), 'relative: ', relative_log_dir)
+  logfile_path = log_dir + '/' + logfile_name
+  print(logfile_path)
+  # glob the variable parts of the log name
+  logfiles = glob.glob(logfile_path)
+  print(logfiles)
+  # we should find a single logfile
+  if len(logfiles) != 1:
+    print('Searched for logfiles, but found more than one. Move the similar log file away.')
+    print('log files found: ', len(logfiles))
+    for log in logfiles:
+      print(log)
+    exit(-1)
+
+  # parse the timer names from the log file
+  return gather_timer_name_sets_from_logfile(logfiles[0])
+
+
+def gather_timer_name_sets_from_logfile(logfile):
+  import re
+  # we form N number of sets (lists technically)
+  set_counter = 0
+  sets = {}
+
+  float_re_str = r'[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?'
+  timing_and_callcount_re_str = r'(\s+{float}\s+\({float}\))'.format(float=float_re_str)
+  four_column_re_str = r'(?P<label>.+)' + timing_and_callcount_re_str + r'{4}'
+  single_column_re_str = r'(?P<label>.+)' + timing_and_callcount_re_str + r'{1}'
+
+  four_column_re = re.compile(four_column_re_str)
+  single_column_re = re.compile(single_column_re_str)
+
+  # track when we enter a Teuchos Timer output block
+  in_teuchos_timer_output_block = False
+
+  # loop line by line
+  with open(logfile) as fptr:
+
+    for line in fptr:
+      # a region starts with the column headers, we assume these are not repeated within a region
+      if re.match(r'^Timer Name\s*MinOverProcs\s*MeanOverProcs\s*MaxOverProcs\s*MeanOverCallCounts\s*$', line):
+        # print('Region: ' + str(in_teuchos_timer_output_block) + '  ' + line)
+        in_teuchos_timer_output_block = True
+        # start a region, so start a new set for these timer labels
+        sets[set_counter] = list()
+        continue
+
+      # if we are inside a timer block then match timer labels
+      if in_teuchos_timer_output_block:
+        # if inside a region, look for a line that is all '=', this marks
+        # the end of the region
+        endregion_m = re.match(r'^[=]+$', line)
+        # match a label by matching FOUR pairs of 'timing (counts)'
+        #four_column_label_m = re.match(r'(?P<label>.+)(\s+[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?\s+\([+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?\)){4}',line)
+        four_column_label_m = four_column_re.match(line)
+        single_column_label_m = single_column_re.match(line)
+
+        if endregion_m:
+          in_teuchos_timer_output_block = False
+          set_counter += 1
+        elif four_column_label_m:
+
+          label = four_column_label_m.group('label').strip()
+          #print('matched 4: ', label)
+          sets[set_counter].append(label)
+        elif single_column_label_m:
+          label = single_column_label_m.group('label').strip()
+          #print('matched 1: ', label)
+          sets[set_counter].append(label)
+        else:
+          continue
+
+  return sets
+
+
+def reconcile_timer_set_and_YAML(timer_list, sets):
+  num_sets = len(sets)
+  timer_set = set(timer_list)
+  expected_labels = len(timer_set)
+  total_missing = 0
+
+  print('---------------------------------------------------')
+  for set_id in sets:
+    if any('MueLu' in x for x in sets[set_id]):
+      print('+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++')
+      print('+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++')
+      print('Testing set:')
+      print(sets[set_id])
+      print('+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++')
+      print('+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++')
+    else:
+      print(sets[set_id])
+      print('Skipping set, muelu not contained in labels')
+      continue
+
+    potential_set = set(sets[set_id])
+    matching_labels = timer_set.intersection(potential_set)
+    labels_in_yaml_not_in_stdout = timer_set.difference(potential_set)
+    labels_in_stdout_not_in_yaml = potential_set.difference(timer_set)
+    num_matches = len(matching_labels)
+    num_missing = len(labels_in_stdout_not_in_yaml) + len(labels_in_yaml_not_in_stdout)
+
+    if num_missing == 0:
+      print('Missing NONE!')
+    else:
+      total_missing += num_missing
+      print('+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++')
+      print('+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++')
+      print('Matched: ', num_matches)
+      print('\n'.join(matching_labels))
+      print('+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++')
+      print('+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++')
+      print("Labels in Stdout but not in YAML: ", len(labels_in_stdout_not_in_yaml))
+      print('\n'.join(labels_in_stdout_not_in_yaml))
+      print('+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++')
+      print('+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++')
+      print("Labels in YAML but not in Stdout: ", len(labels_in_yaml_not_in_stdout))
+      print('\n'.join(labels_in_yaml_not_in_stdout))
+      print('+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++')
+      print('+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++')
+      # df = pd.DataFrame()
+      # unified_timers = list(timer_set.union(potential_set))
+      # df['Timer Names'] = unified_timers
+      # df.index = unified_timers
+
+  print('---------------------------------------------------')
+  print('total missing: ', total_missing)
+  print('---------------------------------------------------')
+  return total_missing
+
+
 def main():
   # Process input
   from docopt import DocoptExit
@@ -321,7 +475,15 @@ def main():
   comparable_files  = options['--comparable']
   baseline_file     = options['--baseline']
   bl_affinity_dir         = options['--bl_affinity_dir']
+#    print(__doc__)
+#    exit(0)
+
+  comparable_files  = options['--comparable']
+  baseline_file     = options['--baseline']
+  bl_affinity_dir         = options['--bl_affinity_dir']
   comparable_affinity_dir = options['--comparable_affinity_dir']
+  bl_log_dir         = options['--bl_log_dir']
+  comparable_log_dir = options['--comparable_log_dir']
   output_csv        = options['--output_csv']
   remove_string     = options['--remove_string']
   averaging         = options['--average']
@@ -371,12 +533,17 @@ def main():
 
   print(comparable_files)
 
+  sets = parse_teuchos_timers_from_log_file(YAML_filename=baseline_file,
+                                            relative_log_dir=bl_log_dir)
   bl_yaml = load_yaml(baseline_file)
+  num_missing = reconcile_timer_set_and_YAML(timer_list=bl_yaml['Timer names'], sets=sets)
 
-  print('---------------------------------------------------------------------')
-  import pprint
-  pprint.PrettyPrinter(indent=4).pprint(bl_yaml)
-  print('---------------------------------------------------------------------', )
+  print('Missing Labels: ', num_missing)
+
+  # print('---------------------------------------------------------------------')
+  # import pprint
+  # pprint.PrettyPrinter(indent=4).pprint(bl_yaml)
+  # print('---------------------------------------------------------------------', )
 
   remove_timer_string(bl_yaml, string=remove_string)
 
@@ -434,6 +601,11 @@ def main():
     # remove a string from the timer labels (_kokkos)
     remove_timer_string(comparable_yaml, string=remove_string)
 
+    sets = parse_teuchos_timers_from_log_file(YAML_filename=comparable_file,
+                                              relative_log_dir=comparable_log_dir)
+    num_missing = reconcile_timer_set_and_YAML(timer_list=comparable_yaml['Timer names'], sets=sets)
+
+    print('Missing Labels: ', num_missing)
     # construct the dataframe
     comparable_df = construct_dataframe(comparable_yaml)
 
@@ -441,10 +613,10 @@ def main():
     comparable_df = demangeDF_TimerNames(comparable_df)
     comparable_df.to_csv('comparable_df.csv', index_label='Demangled Timer')
 
-    print('---------------------------------------------------------------------')
-    import pprint
-    pprint.PrettyPrinter(indent=4).pprint(comparable_yaml)
-    print('---------------------------------------------------------------------', )
+    # print('---------------------------------------------------------------------')
+    # import pprint
+    # pprint.PrettyPrinter(indent=4).pprint(comparable_yaml)
+    # print('---------------------------------------------------------------------', )
 
     # drop the unwanted timers
     comparable_df = comparable_df.drop(ignored_labels, errors='ignore')
@@ -622,12 +794,6 @@ def annotate_muelu_dataframe (df, total_time_key):
     r'(?P<label_prefix>MueLu: RebalanceTransferFactory: Build)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
     r'(?P<label_prefix>MueLu: RebalanceAcFactory: Computing Ac)\s*\(level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
     # r'(?P<label_prefix>MueLu: RebalanceAcFactory: Rebalancing existing Ac \(sub, total,)\s*level=(?P<level_number>[0-9]*)\)(?P<label_suffix>.*)',
-    # Do not contain the text total
-    # r'(?P<label_prefix>TpetraExt MueLu::SaP)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>Jacobi All I&X)',
-    # r'(?P<label_prefix>TpetraExt MueLu::SaP)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>Jacobi All Multiply)',
-    # r'(?P<label_prefix>TpetraExt MueLu::A\*P)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All I&X)',
-    # r'(?P<label_prefix>TpetraExt MueLu::A\*P)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All Multiply)',
-    # r'(?P<label_prefix>TpetraExt MueLu::R\*\(AP\)-implicit)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All I&X)',
     # r'(?P<label_prefix>TpetraExt MueLu::R\*\(AP\)-implicit)-(?P<level_number>[0-9]*):\s*(?P<label_suffix>MMM All Multiply)'
   ]
 

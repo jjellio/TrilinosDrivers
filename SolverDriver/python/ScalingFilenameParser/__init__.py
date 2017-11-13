@@ -121,12 +121,16 @@ class ScalingFileNameParser:
     # parse the decomp token
     yaml_filename = os.path.basename(filename)
 
+    print(yaml_filename)
     # first, match the general tokens (problem, solver+attributes)
     yaml_matches = self.filename_re.match(os.path.basename(yaml_filename))
 
     my_tokens = yaml_matches.groupdict()
 
     execspace_dict = None
+
+    # track a lowercase version of this
+    my_tokens['lexecspace_name'] = my_tokens['execspace_name'].lower()
 
     # from the general tokens, gather specific information
     if my_tokens['execspace_name'] == 'OpenMP':
@@ -488,11 +492,11 @@ class ScalingFileNameParser:
     return scaling_dict_terms
 
   def getScalingFilename(self, my_tokens, weak=False, strong=False, onnode=False,
-                      composite=False,
-                      skip_none_values=True,
-                      timer_name=True,
-                      solver_name=True, solver_attributes=True,
-                      prec_name=True, prec_attributes=True):
+                         composite=False,
+                         skip_none_values=True,
+                         timer_name=True,
+                         solver_name=True, solver_attributes=True,
+                         prec_name=True, prec_attributes=True):
 
     if weak is False and strong is False and onnode is False:
       print("getScalingFilename was called with all possible scaling study flags set to false")
@@ -536,7 +540,7 @@ class ScalingFileNameParser:
           my_fmt_string += "_{scaling_np_token}" \
                            "_{scaling_decomp_token}".format(**self.fmt_strs)
         else:
-          my_fmt_string += "_{min_num_nodes}-{max_num_nodes}-composite"
+          my_fmt_string += "_{min_num_nodes}-{max_num_nodes}"
       elif strong or onnode:
         my_fmt_string += "_{problem_token}".format(**self.fmt_strs)
         my_fmt_string += my_solver_token
@@ -546,7 +550,7 @@ class ScalingFileNameParser:
           my_fmt_string += "_{scaling_np_token}" \
                            "_{scaling_decomp_token}".format(**self.fmt_strs)
         else:
-          my_fmt_string += "_{min_num_nodes}-{max_num_nodes}-composite"
+          my_fmt_string += "_{min_num_nodes}-{max_num_nodes}"
     elif my_tokens['execspace_name'] == 'Cuda':
       if weak:
         my_fmt_string += "_{weak_prob_token}".format(**self.fmt_strs)
@@ -557,7 +561,7 @@ class ScalingFileNameParser:
           my_fmt_string += "_{scaling_np_token}" \
                            "_{scaling_decomp_token}".format(**self.fmt_strs)
         else:
-          my_fmt_string += "_{min_num_nodes}-{max_num_nodes}-composite"
+          my_fmt_string += "_{min_num_nodes}-{max_num_nodes}"
       elif strong:
         my_fmt_string += "_{problem_token}".format(**self.fmt_strs)
         my_fmt_string += my_solver_token
@@ -568,7 +572,7 @@ class ScalingFileNameParser:
                            "_{scaling_np_token}" \
                            "_{scaling_decomp_token}".format(**self.fmt_strs)
         else:
-          my_fmt_string += "_{min_num_nodes}-{max_num_nodes}-composite"
+          my_fmt_string += "_{min_num_nodes}-{max_num_nodes}"
       elif onnode:
         print("onnode tile was requested for the Cuda execution space, which is not currently defined")
         raise ValueError
