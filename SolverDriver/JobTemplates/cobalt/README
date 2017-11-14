@@ -1,0 +1,18 @@
+mkdir runs
+cd runs
+ln -s /path/to/Trilinos/SolverDriver/gold .
+ln -s /path/to/Trilinos/SolverDriver/fused-driver.xml .
+
+# edit /path/to/Trilinos/SolverDriver/JobTemplates/pbs/fused-submission.sh
+# set the RUN variable to point to the binary
+# edit the line near the bottom that sources fused-submission.pbs.core
+# provide the correct path
+
+# edit the NODES loop at the top... for testing use a small set.
+
+# Run the submissions script, which will que up many jobs
+# results will be placed in ./cray-hugepages##M/
+
+/path/to/Trilinos/SolverDriver/JobTemplates/pbs/fused-submission.sh
+
+
