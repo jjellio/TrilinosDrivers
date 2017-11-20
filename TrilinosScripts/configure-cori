@@ -68,9 +68,9 @@ source ${SCRIPT_DIR}/tpls.env
 module list
 
 # This script expects testbed (not SEMS!) modules to be loaded already.
-TRILINOS_INSTALL_PREFIX=${PROJECT_DIR}/install
+TRILINOS_INSTALL_PREFIX=${HOME}/install
 #Set path to Trilinos:
-TRILINOS_PATH=${HOME}/src/Trilinos-jjellio
+TRILINOS_PATH=${HOME}/src/Trilinos
 TRILINOS_VERSION=`grep "Trilinos_VERSION " ${TRILINOS_PATH}/Version.cmake | cut -f2 -d' ' | tr -d ')'`
 COMPILER_NAME=intel
 COMPILER_VERSION=${INTEL_VERSION}

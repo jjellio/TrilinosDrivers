@@ -158,9 +158,15 @@ if __name__ == '__main__':
   # drop over allocated data
   dataset = dataset[pd.notnull(dataset['Timer Name'])]
 
+  index_columns = SFP.getIndexColumns(execspace_name='OpenMP')
+
+  new_columns = list(dataset)
+  index_columns = list(set(index_columns).intersection(set(new_columns)))
+
   # set the index, verify it, and sort
-  dataset = dataset.set_index(keys=SFP.getIndexColumns(execspace_name='OpenMP'),
-                              drop=False, verify_integrity=True)
+  dataset = dataset.set_index(keys=index_columns,
+                              drop=False,
+                              verify_integrity=True)
 
   dataset = dataset.sort_index()
 
