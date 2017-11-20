@@ -1366,7 +1366,7 @@ def plot_composite_weak(composite_group,
     if baseline_group is None:
       print("Skipping, have a baseline but don't have this timer in the baseline")
       return
-    
+
     bl_composite_group = add_flat_mpi_data(baseline_group, allow_baseline_override=True)
 
   decomp_groups = composite_group.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
