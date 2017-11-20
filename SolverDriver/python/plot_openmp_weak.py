@@ -122,9 +122,14 @@ BE_QUIET=False
 
 SPMV_FIG=True
 
-COMPOSITE_PATH   = 'composites'
-INDEPENDENT_PATH = 'standalone'
-LATEX_CSV_PATH = 'latex_csv'
+PLOT_DIRS = {
+  'composite'   : 'composites',
+  'independent' : 'standalone',
+  'node'        : 'nodes',
+  'latex'       : 'latex',
+  'csv'       : 'csv'
+}
+
 IMG_FORMAT = "png"
 IMG_DPI = 150
 
@@ -228,7 +233,7 @@ DECOMP_COLORS = {
 
 
 # Print iterations progress
-def printProgressBar (iteration, total, prefix='', suffix='', decimals=1, length=100, fill='█'):
+def printProgressBar (iteration, total, prefix='', suffix='', decimals=1, length=100, fill='*'):
   """
   Call in a loop to create terminal progress bar
   @params:
@@ -947,7 +952,7 @@ def save_figures(figures,
     try:
       fullpath = get_img_filepath(base_name=filename,
                                   ext=IMG_FORMAT,
-                                  path=COMPOSITE_PATH,
+                                  path=PLOT_DIRS['composite'],
                                   sub_dir=sub_dir,
                                   composite=True)
 
@@ -964,7 +969,7 @@ def save_figures(figures,
   # we assume the composite figure has a legend attached always
   handles, labels = figures['composite'].gca().get_legend_handles_labels()
   ncols = len(labels)
-  legend_path = '{path}/legend-{ncols}.{format}'.format(path=COMPOSITE_PATH, ncols=ncols, format=IMG_FORMAT)
+  legend_path = '{path}/legend-{ncols}.{format}'.format(path=PLOT_DIRS['composite'], ncols=ncols, format=IMG_FORMAT)
   legend_file = Path(legend_path)
   try:
     temp = legend_file.resolve()
@@ -1008,7 +1013,7 @@ def save_figures(figures,
                                     plot_name=column_name,
                                     ht_name=ht_name,
                                     ext=IMG_FORMAT,
-                                    path=INDEPENDENT_PATH,
+                                    path=PLOT_DIRS['independent'],
                                     sub_dir=sub_dir,
                                     independent=True)
 
@@ -1108,7 +1113,10 @@ def plot_raw_data(ax, indep_ax, xvalues, yvalues, linestyle, label, color,
 
 
 ###############################################################################
-def need_to_replot(simple_fname, subplot_names, ht_names,
+def need_to_replot(simple_fname,
+                   subplot_names,
+                   ht_names,
+                   sub_dir,
                    composite=False,
                    independent=True):
   """
@@ -1128,7 +1136,7 @@ def need_to_replot(simple_fname, subplot_names, ht_names,
   if composite:
     filepath = get_img_filepath(base_name=simple_fname,
                                 ext=IMG_FORMAT,
-                                path=COMPOSITE_PATH,
+                                path=PLOT_DIRS['composite'],
                                 composite=True)
     my_file = Path(filepath)
     try:
@@ -1155,7 +1163,7 @@ def need_to_replot(simple_fname, subplot_names, ht_names,
                                   plot_name=column_name,
                                   ht_name=ht_name,
                                   ext=IMG_FORMAT,
-                                  path=INDEPENDENT_PATH,
+                                  path=PLOT_DIRS['independent'],
                                   independent=True)
       my_file = Path(fullpath)
       try:
@@ -2003,9 +2011,9 @@ def plot_composite_weak(composite_group,
                close_figure=False)
 
   if write_latex_and_csv:
-    total_df.to_csv('{path}/{fname}.csv'.format(path=LATEX_CSV_PATH,
+    total_df.to_csv('{path}/{fname}.csv'.format(path=PLOT_DIRS['csv'],
                                                 fname=simple_fname))
-    total_df.to_latex('{path}/{fname}.tex'.format(path=LATEX_CSV_PATH,
+    total_df.to_latex('{path}/{fname}.tex'.format(path=PLOT_DIRS['latex'],
                                                   fname=simple_fname),
                       longtable=True)
 
@@ -2059,6 +2067,9 @@ def plot_composite_weak(composite_group,
                  close_figure=False)
 
   close_figures(figures)
+
+  total_df['Timer name'] = my_tokens['Timer Name']
+  return total_df
 
 
 def annotate_file_names(figures):
@@ -3091,23 +3102,28 @@ def plot_composite(composite_group,
                    baseline_dr_df=None,
                    **kwargs):
   if scaling_study_type == 'weak':
-    plot_composite_weak(composite_group=composite_group,
-                        baseline_group=baseline_group,
-                        baseline_dr_df=baseline_dr_df,
-                        my_nodes=my_nodes,
-                        my_ticks=my_ticks,
-                        numbered_plots_idx=numbered_plots_idx,
-                        driver_df=driver_df,
-                        kwargs=kwargs)
+    df = plot_composite_weak(composite_group=composite_group,
+                             baseline_group=baseline_group,
+                             baseline_dr_df=baseline_dr_df,
+                             my_nodes=my_nodes,
+                             my_ticks=my_ticks,
+                             numbered_plots_idx=numbered_plots_idx,
+                             driver_df=driver_df,
+                             kwargs=kwargs)
 
   elif scaling_study_type == 'strong':
-    plot_composite_strong(composite_group=composite_group,
-                          baseline_group=baseline_group,
-                          baseline_dr_df=baseline_dr_df,
-                          my_nodes=my_nodes,
-                          my_ticks=my_ticks,
-                          numbered_plots_idx=numbered_plots_idx,
-                          driver_df=driver_df)
+    df = plot_composite_strong(composite_group=composite_group,
+                               baseline_group=baseline_group,
+                               baseline_dr_df=baseline_dr_df,
+                               my_nodes=my_nodes,
+                               my_ticks=my_ticks,
+                               numbered_plots_idx=numbered_plots_idx,
+                               driver_df=driver_df)
+  else:
+    print('Unknown scaling study type: ', scaling_study_type)
+    raise RuntimeError
+
+  return df
 
 
 ###############################################################################
@@ -3262,13 +3278,9 @@ def plot_dataset(dataset,
     global BASELINE_DATASET_DF
     global BASELINE_DRIVER_DF
 
-  import os as os
-  if not os.path.exists(COMPOSITE_PATH):
-    os.makedirs(COMPOSITE_PATH)
-  if not os.path.exists(INDEPENDENT_PATH):
-    os.makedirs(INDEPENDENT_PATH)
-  if not os.path.exists(LATEX_CSV_PATH):
-    os.makedirs(LATEX_CSV_PATH)
+  for dir_name in PLOT_DIRS.keys():
+    if not os.path.exists(PLOT_DIRS[dir_name]):
+      os.makedirs(PLOT_DIRS[dir_name])
 
   sub_dirs = ['', 'shared_ht', 'free-yaxis']
   if ANNOTATE_BEST : sub_dirs += ['free-yaxis-best', 'overall']
@@ -3278,11 +3290,11 @@ def plot_dataset(dataset,
 
   SUBPLOT_NAMES = [k for k in PLOTS_TO_GENERATE.keys() if PLOTS_TO_GENERATE[k]]
   for plot_name in SUBPLOT_NAMES:
-    plot_path = INDEPENDENT_PATH + '/' + plot_name
+    plot_path = PLOT_DIRS['independent'] + '/' + plot_name
     if not os.path.exists(plot_path):
       os.makedirs(plot_path)
     for sub_dir in sub_dirs:
-      plot_path = INDEPENDENT_PATH + '/' + plot_name + '/' + sub_dir
+      plot_path = PLOT_DIRS['independent'] + '/' + plot_name + '/' + sub_dir
       if not os.path.exists(plot_path):
         os.makedirs(plot_path)
 
@@ -3367,6 +3379,7 @@ def plot_dataset(dataset,
   # e.g., each experiment has their corresponding driver timers as additional columns
   driver_composite_groups = driver_dataset.groupby(omp_groupby_columns)
 
+  annotated_df = pd.DataFrame()
   num_groups = len(composite_groups)
   group_idx = 0
   printProgressBar(group_idx, num_groups, prefix='Progress:', suffix='Complete')
@@ -3412,16 +3425,18 @@ def plot_dataset(dataset,
             print(bl_composite_groups.groups())
           bl_group = None
 
-      plot_composite(composite_group=composite_group,
-                     baseline_group=bl_group,
-                     baseline_dr_df=bl_driver_composite_groups.get_group(tuple(driver_constructor_name)),
-                     my_nodes=my_nodes,
-                     my_ticks=my_ticks,
-                     scaling_study_type=scaling_type,
-                     driver_df=driver_composite_groups.get_group(tuple(driver_constructor_name)),
-                     numbered_plots_idx=numbered_plots_idx,
-                     show_percent_total=False)
-      group_idx +=  1
+      this_df = plot_composite(composite_group=composite_group,
+                               baseline_group=bl_group,
+                               baseline_dr_df=bl_driver_composite_groups.get_group(tuple(driver_constructor_name)),
+                               my_nodes=my_nodes,
+                               my_ticks=my_ticks,
+                               scaling_study_type=scaling_type,
+                               driver_df=driver_composite_groups.get_group(tuple(driver_constructor_name)),
+                               numbered_plots_idx=numbered_plots_idx,
+                               show_percent_total=False)
+
+      annotated_df = pd.concat([annotated_df, this_df])
+      group_idx += 1
       if not BE_QUIET:
         printProgressBar(group_idx, num_groups, prefix='Progress:', suffix='Complete')
 
@@ -3449,27 +3464,58 @@ def plot_dataset(dataset,
             print(bl_composite_groups.groups())
           bl_group = None
 
-      plot_composite(composite_group=composite_group,
-                     baseline_group=bl_group,
-                     my_nodes=my_nodes,
-                     my_ticks=my_ticks,
-                     scaling_study_type=scaling_type,
-                     driver_df=driver_composite_groups.get_group(tuple(driver_constructor_name)),
-                     numbered_plots_idx=numbered_plots_idx,
-                     show_percent_total=False)
-      group_idx +=  1
+      this_df = plot_composite(composite_group=composite_group,
+                               baseline_group=bl_group,
+                               my_nodes=my_nodes,
+                               my_ticks=my_ticks,
+                               scaling_study_type=scaling_type,
+                               driver_df=driver_composite_groups.get_group(tuple(driver_constructor_name)),
+                               numbered_plots_idx=numbered_plots_idx,
+                               show_percent_total=False)
+
+      annotated_df = pd.concat([annotated_df, this_df])
+      group_idx += 1
       if not BE_QUIET:
         printProgressBar(group_idx, num_groups, prefix='Progress:', suffix='Complete')
 
+#   # do analysis on the annotated data
+#   # TODO: we should annotate first, then plot after
+#   plot_annotated_speedup(annotated_df=annotated_df)
+#
+#
+# def plot_annotated_speedup(annotated_df):
+#   annotated_df = annotated_df.sort_values(by=['Timer Name'])
+#
+#   annotated_df['decomp_label'] = annotated_df['procs_per_node'].str + 'x' + annotated_df['cores_per_proc'].str
+#   annotated_df[annotated_df['execspace_name'] == 'Serial', 'decomp_label'] = 'flat_mpi'
+#   decomps = annotated_df['decomp_label'].unique()
+#   hts = annotated_df['HT'].unique()
+#
+#   print(decomps)
+#   print(hts)
+#   annotated_df.to_csv('annotated.csv')
+#
+#   # execspace_name,MPI Procs,nodes,procs_per_node,cores_per_proc,HT,minT,maxT,min_percent,max_percent,flat_mpi_factor_min,flat_mpi_factor_max,bl_min,bl_max,bl_speedup_max,bl_speedup_min
+#   decomp_groups = annotated_df.groupby(['procs_per_node, cores_per_proc'])
+#   for decomp_group_name, decomp_group in decomp_groups:
+#     procs_per_node = decomp_group[0]
+#     cores_per_proc = decomp_group[1]
+#     row_groups = decomp_group.groupby(['Timer Name'])
+#     for timer_name, row_group in row_groups:
+#       pass
 
+
+#
+#
+#
+#
+#
 ###############################################################################
 def main():
   global VERBOSITY
   global BE_QUIET
   global SPMV_FIG
-  global COMPOSITE_PATH
-  global INDEPENDENT_PATH
-  global LATEX_CSV_PATH
+  global PLOT_DIRS
   global IMG_FORMAT
   global IMG_DPI
   global FORCE_REPLOT
@@ -3579,15 +3625,13 @@ def main():
   if _arg_options['--min_only']:
     PLOT_MAX = False
     MIN_LINESTYLE='solid'
-    COMPOSITE_PATH = 'min_only/{}'.format(COMPOSITE_PATH)
-    INDEPENDENT_PATH = 'min_only/{}'.format(INDEPENDENT_PATH)
-    LATEX_CSV_PATH = 'min_only/{}'.format(LATEX_CSV_PATH)
+    for dir_name in PLOT_DIRS.keys():
+      PLOT_DIRS[dir_name] = 'min_only/{}'.format(PLOT_DIRS[dir_name])
 
   if _arg_options['--max_only']:
     PLOT_MIN = False
-    COMPOSITE_PATH = 'max_only/{}'.format(COMPOSITE_PATH)
-    INDEPENDENT_PATH = 'max_only/{}'.format(INDEPENDENT_PATH)
-    LATEX_CSV_PATH = 'max_only/{}'.format(LATEX_CSV_PATH)
+    for dir_name in PLOT_DIRS.keys():
+      PLOT_DIRS[dir_name] = 'max_only/{}'.format(PLOT_DIRS[dir_name])
 
   if _arg_options['--ymin'] != -1.0:
     global DO_YMIN_OVERRIDE
