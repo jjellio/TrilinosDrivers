@@ -26,6 +26,11 @@ Usage:
             [--sort_timer_labels=TIMING]
             [--number_plots=BOOL]
             [--verbose=N]
+            [--average=<averaging>]
+            [--quiet]
+            [--img_format=FORMAT]
+            [--img_dpi=NUM]
+
 
   plotter.py (-h | --help)
 
@@ -56,6 +61,10 @@ Options:
   --sort_timer_labels=TIMING  sort the timer labels by a specific timing [default: None]
   --number_plots=BOOL  Number the plots [default: True]
   --verbose=N  Print details as execution goes [default: 1]
+  --average=<averaging>   Average the times using callcounts, numsteps, or none [default: none]
+  --quiet   Be quiet [default: False]
+  --img_format=FORMAT  Format of the output images [default: pdf]
+  --img_dpi=NUM     DPI of images [default: 150]
 
 Arguments:
 
@@ -85,6 +94,12 @@ Arguments:
         ht   : only label hyperthreads
         full : complete descriptive title
 
+      averaging: cc - call counts
+                 ns - num_steps
+                 none - do not average
+
+      FORMAT: png, pdf, ...
+
 """
 #import matplotlib as mpl
 # mpl.use('TkAgg')
@@ -98,10 +113,12 @@ from pathlib import Path
 import os
 import copy
 import re
+import sys
 import ScalingFilenameParser as SFP
 # from operator import itemgetter
 
 VERBOSITY = 0
+BE_QUIET=False
 
 SPMV_FIG=True
 
@@ -121,6 +138,8 @@ QUANTITY_OF_INTEREST_MAX         = 'maxT'
 QUANTITY_OF_INTEREST_MAX_COUNT   = 'maxC'
 QUANTITY_OF_INTEREST_THING       = 'meanCT'
 QUANTITY_OF_INTEREST_THING_COUNT = 'meanCC'
+
+AVERAGE_BY = 'none'
 
 MIN_LINESTYLE = 'dotted'
 MAX_LINESTYLE = 'solid'
@@ -208,6 +227,29 @@ DECOMP_COLORS = {
 }
 
 
+# Print iterations progress
+def printProgressBar (iteration, total, prefix='', suffix='', decimals=1, length=100, fill='█'):
+  """
+  Call in a loop to create terminal progress bar
+  @params:
+      iteration   - Required  : current iteration (Int)
+      total       - Required  : total iterations (Int)
+      prefix      - Optional  : prefix string (Str)
+      suffix      - Optional  : suffix string (Str)
+      decimals    - Optional  : positive number of decimals in percent complete (Int)
+      length      - Optional  : character length of bar (Int)
+      fill        - Optional  : bar fill character (Str)
+  """
+  percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
+  filledLength = int(length * iteration // total)
+  bar = fill * filledLength + '-' * (length - filledLength)
+  print('\r%s |%s| %s%% %s' % (prefix, bar, percent, suffix), end='\r')
+  # Print New Line on Complete
+  if iteration == total:
+    print()
+  sys.stdout.flush()
+
+
 ###############################################################################
 def sanity_check():
   """
@@ -275,9 +317,15 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
            aggregates.
   """
   DEBUG_plottable_dataframe = False
-  DIVIDE_BY_CALLCOUNTS = False
-  DIVIDE_BY_NUMSTEPS = True
   TAKE_COLUMNWISE_MINMAX = False
+
+  DIVIDE_BY_CALLCOUNTS = False
+  DIVIDE_BY_NUMSTEPS = False
+
+  if AVERAGE_BY == 'ns':
+    DIVIDE_BY_NUMSTEPS = True
+  elif AVERAGE_BY == 'cc':
+    DIVIDE_BY_CALLCOUNTS = True
 
   # global FOO
   # print('FOO', FOO)
@@ -355,7 +403,8 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
 
   if DEBUG_plottable_dataframe: print(plottable_df)
 
-  print('Decomp: {magic}:\n\t\tnumsteps:: data: {numsteps} driver: {numsteps_d}\n\t\tcallCounts:: data: {cc} driver: {cc_d}'.format(magic=magic,
+  if VERBOSITY & 1024:
+    print('Decomp: {magic}:\n\t\tnumsteps:: data: {numsteps} driver: {numsteps_d}\n\t\tcallCounts:: data: {cc} driver: {cc_d}'.format(magic=magic,
                                                                                                                                     numsteps=timings['numsteps'].unique(),
                                                                                                                                     numsteps_d=driver_timings['driver_numsteps'].unique(),
                                                                                                                                     cc=timings[QUANTITY_OF_INTEREST_MIN_COUNT].unique(),
@@ -846,16 +895,24 @@ def enforce_override_ylims(figures, axes):
         current_ylims = list(ax.get_ylim())
         if column_name in YMIN_OVERRIDE:
           current_ylims[0] = float(YMIN_OVERRIDE[column_name])
+        else:
+          if VERBOSITY & 1024: print('plot {} does not have override'.format(column_name))
         if column_name in YMAX_OVERRIDE:
           current_ylims[1] = float(YMAX_OVERRIDE[column_name])
+        else:
+          if VERBOSITY & 1024: print('plot {} does not have override'.format(column_name))
         ax.set_ylim(current_ylims)
 
       for figure_name, fig in figures['independent'][column_name].items():
         current_ylims = list(fig.gca().get_ylim())
         if column_name in YMIN_OVERRIDE:
           current_ylims[0] = float(YMIN_OVERRIDE[column_name])
+        else:
+          if VERBOSITY & 1024: print('plot {} does not have override'.format(column_name))
         if column_name in YMAX_OVERRIDE:
           current_ylims[1] = float(YMAX_OVERRIDE[column_name])
+        else:
+          if VERBOSITY & 1024: print('plot {} does not have override'.format(column_name))
         ax.set_ylim(current_ylims)
 
         fig.gca().set_ylim(current_ylims)
@@ -923,7 +980,8 @@ def save_figures(figures,
                         format=IMG_FORMAT,
                         dpi=IMG_DPI)
 
-      print('Wrote: {}'.format(os.path.basename(legend_path)))
+      if VERBOSITY & 1024:
+        print('Wrote: {}'.format(os.path.basename(legend_path)))
     except:
       print('FAILED writing {}'.format(os.path.basename(legend_path)))
       raise
@@ -957,7 +1015,8 @@ def save_figures(figures,
         figures['independent'][column_name][ht_name].savefig(fullpath,
                                                              format=IMG_FORMAT,
                                                              dpi=IMG_DPI)
-        print('Wrote: {}'.format(os.path.basename(fullpath)))
+        if VERBOSITY & 1024:
+          print('Wrote: {}'.format(os.path.basename(fullpath)))
       except:
         print('FAILED writing {}'.format(os.path.basename(fullpath)))
         raise
@@ -1083,7 +1142,8 @@ def need_to_replot(simple_fname, subplot_names, ht_names,
       if temp.is_file() is False:
         need_to_replot_ = True
     except FileNotFoundError or RuntimeError:
-      print("File {} does not exist triggering replot".format(filepath))
+      if VERBOSITY & 1024:
+        print("File {} does not exist triggering replot".format(filepath))
       need_to_replot_ = True
 
   if independent is False:
@@ -1103,7 +1163,8 @@ def need_to_replot(simple_fname, subplot_names, ht_names,
         if temp.is_file() is False:
           need_to_replot_ = True
       except FileNotFoundError or RuntimeError:
-        print("File {} does not exist triggering replot".format(fullpath))
+        if VERBOSITY & 1024:
+          print("File {} does not exist triggering replot".format(fullpath))
         need_to_replot_ = True
 
   return need_to_replot_
@@ -1164,11 +1225,8 @@ def add_flat_mpi_data(composite_group,
   # ideally, we would want to query the Serial execution space here... but that is kinda complicated, we likely
   # need to add an argument that is a serial execution space dataframe, as the groupby logic expects the execution
   # space to be the same
-  try:
-    serial_data = composite_group[composite_group['execspace_name'] == 'Serial']
-  except Exception as e:
-    composite_group.to_csv('failed.csv')
-    raise e
+
+  serial_data = composite_group[composite_group['execspace_name'] == 'Serial']
 
   if serial_data.empty:
     # try to use OpenMP instead
@@ -1184,7 +1242,8 @@ def add_flat_mpi_data(composite_group,
         raise e
   else:
     flat_mpi_df = serial_data
-    print('Using Serial run data for flatMPI')
+    if VERBOSITY & 1024:
+      print('Using Serial run data for flatMPI')
 
   flat_mpi_df.rename(columns={QUANTITY_OF_INTEREST_MIN: 'flat_mpi_min',
                               QUANTITY_OF_INTEREST_MAX: 'flat_mpi_max',
@@ -1359,12 +1418,22 @@ def plot_composite_weak(composite_group,
   """
   total_df = pd.DataFrame()
 
+  if composite_group is None:
+    print("Composite Group is none?")
+    raise LookupError
+
   # determine the flat MPI time
-  composite_group = add_flat_mpi_data(composite_group, allow_baseline_override=True)
+  try:
+    composite_group = add_flat_mpi_data(composite_group, allow_baseline_override=True)
+  except:
+    print('WTF?')
+    composite_group.to_csv('failed.csv')
+    raise
 
   if HAVE_BASELINE:
     if baseline_group is None:
-      print("Skipping, have a baseline but don't have this timer in the baseline")
+      if VERBOSITY & 1024:
+        print("Skipping, have a baseline but don't have this timer in the baseline")
       return
 
     bl_composite_group = add_flat_mpi_data(baseline_group, allow_baseline_override=True)
@@ -1373,7 +1442,7 @@ def plot_composite_weak(composite_group,
   driver_decomp_groups = driver_df.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
 
   if HAVE_BASELINE:
-    print('have a baseline!')
+    if (VERBOSITY & 1024): print('have a baseline!')
     bl_decomp_groups = bl_composite_group.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
     bl_dr_decomp_groups = baseline_dr_df.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
 
@@ -1423,7 +1492,7 @@ def plot_composite_weak(composite_group,
   # whether we should replot images that already exist.
   if FORCE_REPLOT is False:
     if not need_to_replot(simple_fname, SUBPLOT_NAMES, ht_names):
-      print("Skipping {}.png".format(simple_fname))
+      if VERBOSITY & 1024: print("Skipping {}.png".format(simple_fname))
       return
 
   axes, figures = get_figures_and_axes(subplot_names=SUBPLOT_NAMES,
@@ -1538,17 +1607,18 @@ def plot_composite_weak(composite_group,
       # count the missing values, can use any quantity of interest for this
       num_missing_data_points = my_agg_times[QUANTITY_OF_INTEREST_MIN].isnull().values.ravel().sum()
 
-      if num_missing_data_points != 0:
+      if num_missing_data_points != 0 and VERBOSITY & 1024:
         print(
           "Expected {expected_data_points} data points, Missing: {num_missing_data_points}".format(
             expected_data_points=my_num_nodes,
             num_missing_data_points=num_missing_data_points))
 
-      print("x={}, y={}, {}x{}x{}".format(my_agg_times['ticks'].count(),
-                                          my_agg_times['num_nodes'].count(),
-                                          procs_per_node,
-                                          cores_per_proc,
-                                          ht_name))
+      if VERBOSITY & 1024:
+        print("x={}, y={}, {}x{}x{}".format(my_agg_times['ticks'].count(),
+                                            my_agg_times['num_nodes'].count(),
+                                            procs_per_node,
+                                            cores_per_proc,
+                                            ht_name))
 
       # plot the data
       if PLOT_MAX:
@@ -1958,7 +2028,10 @@ def plot_composite_weak(composite_group,
     enforce_consistent_ylims(figures, axes)
 
   # save the figures with the axes shared
-  save_figures(figures, filename=simple_fname, close_figure=False)
+  save_figures(figures,
+               filename=simple_fname,
+               sub_dir='shared_ht',
+               close_figure=False)
 
   if ANNOTATE_BEST:
     for column_name in figures['independent']:
@@ -3197,9 +3270,11 @@ def plot_dataset(dataset,
   if not os.path.exists(LATEX_CSV_PATH):
     os.makedirs(LATEX_CSV_PATH)
 
-  sub_dirs = ['', 'free-yaxis']
+  sub_dirs = ['', 'shared_ht', 'free-yaxis']
   if ANNOTATE_BEST : sub_dirs += ['free-yaxis-best', 'overall']
   if DO_YMAX_OVERRIDE or DO_YMIN_OVERRIDE: sub_dirs += ['or']
+
+  print(YMIN_OVERRIDE)
 
   SUBPLOT_NAMES = [k for k in PLOTS_TO_GENERATE.keys() if PLOTS_TO_GENERATE[k]]
   for plot_name in SUBPLOT_NAMES:
@@ -3292,6 +3367,10 @@ def plot_dataset(dataset,
   # e.g., each experiment has their corresponding driver timers as additional columns
   driver_composite_groups = driver_dataset.groupby(omp_groupby_columns)
 
+  num_groups = len(composite_groups)
+  group_idx = 0
+  printProgressBar(group_idx, num_groups, prefix='Progress:', suffix='Complete')
+
   if HAVE_BASELINE:
     bl_composite_groups = BASELINE_DATASET_DF.groupby(omp_groupby_columns)
     bl_driver_composite_groups = BASELINE_DRIVER_DF.groupby(omp_groupby_columns)
@@ -3342,6 +3421,9 @@ def plot_dataset(dataset,
                      driver_df=driver_composite_groups.get_group(tuple(driver_constructor_name)),
                      numbered_plots_idx=numbered_plots_idx,
                      show_percent_total=False)
+      group_idx +=  1
+      if not BE_QUIET:
+        printProgressBar(group_idx, num_groups, prefix='Progress:', suffix='Complete')
 
   else:
     # loop over the groups using the built in iterator (name,group)
@@ -3375,11 +3457,15 @@ def plot_dataset(dataset,
                      driver_df=driver_composite_groups.get_group(tuple(driver_constructor_name)),
                      numbered_plots_idx=numbered_plots_idx,
                      show_percent_total=False)
+      group_idx +=  1
+      if not BE_QUIET:
+        printProgressBar(group_idx, num_groups, prefix='Progress:', suffix='Complete')
 
 
 ###############################################################################
 def main():
   global VERBOSITY
+  global BE_QUIET
   global SPMV_FIG
   global COMPOSITE_PATH
   global INDEPENDENT_PATH
@@ -3441,11 +3527,16 @@ def main():
   global HYPER_THREAD_LABEL
   global DECOMP_COLORS
 
+  global AVERAGE_BY
+
   sanity_check()
 
   # Process input
   _arg_options = docopt(__doc__)
   VERBOSITY = int(_arg_options['--verbose'])
+  BE_QUIET = _arg_options['--quiet']
+  IMG_FORMAT = _arg_options['--img_format']
+  IMG_DPI    = int(_arg_options['--img_dpi'])
 
   dataset_filename  = _arg_options['--dataset']
   study_type        = _arg_options['--study']
@@ -3454,10 +3545,19 @@ def main():
   max_procs_per_node     = _arg_options['--max_procs_per_node']
   min_procs_per_node     = _arg_options['--min_procs_per_node']
   scaling_study_type      = _arg_options['--scaling']
+
+  averaging         = str(_arg_options['--average']).lower()
+  if averaging not in ['none', 'ns', 'cc']:
+    print('Invalid averaging: ', averaging)
+    averaging = 'none'
+  AVERAGE_BY = averaging
+
   baseline_df_file = None
   plots_to_generate = _arg_options['--plot']
   FORCE_REPLOT = _arg_options['--force_replot']
+
   print(_arg_options)
+
   SHADE_BASELINE_COMPARISON = not _arg_options['--no_baseline_comparison_shading']
   print('SHADING:', SHADE_BASELINE_COMPARISON)
 
@@ -3495,7 +3595,8 @@ def main():
     try:
       YMIN_OVERRIDE['raw_data'] = float(_arg_options['--ymin'])
     except ValueError:
-      YMIN_OVERRIDE =dict(item.split('=') for item in _arg_options['--ymin'].split(','))
+      YMIN_OVERRIDE =dict(item.split('=') for item in _arg_options['--ymin'].replace('"', '').split(','))
+      print(YMIN_OVERRIDE)
 
   if _arg_options['--ymax'] != -1.0:
     global DO_YMAX_OVERRIDE
@@ -3503,7 +3604,8 @@ def main():
     try:
       YMAX_OVERRIDE['raw_data'] = float(_arg_options['--ymax'])
     except ValueError:
-      YMAX_OVERRIDE = dict(item.split('=') for item in _arg_options['--ymax'].split(','))
+      YMAX_OVERRIDE = dict(item.split('=') for item in _arg_options['--ymax'].replace('"', '').split(','))
+      print(YMAX_OVERRIDE)
 
   if _arg_options['--normalize_y']:
     DO_NORMALIZE_Y = _arg_options['--normalize_y']
