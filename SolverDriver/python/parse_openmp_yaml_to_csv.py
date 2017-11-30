@@ -2,7 +2,10 @@
 """analysis.py
 
 Usage:
-  analysis.py --input-files=FILES [--output-csv=FILE] [--affinity-dir=PATH]
+  analysis.py --input-files=FILES
+              [--output-csv=FILE]
+              [--affinity-dir=PATH]
+              [--skip-affinity]
   analysis.py (-h | --help)
 
 Options:
@@ -10,12 +13,13 @@ Options:
   -i FILE --input-files=FILE    Input file
   -o FILE --output-csv=FILE     Output file [default: all_data.csv]
   -a PATH --affinity-dir=PATH   Path to directory with affinity CSV data [default: ../affinity]
+  --skip-affinity               Do not process affinity
 """
 
 import glob
 import numpy       as np
 import pandas      as pd
-from   docopt import docopt
+import docopt as dpt
 import yaml
 from pathlib import Path
 import re
@@ -43,11 +47,15 @@ def parse_affinity_data(affinity_path, tokens):
   affinity_filename = '{path}/{name}'.format(path=affinity_path,
                                              name=SFP.build_affinity_filename(my_tokens))
 
-  my_file_lookup = Path(affinity_filename)
   try:
+    my_file_lookup = Path(affinity_filename)
+
     affinity_file_abs = my_file_lookup.resolve()
-  except:
+  except FileNotFoundError or RuntimeError:
     print('Missing Affinity File: {}'.format(affinity_filename))
+    return
+
+  if affinity_file_abs.is_file() is False:
     return
 
   #if ~my_file.is_file():
@@ -95,15 +103,15 @@ def string_split_by_numbers(x):
 if __name__ == '__main__':
   import os
   # Process input
-  options = docopt(__doc__)
+  options = dpt.docopt(__doc__)
+  print(dpt.__file__)
 
   input_files  = options['--input-files']
   affinity_dir = options['--affinity-dir']
   output_csv   = options['--output-csv']
+  parse_affinity = options['--skip-affinity'] is False
 
-  print('input-files: {input}\n'
-        'output-csv: {output}\n'
-        'affinity-dir: {affinity}\n'.format(affinity=affinity_dir,output=output_csv,input=input_files))
+  print(options)
 
   SCALING_TYPE = 'weak'
 
@@ -130,7 +138,9 @@ if __name__ == '__main__':
       print("Rebuild FAIL: {} != {}".format(rebuilt_filename, input_file))
       exit(-1)
 
-    parse_affinity_data(affinity_path=affinity_dir, tokens=my_tokens)
+    if parse_affinity:
+      print('Parsing affinity')
+      parse_affinity_data(affinity_path=affinity_dir, tokens=my_tokens)
 
     print(my_tokens)
 
