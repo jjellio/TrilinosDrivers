@@ -327,6 +327,8 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
   DIVIDE_BY_CALLCOUNTS = False
   DIVIDE_BY_NUMSTEPS = False
 
+  have_driver_timings = (driver_groups is not None) and (driver_groups.empty is False)
+
   if AVERAGE_BY == 'ns':
     DIVIDE_BY_NUMSTEPS = True
   elif AVERAGE_BY == 'cc':
@@ -340,11 +342,7 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
     print('=========== DATA GROUP ===============')
     print(data_name)
     data_group.to_csv('datagroup-{}-{}.csv'.format(data_name, FOO))
-    FOO+=1
 
-    if FOO == 25:
-      print('Decomp: ' + magic)
-      raise IndexError
   # Use aggregation. This typically will do nothing, but in some cases there are many data points
   # per node count, and we need some way to flatten that data.  This assumes that experiments performed were the same
   # which is how the groupby() logic works  at the highest level. For strong scaling problem_type, problem size (global)
@@ -368,67 +366,63 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
                      how='left',
                      on='num_nodes')
 
-  driver_timings = driver_groups.get_group(data_name).groupby('num_nodes',
-                                                               as_index=False)[ [QUANTITY_OF_INTEREST_MIN,
-                                                                                 QUANTITY_OF_INTEREST_MIN_COUNT,
-                                                                                 QUANTITY_OF_INTEREST_MAX,
-                                                                                 QUANTITY_OF_INTEREST_MAX_COUNT,
-                                                                                 QUANTITY_OF_INTEREST_THING,
-                                                                                 QUANTITY_OF_INTEREST_THING_COUNT,
-                                                                                 'numsteps']].sum()
-
-  if DEBUG_plottable_dataframe:
-    driver_groups.get_group(data_name).to_csv('driver_timings-{timer}-{d}-{foo}.csv'.format(
-      timer=driver_groups.get_group(data_name)['Timer Name'].unique(),
-      d=magic,
-      foo=FOO))
-    FOO += 1
-
-    if FOO == 25:
-      print(magic)
-      raise IndexError
-
-  driver_timings = driver_timings[['num_nodes',
-                                   QUANTITY_OF_INTEREST_MIN,
-                                   QUANTITY_OF_INTEREST_MIN_COUNT,
-                                   QUANTITY_OF_INTEREST_MAX,
-                                   QUANTITY_OF_INTEREST_MAX_COUNT,
-                                   QUANTITY_OF_INTEREST_THING,
-                                   QUANTITY_OF_INTEREST_THING_COUNT,
-                                   'numsteps']]
-
-  # rename the driver timings to indicate they were from the driver
-  driver_timings.rename(columns={QUANTITY_OF_INTEREST_MIN         : 'driver_min',
-                                 QUANTITY_OF_INTEREST_MIN_COUNT   : 'driver_min_count',
-                                 QUANTITY_OF_INTEREST_MAX         : 'driver_max',
-                                 QUANTITY_OF_INTEREST_MAX_COUNT   : 'driver_max_count',
-                                 QUANTITY_OF_INTEREST_THING       : 'driver_thing',
-                                 QUANTITY_OF_INTEREST_THING_COUNT : 'driver_thing',
-                                 'numsteps'                       : 'driver_numsteps'}, inplace=True)
-
-  if DEBUG_plottable_dataframe: print(plottable_df)
-
-  if VERBOSITY & 1024:
-    print('Decomp: {magic}:\n\t\tnumsteps:: data: {numsteps} driver: {numsteps_d}\n\t\tcallCounts:: data: {cc} driver: {cc_d}'.format(magic=magic,
-                                                                                                                                    numsteps=timings['numsteps'].unique(),
-                                                                                                                                    numsteps_d=driver_timings['driver_numsteps'].unique(),
-                                                                                                                                    cc=timings[QUANTITY_OF_INTEREST_MIN_COUNT].unique(),
-                                                                                                                                    cc_d=driver_timings['driver_min_count'].unique()))
-
   # merge the kernels timings
   plottable_df = plottable_df.merge(timings, on='num_nodes', how='left')
 
   if DEBUG_plottable_dataframe: print(plottable_df)
 
-  # merge the driver timings
-  plottable_df = plottable_df.merge(driver_timings, on='num_nodes', how='left')
+  # if the driver dataframe is not empty, then gather info using it
+  if have_driver_timings:
+    driver_timings = driver_groups.get_group(data_name).groupby('num_nodes',
+                                                                 as_index=False)[ [QUANTITY_OF_INTEREST_MIN,
+                                                                                   QUANTITY_OF_INTEREST_MIN_COUNT,
+                                                                                   QUANTITY_OF_INTEREST_MAX,
+                                                                                   QUANTITY_OF_INTEREST_MAX_COUNT,
+                                                                                   QUANTITY_OF_INTEREST_THING,
+                                                                                   QUANTITY_OF_INTEREST_THING_COUNT,
+                                                                                   'numsteps']].sum()
 
-  if DEBUG_plottable_dataframe: print(plottable_df)
+    if DEBUG_plottable_dataframe:
+      driver_groups.get_group(data_name).to_csv('driver_timings-{timer}-{d}.csv'.format(
+        timer=driver_groups.get_group(data_name)['Timer Name'].unique(),
+        d=magic))
 
-  if DEBUG_plottable_dataframe:
-    if timings['numsteps'].unique() != driver_timings['driver_numsteps'].unique():
-      plottable_df.to_csv('plottable-{}.csv'.format(FOO), index=True)
-      raise IndexError
+    driver_timings = driver_timings[['num_nodes',
+                                     QUANTITY_OF_INTEREST_MIN,
+                                     QUANTITY_OF_INTEREST_MIN_COUNT,
+                                     QUANTITY_OF_INTEREST_MAX,
+                                     QUANTITY_OF_INTEREST_MAX_COUNT,
+                                     QUANTITY_OF_INTEREST_THING,
+                                     QUANTITY_OF_INTEREST_THING_COUNT,
+                                     'numsteps']]
+
+    # rename the driver timings to indicate they were from the driver
+    driver_timings.rename(columns={QUANTITY_OF_INTEREST_MIN         : 'driver_min',
+                                   QUANTITY_OF_INTEREST_MIN_COUNT   : 'driver_min_count',
+                                   QUANTITY_OF_INTEREST_MAX         : 'driver_max',
+                                   QUANTITY_OF_INTEREST_MAX_COUNT   : 'driver_max_count',
+                                   QUANTITY_OF_INTEREST_THING       : 'driver_thing',
+                                   QUANTITY_OF_INTEREST_THING_COUNT : 'driver_thing',
+                                   'numsteps'                       : 'driver_numsteps'}, inplace=True)
+
+    if DEBUG_plottable_dataframe: print(plottable_df)
+
+    if VERBOSITY & 1024:
+      print('Decomp: {magic}:\n\t\tnumsteps:: data: {numsteps} driver: {numsteps_d}\n\t\tcallCounts:: data: {cc} driver: {cc_d}'.format(magic=magic,
+                                                                                                                                      numsteps=timings['numsteps'].unique(),
+                                                                                                                                      numsteps_d=driver_timings['driver_numsteps'].unique(),
+                                                                                                                                      cc=timings[QUANTITY_OF_INTEREST_MIN_COUNT].unique(),
+                                                                                                                                      cc_d=driver_timings['driver_min_count'].unique()))
+
+    # merge the driver timings
+    plottable_df = plottable_df.merge(driver_timings, on='num_nodes', how='left')
+
+    if DEBUG_plottable_dataframe: print(plottable_df)
+
+    if DEBUG_plottable_dataframe:
+      if timings['numsteps'].unique() != driver_timings['driver_numsteps'].unique():
+        plottable_df.to_csv('plottable.csv', index=True)
+        raise IndexError
 
   # attempt to deal with the outliers
   # this is risky, because there is no promise there are the same number of data points for every node count
@@ -455,42 +449,45 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
     plottable_df[QUANTITY_OF_INTEREST_MIN] = plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df[QUANTITY_OF_INTEREST_MIN_COUNT]
     plottable_df[QUANTITY_OF_INTEREST_MAX] = plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df[QUANTITY_OF_INTEREST_MAX_COUNT]
 
-    plottable_df['driver_min'] = plottable_df['driver_min'] / plottable_df['driver_min_count']
-    plottable_df['driver_min'] = plottable_df['driver_max'] / plottable_df['driver_max_count']
-
     plottable_df['flat_mpi_min'] = plottable_df['flat_mpi_min'] / plottable_df['flat_mpi_min_count']
     plottable_df['flat_mpi_max'] = plottable_df['flat_mpi_max'] / plottable_df['flat_mpi_max_count']
+
+    if have_driver_timings:
+      plottable_df['driver_min'] = plottable_df['driver_min'] / plottable_df['driver_min_count']
+      plottable_df['driver_min'] = plottable_df['driver_max'] / plottable_df['driver_max_count']
 
   elif DIVIDE_BY_NUMSTEPS:
     plottable_df[QUANTITY_OF_INTEREST_MIN] = plottable_df[QUANTITY_OF_INTEREST_MIN] / plottable_df['numsteps']
     plottable_df[QUANTITY_OF_INTEREST_MAX] = plottable_df[QUANTITY_OF_INTEREST_MAX] / plottable_df['numsteps']
 
-    plottable_df['driver_min'] = plottable_df['driver_min'] / plottable_df['driver_numsteps']
-    plottable_df['driver_min'] = plottable_df['driver_max'] / plottable_df['driver_numsteps']
-
     plottable_df['flat_mpi_min'] = plottable_df['flat_mpi_min'] / plottable_df['flat_mpi_numsteps']
     plottable_df['flat_mpi_max'] = plottable_df['flat_mpi_max'] / plottable_df['flat_mpi_numsteps']
 
-  # compute the percent of total
-  plottable_df['min_percent_t'] = (plottable_df[QUANTITY_OF_INTEREST_MIN]) / (plottable_df['driver_min']) * 100.00
-  plottable_df['max_percent_t'] = (plottable_df[QUANTITY_OF_INTEREST_MAX]) / (plottable_df['driver_max']) * 100.00
+    if have_driver_timings:
+      plottable_df['driver_min'] = plottable_df['driver_min'] / plottable_df['driver_numsteps']
+      plottable_df['driver_min'] = plottable_df['driver_max'] / plottable_df['driver_numsteps']
 
-  if TAKE_COLUMNWISE_MINMAX:
-    # this is a bit iffy. It depends on what you choose to divide by above. Should the 'min' in the data
-    # be hardcoded to be the minOverProcs values, or does 'min' mean the conceptual minimum of the data.
-    # I take the latter as the definition since this data is a summary of experiments.
-    plottable_df['min_percent'] = plottable_df[['max_percent_t', 'min_percent_t']].min(axis=1)
-    plottable_df['max_percent'] = plottable_df[['max_percent_t', 'min_percent_t']].max(axis=1)
+  if have_driver_timings:
+    # compute the percent of total
+    plottable_df['min_percent_t'] = (plottable_df[QUANTITY_OF_INTEREST_MIN]) / (plottable_df['driver_min']) * 100.00
+    plottable_df['max_percent_t'] = (plottable_df[QUANTITY_OF_INTEREST_MAX]) / (plottable_df['driver_max']) * 100.00
 
-    # drop the temporary columns
-    plottable_df = plottable_df.drop('min_percent_t', 1)
-    plottable_df = plottable_df.drop('max_percent_t', 1)
-  else:
-    plottable_df.rename(columns={'min_percent_t': 'min_percent',
-                                 'max_percent_t': 'max_percent'}, inplace=True)
+    if TAKE_COLUMNWISE_MINMAX:
+      # this is a bit iffy. It depends on what you choose to divide by above. Should the 'min' in the data
+      # be hardcoded to be the minOverProcs values, or does 'min' mean the conceptual minimum of the data.
+      # I take the latter as the definition since this data is a summary of experiments.
+      plottable_df['min_percent'] = plottable_df[['max_percent_t', 'min_percent_t']].min(axis=1)
+      plottable_df['max_percent'] = plottable_df[['max_percent_t', 'min_percent_t']].max(axis=1)
 
-  plottable_df['min_percent'] = plottable_df['min_percent'].round(1)
-  plottable_df['max_percent'] = plottable_df['max_percent'].round(1)
+      # drop the temporary columns
+      plottable_df = plottable_df.drop('min_percent_t', 1)
+      plottable_df = plottable_df.drop('max_percent_t', 1)
+    else:
+      plottable_df.rename(columns={'min_percent_t': 'min_percent',
+                                   'max_percent_t': 'max_percent'}, inplace=True)
+
+    plottable_df['min_percent'] = plottable_df['min_percent'].round(1)
+    plottable_df['max_percent'] = plottable_df['max_percent'].round(1)
 
   # similar approach as above.
   plottable_df['flat_mpi_factor_min_t'] = (plottable_df[QUANTITY_OF_INTEREST_MIN]) / (plottable_df['flat_mpi_min'])
@@ -1314,12 +1311,15 @@ def update_decomp_dataframe(decomp_dataframe,
   del tmp_df['flat_mpi_min_count']
   del tmp_df['flat_mpi_max']
   del tmp_df['flat_mpi_max_count']
-  del tmp_df['driver_thing']
-  del tmp_df['driver_numsteps']
-  del tmp_df['driver_min']
-  del tmp_df['driver_min_count']
-  del tmp_df['driver_max']
-  del tmp_df['driver_max_count']
+  try:
+    del tmp_df['driver_thing']
+    del tmp_df['driver_numsteps']
+    del tmp_df['driver_min']
+    del tmp_df['driver_min_count']
+    del tmp_df['driver_max']
+    del tmp_df['driver_max_count']
+  except:
+    pass
   del tmp_df['numsteps']
   # del tmp_df['num_nodes']
   # keys.remove('num_nodes')
@@ -1344,18 +1344,18 @@ def update_decomp_dataframe(decomp_dataframe,
 
   tmp_df['MPI Procs'] = tmp_df['nodes'] * procs_per_node
 
-  tmp_df[[QUANTITY_OF_INTEREST_MIN,
-          QUANTITY_OF_INTEREST_MAX,
-          'flat_mpi_factor_min',
-          'flat_mpi_factor_max',
-          'min_percent',
-          'max_percent']] = \
-    tmp_df[[QUANTITY_OF_INTEREST_MIN,
-            QUANTITY_OF_INTEREST_MAX,
-            'flat_mpi_factor_min',
-            'flat_mpi_factor_max',
-            'min_percent',
-            'max_percent']].apply(lambda x: pd.Series.round(x, 2))
+  # tmp_df[[QUANTITY_OF_INTEREST_MIN,
+  #         QUANTITY_OF_INTEREST_MAX,
+  #         'flat_mpi_factor_min',
+  #         'flat_mpi_factor_max',
+  #         'min_percent',
+  #         'max_percent']] = \
+  #   tmp_df[[QUANTITY_OF_INTEREST_MIN,
+  #           QUANTITY_OF_INTEREST_MAX,
+  #           'flat_mpi_factor_min',
+  #           'flat_mpi_factor_max',
+  #           'min_percent',
+  #           'max_percent']].apply(lambda x: pd.Series.round(x, 2))
 
   tmp_df = tmp_df.drop_duplicates()
   tmp_df[['MPI Procs',
@@ -1389,6 +1389,7 @@ def plot_composite_weak(composite_group,
                         my_nodes,
                         my_ticks,
                         driver_df,
+                        expected_sub_dirs,
                         average=False,
                         numbered_plots_idx=-1,
                         write_latex_and_csv=True,
@@ -1430,6 +1431,9 @@ def plot_composite_weak(composite_group,
     print("Composite Group is none?")
     raise LookupError
 
+  have_driver_timings = (driver_df is not None) and (driver_df.empty is False) and \
+                        (baseline_dr_df is not None) and (baseline_dr_df.empty is False)
+
   # determine the flat MPI time
   try:
     composite_group = add_flat_mpi_data(composite_group, allow_baseline_override=True)
@@ -1447,12 +1451,14 @@ def plot_composite_weak(composite_group,
     bl_composite_group = add_flat_mpi_data(baseline_group, allow_baseline_override=True)
 
   decomp_groups = composite_group.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
-  driver_decomp_groups = driver_df.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
+  if have_driver_timings:
+    driver_decomp_groups = driver_df.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
 
   if HAVE_BASELINE:
     if (VERBOSITY & 1024): print('have a baseline!')
     bl_decomp_groups = bl_composite_group.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
-    bl_dr_decomp_groups = baseline_dr_df.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
+    if have_driver_timings:
+      bl_dr_decomp_groups = baseline_dr_df.groupby(['procs_per_node', 'cores_per_proc', 'execspace_name'])
 
   # determine the components that should be in the filename
   show_solver_name = (composite_group['solver_name'].nunique() == 1)
@@ -1499,9 +1505,14 @@ def plot_composite_weak(composite_group,
 
   # whether we should replot images that already exist.
   if FORCE_REPLOT is False:
-    if not need_to_replot(simple_fname, SUBPLOT_NAMES, ht_names):
-      if VERBOSITY & 1024: print("Skipping {}.png".format(simple_fname))
-      return
+    missing_files = False
+    for sub_dir in expected_sub_dirs:
+      missing_file = need_to_replot(simple_fname, SUBPLOT_NAMES, ht_names, sub_dir=sub_dir)
+      if (VERBOSITY & 1024) and missing_file: print("Missing {}/{}.png".format(sub_dir,
+                                                                               simple_fname))
+      missing_files = missing_files or missing_file
+    if missing_files is False:
+      if VERBOSITY & 1024: print("Skipping".format(simple_fname))
 
   axes, figures = get_figures_and_axes(subplot_names=SUBPLOT_NAMES,
                                        subplot_row_names=ht_names,
@@ -1518,13 +1529,15 @@ def plot_composite_weak(composite_group,
       bl_global_decomp_ht_groups = bl_global_decomp_group.groupby('threads_per_core')
       bl_global_decomp_ht_group = bl_global_decomp_ht_groups.get_group((BASELINE_DECOMP['threads_per_core']))
 
-      bl_dr_global_decomp_group = bl_dr_decomp_groups.get_group(BASELINE_DECOMP_TUPLE)
-      bl_dr_global_decomp_ht_groups = bl_dr_global_decomp_group.groupby('threads_per_core')
-      bl_dr_global_decomp_ht_group = bl_dr_global_decomp_ht_groups.get_group((BASELINE_DECOMP['threads_per_core']))
       if not bl_global_decomp_ht_group.empty:
         have_global_baseline = True
         # for plot_row in axes['raw_data']:
         #   axes['bl_perc_diff'][plot_row] = False
+
+      if have_driver_timings:
+        bl_dr_global_decomp_group = bl_dr_decomp_groups.get_group(BASELINE_DECOMP_TUPLE)
+        bl_dr_global_decomp_ht_groups = bl_dr_global_decomp_group.groupby('threads_per_core')
+        bl_dr_global_decomp_ht_group = bl_dr_global_decomp_ht_groups.get_group((BASELINE_DECOMP['threads_per_core']))
     except:
       pass
 
@@ -1542,7 +1555,11 @@ def plot_composite_weak(composite_group,
 
     # iterate over HTs
     ht_groups = decomp_group.groupby('threads_per_core')
-    driver_ht_groups = driver_decomp_groups.get_group(decomp_group_name).groupby('threads_per_core')
+
+    if have_driver_timings:
+      driver_ht_groups = driver_decomp_groups.get_group(decomp_group_name).groupby('threads_per_core')
+    else:
+      driver_ht_groups = None
 
     for ht_name in ht_names:
 
@@ -1568,12 +1585,16 @@ def plot_composite_weak(composite_group,
           bl_decomp_ht_groups = bl_decomp_group.groupby('threads_per_core')
           bl_decomp_ht_group = bl_decomp_ht_groups.get_group(ht_name)
 
-          bl_dr_decomp_group = bl_dr_decomp_groups.get_group(decomp_group_name)
-          bl_dr_decomp_ht_groups = bl_dr_decomp_group.groupby('threads_per_core')
-          bl_dr_decomp_ht_group = bl_dr_decomp_ht_groups.get_group(ht_name)
           if not bl_decomp_ht_group.empty:
             # if we got something, then we can form a comparison
             have_decomp_baseline = True
+
+          if have_driver_timings:
+            bl_dr_decomp_group = bl_dr_decomp_groups.get_group(decomp_group_name)
+            bl_dr_decomp_ht_groups = bl_dr_decomp_group.groupby('threads_per_core')
+            bl_dr_decomp_ht_group = bl_dr_decomp_ht_groups.get_group(ht_name)
+          else:
+            bl_dr_decomp_ht_groups = None
         except:
           pass
 
@@ -2936,8 +2957,14 @@ def load_dataset(dataset_filename,
   # dataset[integral_columns] = dataset[integral_columns].astype(np.int32)
 
   # set the index, verify it, and sort
-  dataset = dataset.set_index(keys=SFP.getIndexColumns(execspace_name='OpenMP'),
-                              drop=False, verify_integrity=True)
+  index_columns = SFP.getIndexColumns(execspace_name='OpenMP')
+
+  new_columns = list(dataset)
+  index_columns = list(set(index_columns).intersection(set(new_columns)))
+
+  dataset = dataset.set_index(keys=index_columns,
+                              drop=False,
+                              verify_integrity=True)
   if VERBOSITY & 1:
     print('Verified index')
 
@@ -2991,11 +3018,11 @@ def load_dataset(dataset_filename,
 
   # reindex
   # set the index, verify it, and sort
-  dataset = dataset.set_index(keys=SFP.getIndexColumns(execspace_name='OpenMP'),
+  dataset = dataset.set_index(keys=index_columns,
                               drop=False,
                               verify_integrity=True)
 
-  driver_dataset = driver_dataset.set_index(keys=SFP.getIndexColumns(execspace_name='OpenMP'),
+  driver_dataset = driver_dataset.set_index(keys=index_columns,
                                             drop=False,
                                             verify_integrity=True)
   if VERBOSITY & 1:
@@ -3098,6 +3125,7 @@ def plot_composite(composite_group,
                    scaling_study_type,
                    numbered_plots_idx,
                    driver_df,
+                   expected_sub_dirs,
                    baseline_group=None,
                    baseline_dr_df=None,
                    **kwargs):
@@ -3109,6 +3137,7 @@ def plot_composite(composite_group,
                              my_ticks=my_ticks,
                              numbered_plots_idx=numbered_plots_idx,
                              driver_df=driver_df,
+                             expected_sub_dirs=expected_sub_dirs,
                              kwargs=kwargs)
 
   elif scaling_study_type == 'strong':
@@ -3339,7 +3368,8 @@ def plot_dataset(dataset,
                        scaling_study_type=scaling_type,
                        numbered_plots_idx=numbered_plots_idx,
                        driver_df=driver_dataset,
-                       show_percent_total=False)
+                       show_percent_total=False,
+                       expected_sub_dirs=sub_dirs)
       else:
         plot_composite(composite_group=spmv_agg_group,
                        my_nodes=my_nodes,
@@ -3347,7 +3377,8 @@ def plot_dataset(dataset,
                        scaling_study_type=scaling_type,
                        numbered_plots_idx=numbered_plots_idx,
                        driver_df=driver_dataset,
-                       show_percent_total=False)
+                       show_percent_total=False,
+                       expected_sub_dirs=sub_dirs)
 
   # restrict the dataset if requested
   if restriction_tokens:
@@ -3368,6 +3399,7 @@ def plot_dataset(dataset,
   omp_groupby_columns.remove('cores_per_proc')
   # be very careful, there will be duplicate decomp groups
   omp_groupby_columns.remove('execspace_name')
+  omp_groupby_columns.remove('numsteps')
 
   if ordered_timers:
     dataset = dataset[dataset['Timer Name'].isin(ordered_timers)]
@@ -3399,84 +3431,67 @@ def plot_dataset(dataset,
     sorted_composite_groups = sorted(foo, key=lambda x: ordered_timers.index(x[0]))
     if VERBOSITY & 1024:
       print(sorted_composite_groups)
-    #sorted_composite_groups = composite_groups.groups.keys()
-
-    # loop over the sorted names, which are index tuples
-    for composite_group_name in sorted_composite_groups:
-      composite_group = composite_groups.get_group(composite_group_name)
-      # construct an index into the driver_df by changing the timer label to match the driver's
-      # global total label
-      driver_constructor_name = list(composite_group_name)
-      driver_constructor_name[0] = total_time_key
-
-      # increment this counter first, because it starts at the sentinel value of -1, which means no numbers
-      if number_plots:
-        numbered_plots_idx += 1
-
-      if HAVE_BASELINE:
-        try:
-          if VERBOSITY & 1024:
-            print('querying bl groups for: ', composite_group_name)
-          bl_group = bl_composite_groups.get_group(composite_group_name)
-        except:
-          if VERBOSITY & 1024:
-            print('Failed to lookup label in bl group')
-            print('BL labels:')
-            print(bl_composite_groups.groups())
-          bl_group = None
-
-      this_df = plot_composite(composite_group=composite_group,
-                               baseline_group=bl_group,
-                               baseline_dr_df=bl_driver_composite_groups.get_group(tuple(driver_constructor_name)),
-                               my_nodes=my_nodes,
-                               my_ticks=my_ticks,
-                               scaling_study_type=scaling_type,
-                               driver_df=driver_composite_groups.get_group(tuple(driver_constructor_name)),
-                               numbered_plots_idx=numbered_plots_idx,
-                               show_percent_total=False)
-
-      annotated_df = pd.concat([annotated_df, this_df])
-      group_idx += 1
-      if not BE_QUIET:
-        printProgressBar(group_idx, num_groups, prefix='Progress:', suffix='Complete')
-
   else:
-    # loop over the groups using the built in iterator (name,group)
-    for composite_group_name, composite_group in composite_groups:
+    sorted_composite_groups = composite_groups.groups.keys()
+
+  # loop over the sorted names, which are index tuples
+  for composite_group_name in sorted_composite_groups:
+    composite_group = composite_groups.get_group(composite_group_name)
+
+    driver_df = None
+    bl_group = None
+    bl_dr_group = None
+
+    if total_time_key is not None:
       # construct an index into the driver_df by changing the timer label to match the driver's
       # global total label
       driver_constructor_name = list(composite_group_name)
       driver_constructor_name[0] = total_time_key
+      try:
+        driver_df = driver_composite_groups.get_group(tuple(driver_constructor_name))
+      except:
+        pass
 
-      # increment this counter first, because it starts at the sentinel value of -1, which means no numbers
-      if number_plots:
-        numbered_plots_idx += 1
+    # increment this counter first, because it starts at the sentinel value of -1, which means no numbers
+    if number_plots:
+      numbered_plots_idx += 1
 
-      if HAVE_BASELINE:
+    if HAVE_BASELINE:
+      if VERBOSITY & 1024: print('querying bl groups for: ', composite_group_name)
+      try:
+        bl_group = bl_composite_groups.get_group(composite_group_name)
+      except:
+        if VERBOSITY & 1:
+          print('[{}]: Failed to find a baseline dataset, but have baseline for others, skipping.'.format(composite_group_name[0]))
+
+        if VERBOSITY & 1024:
+          print('Failed to lookup label in bl group')
+          print('BL labels:')
+          print(bl_composite_groups.groups)
+        pass
+        continue
+
+      if total_time_key is not None:
         try:
-          if VERBOSITY & 1024:
-            print('querying bl groups for: ', composite_group_name)
-          bl_group = bl_composite_groups.get_group(composite_group_name)
+          bl_dr_group = bl_driver_composite_groups.get_group(tuple(driver_constructor_name))
         except:
-          if VERBOSITY & 1024:
-            print('Failed to lookup label in bl group')
-            print('BL labels:')
-            print(bl_composite_groups.groups())
-          bl_group = None
+          pass
 
-      this_df = plot_composite(composite_group=composite_group,
-                               baseline_group=bl_group,
-                               my_nodes=my_nodes,
-                               my_ticks=my_ticks,
-                               scaling_study_type=scaling_type,
-                               driver_df=driver_composite_groups.get_group(tuple(driver_constructor_name)),
-                               numbered_plots_idx=numbered_plots_idx,
-                               show_percent_total=False)
+    this_df = plot_composite(composite_group=composite_group,
+                             baseline_group=bl_group,
+                             baseline_dr_df=bl_dr_group,
+                             my_nodes=my_nodes,
+                             my_ticks=my_ticks,
+                             scaling_study_type=scaling_type,
+                             driver_df=driver_df,
+                             numbered_plots_idx=numbered_plots_idx,
+                             show_percent_total=False,
+                             expected_sub_dirs=sub_dirs)
 
-      annotated_df = pd.concat([annotated_df, this_df])
-      group_idx += 1
-      if not BE_QUIET:
-        printProgressBar(group_idx, num_groups, prefix='Progress:', suffix='Complete')
+    annotated_df = pd.concat([annotated_df, this_df])
+    group_idx += 1
+    if not BE_QUIET:
+      printProgressBar(group_idx, num_groups, prefix='Progress:', suffix='Complete')
 
 #   # do analysis on the annotated data
 #   # TODO: we should annotate first, then plot after
@@ -3505,11 +3520,6 @@ def plot_dataset(dataset,
 #       pass
 
 
-#
-#
-#
-#
-#
 ###############################################################################
 def main():
   global VERBOSITY
@@ -3777,6 +3787,9 @@ def main():
   elif study_type == 'solvers':
     total_time_key = '5 - Solve'
     restriction_tokens = {'prec_name' : 'None'}
+  elif study_type == 'none':
+    total_time_key = None
+    restriction_tokens = None
   else:
     raise ValueError('unknown study_type ({})'.format(study_type))
 
