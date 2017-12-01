@@ -1,0 +1,18 @@
+OPT::Apply["]?$
+MueLu: Hierarchy: Setup \(total\)["]?$
+MueLu: Hierarchy: Setup \(total, level=0\)["]?$
+MueLu: Hierarchy: Setup \(total, level=1\)["]?$
+MueLu: Hierarchy: Setup \(total, level=2\)["]?$
+MueLu: Hierarchy: Setup \(total, level=3\)["]?$
+Teuchos::reduceAll::1["]?$
+Teuchos::reduceAll::2["]?$
+Teuchos::reduceAll::100["]?$
+MVT::InnerProduct::1["]?$
+MVT::InnerProduct::2["]?$
+MVT::InnerProduct::100["]?$
+MVT::Update::1["]?$
+MVT::Update::2["]?$
+MVT::Update::100["]?$
+MVT::MVScale::1["]?$
+MVT::MVScale::2["]?$
+MVT::MVScale::100["]?$
