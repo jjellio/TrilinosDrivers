@@ -827,8 +827,6 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
       << std::string(80,'-')
       << endl;
 
-
-
   typedef Teuchos::ScalarTraits<SC> STS;
   const SC zero = STS::zero();
   const SC one  = STS::one();
@@ -1215,6 +1213,9 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performSolverExperi
   RCP<Time> solverSetupTime_  = TimeMonitor::getNewTimer(TM_LABEL_SOLVER_SETUP);
   RCP<Time> solveTime_        = TimeMonitor::getNewTimer(TM_LABEL_SOLVE);
 
+  std::map<std::string, proc_status_table_type> region_tables;
+
+  track_memory_usage(region_tables["start"]);
   // Timestep loop around here
   // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
   // Run starts here.
@@ -1258,7 +1259,6 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performSolverExperi
 
       // start the clock
       Teuchos::TimeMonitor tm (*copyTime_);
-
 
       X->putScalar(zero);
 //      RCP<Node> dupeNode = rcp (new Node());
@@ -1304,6 +1304,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performSolverExperi
     // barrier after the timer scope, this allows the timers to track variations
     comm_->barrier();
 
+    track_memory_usage(region_tables[TM_LABEL_COPY]);
 
     // ===========================================================================
     // adjust/compute the nullspace
@@ -1375,6 +1376,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performSolverExperi
     // barrier after the timer scope, this allows the timers to track variations
     comm_->barrier();
 
+
     // ===========================================================================
     // Preconditioner construction
     // ===========================================================================
@@ -1388,11 +1390,15 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performSolverExperi
         RCP<const ParameterList> pl = (solverName == "MueLu") ? solverPL : precPL;
 
         // start the clock
-        Teuchos::TimeMonitor tm (*precSetupTime_);
+        {
+          Teuchos::TimeMonitor tm (*precSetupTime_);
 
-        A->SetMaxEigenvalueEstimate(-STS::one());
+          A->SetMaxEigenvalueEstimate(-STS::one());
 
-        H = MueLu::CreateXpetraPreconditioner(A, *pl, coordinates);
+          H = MueLu::CreateXpetraPreconditioner(A, *pl, coordinates);
+        }
+
+        track_memory_usage(region_tables[TM_LABEL_PREC_SETUP]);
       }
     }
     // barrier after the timer scope, this allows the timers to track variations
@@ -1446,10 +1452,11 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performSolverExperi
         solver = factory.create(solverName, rcp_const_cast<ParameterList>(solverPL));
         solver->setProblem (belosProblem);
       }
+
+      track_memory_usage(region_tables[TM_LABEL_SOLVER_SETUP]);
     }
     // barrier after the timer scope, this allows the timers to track variations
     comm_->barrier();
-
 
     // =========================================================================
     // Solver execution
@@ -1491,9 +1498,13 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performSolverExperi
       } else {
         throw MueLu::Exceptions::RuntimeError("Unknown solver Factory: \"" + solverFactoryName + "\"");
       }
+
+      track_memory_usage(region_tables[TM_LABEL_SOLVE]);
     }
     // barrier after the timer scope, this allows the timers to track variations
     comm_->barrier();
+
+
   }// timestep loop
 
   // report the solver's effective parameters
@@ -2004,4 +2015,150 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::reportBelosSolvers 
     solverParams1->print(*pOut_);
   }
 }
+
+
+/*
+ * This code is from stackexchange
+ * https://stackoverflow.com/questions/63166/how-to-determine-cpu-and-memory-consumption-from-inside-a-process
+ * it may be better to add a comprehensive memory tracking feature that tracks all info in /proc/ /status
+ */
+namespace {
+
+  void get_proc_status(std::map<std::string, std::string>& stat_map) {
+    // read proc
+    std::ifstream status_file ("/proc/self/status", std::ios::in);
+
+    // read all data
+    std::string content((std::istreambuf_iterator<char>(status_file)), std::istreambuf_iterator<char>());
+
+    // done
+    status_file.close();
+
+    // loop over buffer line by line
+    std::stringstream buffer_stream(content);
+    std::string line;
+
+    while(std::getline(buffer_stream, line))
+    {
+      auto colon_pos = line.find (':');
+      // this shouldn't happen, but it could on weird platforms
+      if (colon_pos == std::string::npos)
+        continue;
+
+      // split the line on the first colon
+      const auto key = std::string (line, 0, colon_pos);
+      auto val = std::string (line, colon_pos+1);
+      ::trim (val);
+
+      stat_map[key] = val;
+      /*
+       *
+        VmPeak:   100956 kB
+        VmSize:   100956 kB
+        VmLck:         0 kB
+        VmHWM:       568 kB
+        VmRSS:       568 kB
+        VmData:      176 kB
+        VmStk:        92 kB
+        VmExe:        44 kB
+        VmLib:      1704 kB
+        VmPTE:        48 kB
+        VmSwap:        0 kB
+        Threads:  1
+        Cpus_allowed_list:  0-191
+        Mems_allowed_list:  0-1
+        voluntary_ctxt_switches:  0
+        nonvoluntary_ctxt_switches: 1
+       *
+        Name:  cat
+        State:  R (running)
+        Tgid: 105980
+        Pid:  105980
+        PPid: 103963
+        TracerPid:  0
+        Uid:  81740 81740 81740 81740
+        Gid:  81740 81740 81740 81740
+        Utrace: 0
+        FDSize: 256
+        Groups: 48 32561 33586 33750 34686 34839 35004 35692 35707 35780 35870 35877 35885 35890 36618 36670 37681 38017 38246 38323 38496 38571 38825 39000 40419 40800 41162 41741 41759 42092 42101 42204 42229 42322 42349 42372 42373 42376 42390 42786 44327 44448 45048 45499 45924 59998 81740 1000011 1000231 1000506 1000728 1000762 1000000567 1000000623 1000000644 1000000793 1000000990 1000002068 1000002253 1000003169 1000003170 1000003181
+        VmPeak:   100956 kB
+        VmSize:   100956 kB
+        VmLck:         0 kB
+        VmHWM:       568 kB
+        VmRSS:       568 kB
+        VmData:      176 kB
+        VmStk:        92 kB
+        VmExe:        44 kB
+        VmLib:      1704 kB
+        VmPTE:        48 kB
+        VmSwap:        0 kB
+        Threads:  1
+        SigQ: 0/515708
+        SigPnd: 0000000000000000
+        ShdPnd: 0000000000000000
+        SigBlk: 0000000000000000
+        SigIgn: 0000000000000000
+        SigCgt: 0000000000000000
+        CapInh: 0000000000000000
+        CapPrm: 0000000000000000
+        CapEff: 0000000000000000
+        CapBnd: ffffffffffffffff
+        Cpus_allowed: ffffffff,ffffffff,ffffffff,ffffffff,ffffffff,ffffffff
+        Cpus_allowed_list:  0-191
+        Mems_allowed: 00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000003
+        Mems_allowed_list:  0-1
+        voluntary_ctxt_switches:  0
+        nonvoluntary_ctxt_switches: 1
+       *
+       */
+
+    }
+  }
+  // trim from start (in place)
+  void ltrim(std::string &s) {
+      s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](int ch) {
+          return !std::isspace(ch);
+      }));
+  }
+
+  // trim from end (in place)
+  void rtrim(std::string &s) {
+      s.erase(std::find_if(s.rbegin(), s.rend(), [](int ch) {
+          return !std::isspace(ch);
+      }).base(), s.end());
+  }
+
+  // trim from both ends (in place)
+  void trim(std::string &s) {
+      ltrim(s);
+      rtrim(s);
+  }
+
+  bool ends_with(const std::string& value, const std::string& ending) {
+    using std::equal;
+
+    if (ending.size() > value.size()) return (false);
+    return (equal(ending.rbegin(), ending.rend(), value.rbegin()));
+  }
+};
+
+
+template<class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
+void
+SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::track_memory_usage(proc_status_table_type& region_table)
+{
+
+  //Teuchos::ParameterList pl;
+  std::map<std::string, std::string> stat_map;
+
+  ::get_proc_status(stat_map);
+
+  for(const auto& elem : stat_map)
+  {
+    region_table[elem.first].push_back(elem.second);
+  }
+
+}
+
+
 

@@ -160,6 +160,9 @@ class SolverDriverDetails
 
   typedef PerfUtils::cpu_map_type cpu_map_type;
 
+  typedef std::vector<std::string> proc_status_column_type;
+  typedef std::map< std::string, proc_status_column_type> proc_status_table_type;
+
   #if defined (HAVE_MUELU_AMGX) and defined (HAVE_MUELU_TPETRA)
     typedef MueLu::AMGXOperator<SC,LO,GO,NO> amgx_op_type;
   #endif
@@ -201,6 +204,7 @@ private:
   std::string numThreadsFileToken_;
 
   Teuchos::RCP<const cpu_map_type> my_cpu_map_;
+
   // This is odd, but in c++11, you can define these this way
   // and it silences the ISO warning.
   // static constexpr const <- this matters
@@ -323,6 +327,8 @@ private:
   /// solver.
   void
   reportBelosSolvers ();
+
+  void track_memory_usage(proc_status_table_type& region_table);
 };
 
 
