@@ -2179,15 +2179,15 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::track_memory_usage(
 
   kb_metrics.push_back("VmPeak");
   kb_metrics.push_back("VmSize");
-  kb_metrics.push_back("VmLck");
+  kb_metrics.push_back("VmPin");
   kb_metrics.push_back("VmHWM");
   kb_metrics.push_back("VmRSS");
   kb_metrics.push_back("VmData");
   kb_metrics.push_back("VmStk");
   kb_metrics.push_back("VmExe");
-  kb_metrics.push_back("VmLib");
+//  kb_metrics.push_back("VmLib");
   kb_metrics.push_back("VmPTE");
-  kb_metrics.push_back("VmSwap");
+ // kb_metrics.push_back("VmSwap");
   kb_metrics.push_back("RssAnon");
   kb_metrics.push_back("RssFile");
   kb_metrics.push_back("RssShmem");
@@ -2195,8 +2195,8 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::track_memory_usage(
   kb_metrics.push_back("HugetlbPages");
 
   str_metrics.push_back("Threads");
-  str_metrics.push_back("Cpus_allowed_list");
-  str_metrics.push_back("Mems_allowed_list");
+//  str_metrics.push_back("Cpus_allowed_list");
+//  str_metrics.push_back("Mems_allowed_list");
   str_metrics.push_back("voluntary_ctxt_switches");
   str_metrics.push_back("nonvoluntary_ctxt_switches");
 
@@ -2209,7 +2209,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::track_memory_usage(
 
       const auto w = std::max(k.length(), it->second.length());
       ss_h << setw(w) <<  k << ",";
-      ss   << setw(w) << ::extract_int(it->second) << ",";
+      ss   << setw(w) << ::extract_int(it->second) << ", ";
     }
   }
   for (auto& k : str_metrics) {
@@ -2219,7 +2219,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::track_memory_usage(
 
       const auto w = std::max(k.length(), it->second.length());
       ss_h << setw(w) << k << ",";
-      ss   << setw(w) << it->second << ",";
+      ss   << setw(w) << it->second << ", ";
     }
   }
 
