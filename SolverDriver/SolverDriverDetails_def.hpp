@@ -848,7 +848,16 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
     gblSum.push_back(zero);
   }
 
-  Q   = MultiVectorFactory::Build(orig_X_->getMap(), num_Q, false);
+  std::map<std::string, proc_status_table_type> region_tables;
+
+  out << "Allocating Tpetra multivector"
+      << std::endl;
+
+  track_memory_usage(region_tables["start"]);
+
+  Q   = MultiVectorFactory::Build(orig_X_->getMap(), num_Q);
+
+  track_memory_usage(region_tables["Q Allocation"]);
 
   block_sizes.push_back(int(1));
   block_sizes.push_back(int(2));
@@ -873,6 +882,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
   block_sizes.push_back(int(80));
   block_sizes.push_back(int(90));
   block_sizes.push_back(int(100));
+
 
   // Timestep loop around here
   // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -916,6 +926,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
 //      B   = MultiVectorFactory::Build(orig_B_->getMap(), orig_B_->getNumVectors(), false);
 //      *B  = *orig_B_;
     }
+    track_memory_usage(region_tables[TM_LABEL_COPY]);
     // barrier after the timer scope, this allows the timers to track variations
     comm_->barrier();
 
@@ -933,6 +944,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
       comm_->barrier();
 
     }
+    track_memory_usage(region_tables["OPT::Apply"]);
     // barrier after the timer scope, this allows the timers to track variations
     comm_->barrier();
 
@@ -1558,6 +1570,29 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performSolverExperi
   }
 
   writeTimersForFunAndProfit (fileName);
+
+  for (auto& region_table : region_tables) {
+    out << "Region: " << region_table.first
+        << std::endl;
+
+    std::vector<std::string> cols;
+    for (auto const& table : region_table.second) {
+      cols.push_back(table.first);
+      out << table.first << ",";
+    }
+    out << std::endl;
+
+    auto& table = region_table.second;
+
+    int num_lines = table[cols[0]].size();
+
+    for (int i=0; i < num_lines; ++i) {
+      for (const auto& col_name : cols) {
+        out << table[col_name][i] << ",";
+      }
+      out << std::endl;
+    }
+  }
 }
 
 template<class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
