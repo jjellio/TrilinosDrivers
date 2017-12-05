@@ -328,7 +328,8 @@ private:
   void
   reportBelosSolvers ();
 
-  void track_memory_usage(proc_status_table_type& region_table);
+  void track_memory_usage(proc_status_table_type& region_table,
+                          Teuchos::FancyOStream& out);
 };
 
 

@@ -854,6 +854,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
       << std::endl;
 
   track_memory_usage(region_tables["start"]);
+  out << "";
 
   Q   = MultiVectorFactory::Build(orig_X_->getMap(), num_Q);
 
@@ -2059,6 +2060,15 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::reportBelosSolvers 
  */
 namespace {
 
+  int64_t extract_int(const std::string& line) {
+    int64_t size_kb = -1;
+    std::istringstream iss (line);
+    iss >> size_kb;
+    return size_kb;
+  }
+
+
+  }
   // trim from start (in place)
   void ltrim(std::string &s) {
       s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](int ch) {
@@ -2086,7 +2096,7 @@ namespace {
     return (equal(ending.rbegin(), ending.rend(), value.rbegin()));
   }
 
-  void get_proc_status(std::map<std::string, std::string>& stat_map) {
+  void get_proc_status(std::map<std::string, std::string>& proc_status_map) {
     // read proc
     std::ifstream status_file ("/proc/self/status", std::ios::in);
 
@@ -2112,7 +2122,7 @@ namespace {
       auto val = std::string (line, colon_pos+1);
       ::trim (val);
 
-      stat_map[key] = val;
+      proc_status_map[key] = val;
       /*
        *
         VmPeak:   100956 kB
@@ -2181,20 +2191,88 @@ namespace {
 
 template<class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
 void
-SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::track_memory_usage(proc_status_table_type& region_table)
+SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::track_memory_usage(proc_status_table_type& region_table,
+                                                                                Teuchos::FancyOStream& out)
 {
 
   //Teuchos::ParameterList pl;
-  std::map<std::string, std::string> stat_map;
+  std::map<std::string, std::string> proc_status_map;
 
-  ::get_proc_status(stat_map);
+  ::get_proc_status(proc_status_map);
 
-  for(const auto& elem : stat_map)
+  for(const auto& elem : proc_status_map)
   {
     region_table[elem.first].push_back(elem.second);
   }
 
-}
 
+  /*
+   *
+    VmPeak:   100956 kB
+    VmSize:   100956 kB
+    VmLck:         0 kB
+    VmHWM:       568 kB
+    VmRSS:       568 kB
+    VmData:      176 kB
+    VmStk:        92 kB
+    VmExe:        44 kB
+    VmLib:      1704 kB
+    VmPTE:        48 kB
+    VmSwap:        0 kB
+    Threads:  1
+    Cpus_allowed_list:  0-191
+    Mems_allowed_list:  0-1
+    voluntary_ctxt_switches:  0
+    nonvoluntary_ctxt_switches: 1
+   *
+   */
+  using ss_t = std::stringstream;
+  using std::endl;
+
+  std::vector<std::string> kb_metrics;
+  std::vector<std::string> str_metrics;
+
+  kb_metrics.push_back("VmPeak");
+  kb_metrics.push_back("VmSize");
+  kb_metrics.push_back("VmLck");
+  kb_metrics.push_back("VmHWM");
+  kb_metrics.push_back("VmRSS");
+  kb_metrics.push_back("VmData");
+  kb_metrics.push_back("VmStk");
+  kb_metrics.push_back("VmExe");
+  kb_metrics.push_back("VmLib");
+  kb_metrics.push_back("VmPTE");
+  kb_metrics.push_back("VmSwap");
+  kb_metrics.push_back("RssAnon");
+  kb_metrics.push_back("RssFile");
+  kb_metrics.push_back("RssShmem");
+  kb_metrics.push_back("VmPMD");
+  kb_metrics.push_back("HugetlbPages");
+
+  str_metrics.push_back("Threads");
+  str_metrics.push_back("Cpus_allowed_list");
+  str_metrics.push_back("Mems_allowed_list");
+  str_metrics.push_back("voluntary_ctxt_switches");
+  str_metrics.push_back("nonvoluntary_ctxt_switches");
+
+  ss_t ss_h;
+  ss_t ss;
+  for (auto& k : kb_metrics) {
+    const auto& it = proc_status_map.find(k);
+    if (it != proc_status_map.end()) {
+      ss_h << "\t" << k << ",";
+      ss   << "\t" << ::extract_int(it->second) << ",";
+    }
+  }
+  for (auto& k : str_metrics) {
+    const auto& it = proc_status_map.find(k);
+    if (it != proc_status_map.end()) {
+      ss_h << "\t" << k << ",";
+      ss   << "\t" << it->second << ",";
+    }
+  }
+
+  out << ss_h.str() << endl << ss.str() << endl;
+}
 
 
