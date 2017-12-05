@@ -853,12 +853,12 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
   out << "Allocating Tpetra multivector"
       << std::endl;
 
-  track_memory_usage(region_tables["start"]);
+  track_memory_usage(region_tables["start"], out);
   out << "";
 
   Q   = MultiVectorFactory::Build(orig_X_->getMap(), num_Q);
 
-  track_memory_usage(region_tables["Q Allocation"]);
+  track_memory_usage(region_tables["Q Allocation"], out);
 
   block_sizes.push_back(int(1));
   block_sizes.push_back(int(2));
@@ -927,7 +927,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
 //      B   = MultiVectorFactory::Build(orig_B_->getMap(), orig_B_->getNumVectors(), false);
 //      *B  = *orig_B_;
     }
-    track_memory_usage(region_tables[TM_LABEL_COPY]);
+    track_memory_usage(region_tables[TM_LABEL_COPY], out);
     // barrier after the timer scope, this allows the timers to track variations
     comm_->barrier();
 
@@ -945,7 +945,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
       comm_->barrier();
 
     }
-    track_memory_usage(region_tables["OPT::Apply"]);
+    track_memory_usage(region_tables["OPT::Apply"], out);
     // barrier after the timer scope, this allows the timers to track variations
     comm_->barrier();
 
@@ -1228,7 +1228,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performSolverExperi
 
   std::map<std::string, proc_status_table_type> region_tables;
 
-  track_memory_usage(region_tables["start"]);
+  track_memory_usage(region_tables["start"], out);
   // Timestep loop around here
   // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
   // Run starts here.
@@ -1317,7 +1317,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performSolverExperi
     // barrier after the timer scope, this allows the timers to track variations
     comm_->barrier();
 
-    track_memory_usage(region_tables[TM_LABEL_COPY]);
+    track_memory_usage(region_tables[TM_LABEL_COPY], out);
 
     // ===========================================================================
     // adjust/compute the nullspace
@@ -1411,7 +1411,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performSolverExperi
           H = MueLu::CreateXpetraPreconditioner(A, *pl, coordinates);
         }
 
-        track_memory_usage(region_tables[TM_LABEL_PREC_SETUP]);
+        track_memory_usage(region_tables[TM_LABEL_PREC_SETUP], out);
       }
     }
     // barrier after the timer scope, this allows the timers to track variations
@@ -1466,7 +1466,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performSolverExperi
         solver->setProblem (belosProblem);
       }
 
-      track_memory_usage(region_tables[TM_LABEL_SOLVER_SETUP]);
+      track_memory_usage(region_tables[TM_LABEL_SOLVER_SETUP], out);
     }
     // barrier after the timer scope, this allows the timers to track variations
     comm_->barrier();
@@ -1512,7 +1512,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performSolverExperi
         throw MueLu::Exceptions::RuntimeError("Unknown solver Factory: \"" + solverFactoryName + "\"");
       }
 
-      track_memory_usage(region_tables[TM_LABEL_SOLVE]);
+      track_memory_usage(region_tables[TM_LABEL_SOLVE], out);
     }
     // barrier after the timer scope, this allows the timers to track variations
     comm_->barrier();
