@@ -479,6 +479,9 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::createLinearSystem(
       << endl;
   OSTab tab (out);
 
+  std::map<std::string, proc_status_table_type> region_tables;
+
+  track_memory_usage(region_tables["PreMatrix"], out);
   if (!readMatrixFile) {
     xpetraParameters.describe(out,DESCRIBE_VERB_LEVEL);
     matrixPL.print(out);
@@ -553,8 +556,13 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::createLinearSystem(
     exit(-1);
   }
 
+  track_memory_usage(region_tables["PostMatrix"], out);
+
   X = VectorFactory::Build(map);
   B = VectorFactory::Build(map);
+
+
+  track_memory_usage(region_tables["TwoVectors"], out);
 
   if ( !readRHSFile ) {
     typedef Teuchos::ScalarTraits<SC> STS;
@@ -2064,11 +2072,9 @@ namespace {
     int64_t size_kb = -1;
     std::istringstream iss (line);
     iss >> size_kb;
-    return size_kb;
+    return (size_kb);
   }
 
-
-  }
   // trim from start (in place)
   void ltrim(std::string &s) {
       s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](int ch) {
@@ -2123,67 +2129,6 @@ namespace {
       ::trim (val);
 
       proc_status_map[key] = val;
-      /*
-       *
-        VmPeak:   100956 kB
-        VmSize:   100956 kB
-        VmLck:         0 kB
-        VmHWM:       568 kB
-        VmRSS:       568 kB
-        VmData:      176 kB
-        VmStk:        92 kB
-        VmExe:        44 kB
-        VmLib:      1704 kB
-        VmPTE:        48 kB
-        VmSwap:        0 kB
-        Threads:  1
-        Cpus_allowed_list:  0-191
-        Mems_allowed_list:  0-1
-        voluntary_ctxt_switches:  0
-        nonvoluntary_ctxt_switches: 1
-       *
-        Name:  cat
-        State:  R (running)
-        Tgid: 105980
-        Pid:  105980
-        PPid: 103963
-        TracerPid:  0
-        Uid:  81740 81740 81740 81740
-        Gid:  81740 81740 81740 81740
-        Utrace: 0
-        FDSize: 256
-        Groups: 48 32561 33586 33750 34686 34839 35004 35692 35707 35780 35870 35877 35885 35890 36618 36670 37681 38017 38246 38323 38496 38571 38825 39000 40419 40800 41162 41741 41759 42092 42101 42204 42229 42322 42349 42372 42373 42376 42390 42786 44327 44448 45048 45499 45924 59998 81740 1000011 1000231 1000506 1000728 1000762 1000000567 1000000623 1000000644 1000000793 1000000990 1000002068 1000002253 1000003169 1000003170 1000003181
-        VmPeak:   100956 kB
-        VmSize:   100956 kB
-        VmLck:         0 kB
-        VmHWM:       568 kB
-        VmRSS:       568 kB
-        VmData:      176 kB
-        VmStk:        92 kB
-        VmExe:        44 kB
-        VmLib:      1704 kB
-        VmPTE:        48 kB
-        VmSwap:        0 kB
-        Threads:  1
-        SigQ: 0/515708
-        SigPnd: 0000000000000000
-        ShdPnd: 0000000000000000
-        SigBlk: 0000000000000000
-        SigIgn: 0000000000000000
-        SigCgt: 0000000000000000
-        CapInh: 0000000000000000
-        CapPrm: 0000000000000000
-        CapEff: 0000000000000000
-        CapBnd: ffffffffffffffff
-        Cpus_allowed: ffffffff,ffffffff,ffffffff,ffffffff,ffffffff,ffffffff
-        Cpus_allowed_list:  0-191
-        Mems_allowed: 00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000003
-        Mems_allowed_list:  0-1
-        voluntary_ctxt_switches:  0
-        nonvoluntary_ctxt_switches: 1
-       *
-       */
-
     }
   }
 };
@@ -2260,15 +2205,21 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::track_memory_usage(
   for (auto& k : kb_metrics) {
     const auto& it = proc_status_map.find(k);
     if (it != proc_status_map.end()) {
-      ss_h << "\t" << k << ",";
-      ss   << "\t" << ::extract_int(it->second) << ",";
+      using std::setw;
+
+      const auto w = std::max(k.length(), it->second.length());
+      ss_h << setw(w) <<  k << ",";
+      ss   << setw(w) << ::extract_int(it->second) << ",";
     }
   }
   for (auto& k : str_metrics) {
     const auto& it = proc_status_map.find(k);
     if (it != proc_status_map.end()) {
-      ss_h << "\t" << k << ",";
-      ss   << "\t" << it->second << ",";
+      using std::setw;
+
+      const auto w = std::max(k.length(), it->second.length());
+      ss_h << setw(w) << k << ",";
+      ss   << setw(w) << it->second << ",";
     }
   }
 
