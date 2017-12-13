@@ -79,6 +79,26 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::SolverDriverDetails
   using std::cout;
   using std::endl;
 
+  // Instead of checking each time for rank, create a rank 0 stream
+  RCP<FancyOStream> temp_out_p = fancyOStream(rcpFromRef(cout));
+  FancyOStream& temp_out = *temp_out_p;
+
+  std::map<std::string, proc_status_table_type> region_tables;
+
+  auto temp_comm = Teuchos::DefaultComm<int>::getComm();
+
+  for(int r = 0; r < temp_comm->getSize(); ++r) {
+    if (r == temp_comm->getRank()) {
+
+      temp_out << std::string(60,'-') << std::endl
+               << "Rank: " << r << std::endl;
+      track_memory_usage(region_tables["Program Start"], temp_out);
+      temp_out << std::string(60,'-') << std::endl;
+    }
+
+    temp_comm->barrier();
+  }
+
   GlobalOrdinal nx = 100, ny = 100, nz = 100;
   GaleriParams galeriParameters(clp, nx, ny, nz, "Laplace3D"); // manage parameters of the test case
 
@@ -120,32 +140,32 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::SolverDriverDetails
   nodeLocalComm_ = PerfUtils::getNodeLocalComm_mpi3(comm_);
   nodeComm_      = PerfUtils::getNodeComm(comm_, nodeLocalComm_);
 
-for (int r=0; r < comm_->getSize (); ++r)
-{
-  if (r == comm_->getRank ()) {
-    std::cout << "rank: " << comm_->getRank ()
-              <<  std::endl
-              << "  Node: " << PerfUtils::getHostname ()
-              << endl
-              << "local rank: " << nodeLocalComm_->getRank () << " / " << nodeLocalComm_->getSize ()
-              <<  std::endl
-              << "Node rank: " << nodeComm_->getRank () << " / " << nodeComm_->getSize ()
-              << endl;
+  for (int r=0; r < comm_->getSize (); ++r)
+  {
+    if (r == comm_->getRank ()) {
+      std::cout << "rank: " << comm_->getRank ()
+                <<  std::endl
+                << "  Node: " << PerfUtils::getHostname ()
+                << endl
+                << "local rank: " << nodeLocalComm_->getRank () << " / " << nodeLocalComm_->getSize ()
+                <<  std::endl
+                << "Node rank: " << nodeComm_->getRank () << " / " << nodeComm_->getSize ()
+                << endl;
+    }
+    comm_->barrier ();
   }
-  comm_->barrier ();
-}
-
-  // Instead of checking each time for rank, create a rank 0 stream
-  pOut_ = fancyOStream(rcpFromRef(cout));
-  // Instead of checking each time for rank, create a rank 0 stream
-  pOut_->setOutputToRootOnly(0);
-  FancyOStream& out = *pOut_;
 
   // this needs to be here, because we don't know the template types in main ()
   if (reportSolversAndExit == "Belos") {
     reportBelosSolvers();
     exit(EXIT_SUCCESS);
   }
+
+  // Instead of checking each time for rank, create a rank 0 stream
+  pOut_ = fancyOStream(rcpFromRef(cout));
+  // Instead of checking each time for rank, create a rank 0 stream
+  pOut_->setOutputToRootOnly(0);
+  FancyOStream& out = *pOut_;
 
   if (cores_per_proc_ == -1 || threads_per_core_ == -1) {
     out << "ERROR, --core_per_proc= and --threads_per_core= *must* be set." << endl;
@@ -178,6 +198,24 @@ for (int r=0; r < comm_->getSize (); ++r)
           << std::endl;
   }
   #endif
+  
+  proc_metrics_.push_back("VmPeak");
+  proc_metrics_.push_back("VmSize");
+  proc_metrics_.push_back("VmPin");
+  proc_metrics_.push_back("VmHWM");
+  proc_metrics_.push_back("VmRSS");
+  proc_metrics_.push_back("VmData");
+  proc_metrics_.push_back("VmStk");
+  proc_metrics_.push_back("VmExe");
+  proc_metrics_.push_back("VmPTE");
+  proc_metrics_.push_back("RssAnon");
+  proc_metrics_.push_back("RssFile");
+  proc_metrics_.push_back("RssShmem");
+  proc_metrics_.push_back("VmPMD");
+  proc_metrics_.push_back("HugetlbPages");
+
+  proc_metrics_.push_back("voluntary_ctxt_switches");
+  proc_metrics_.push_back("nonvoluntary_ctxt_switches");
 
   // =========================================================================
   // Problem construction
@@ -482,6 +520,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::createLinearSystem(
   std::map<std::string, proc_status_table_type> region_tables;
 
   track_memory_usage(region_tables["PreMatrix"], out);
+
   if (!readMatrixFile) {
     xpetraParameters.describe(out,DESCRIBE_VERB_LEVEL);
     matrixPL.print(out);
@@ -591,9 +630,11 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::createLinearSystem(
         << endl;
     OSTab tab1 (out);
 
-    A->describe (out, DESCRIBE_VERB_LEVEL);
-    X->describe (out, DESCRIBE_VERB_LEVEL);
-    map->describe (out, DESCRIBE_VERB_LEVEL);
+    if (this->xpetraParams_->GetLib() == Xpetra::UseTpetra) {
+      A->describe (out, DESCRIBE_VERB_LEVEL);
+      X->describe (out, DESCRIBE_VERB_LEVEL);
+      map->describe (out, DESCRIBE_VERB_LEVEL);
+    }
   }
 
   out << "Galeri complete."
@@ -856,7 +897,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performLinearAlgebr
     gblSum.push_back(zero);
   }
 
-  std::map<std::string, proc_status_table_type> region_tables;
+  std::map<std::string, std::vector<proc_status_table_type> > region_tables;
 
   out << "Allocating Tpetra multivector"
       << std::endl;
@@ -1234,7 +1275,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performSolverExperi
   RCP<Time> solverSetupTime_  = TimeMonitor::getNewTimer(TM_LABEL_SOLVER_SETUP);
   RCP<Time> solveTime_        = TimeMonitor::getNewTimer(TM_LABEL_SOLVE);
 
-  std::map<std::string, proc_status_table_type> region_tables;
+  std::map<std::string, std::vector<proc_status_table_type> > region_tables;
 
   track_memory_usage(region_tables["start"], out);
   // Timestep loop around here
@@ -1528,6 +1569,8 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performSolverExperi
 
   }// timestep loop
 
+  track_memory_usage(region_tables["Final"], out);
+
   // report the solver's effective parameters
   if (haveSolver)
   {
@@ -1580,28 +1623,7 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performSolverExperi
 
   writeTimersForFunAndProfit (fileName);
 
-  for (auto& region_table : region_tables) {
-    out << "Region: " << region_table.first
-        << std::endl;
-
-    std::vector<std::string> cols;
-    for (auto const& table : region_table.second) {
-      cols.push_back(table.first);
-      out << table.first << ",";
-    }
-    out << std::endl;
-
-    auto& table = region_table.second;
-
-    int num_lines = table[cols[0]].size();
-
-    for (int i=0; i < num_lines; ++i) {
-      for (const auto& col_name : cols) {
-        out << table[col_name][i] << ",";
-      }
-      out << std::endl;
-    }
-  }
+  report_memory_usage_global(region_tables["Final"].back(), out);
 }
 
 template<class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
@@ -2075,6 +2097,14 @@ namespace {
     return (size_kb);
   }
 
+  double extract_float(const std::string& line) {
+    double size_kb = -1;
+    std::istringstream iss (line);
+    iss >> size_kb;
+    return (size_kb);
+  }
+
+
   // trim from start (in place)
   void ltrim(std::string &s) {
       s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](int ch) {
@@ -2131,12 +2161,78 @@ namespace {
       proc_status_map[key] = val;
     }
   }
+
+  void display_proc_stats(const std::map<std::string, std::string>& proc_status_map,
+                          Teuchos::FancyOStream& out,
+                          const std::vector<std::string>& proc_metrics) {
+
+    // this assumes the proc_metrics are integer types
+    using ss_t = std::stringstream;
+    using std::endl;
+
+    ss_t ss_h;
+    ss_t ss;
+    for (auto& k : proc_metrics) {
+      const auto& it = proc_status_map.find(k);
+      if (it != proc_status_map.end()) {
+        using std::setw;
+
+        const auto w = std::max(k.length(), it->second.length());
+        ss_h << setw(w) <<  k << ", ";
+        ss   << setw(w) << ::extract_int(it->second) << ", ";
+      }
+    }
+    out << ss_h.str() << endl << ss.str() << endl;
+  }
+
+  void display_proc_stats(Teuchos::FancyOStream& out,
+                          const std::vector<std::string>& proc_names,
+                          const std::vector<int64_t>& proc_metrics_min,
+                          const std::vector<int64_t>& proc_metrics_max) {
+
+    // this assumes the proc_metrics are integer types
+    using ss_t = std::stringstream;
+    using std::endl;
+
+    ss_t ss_h;
+    ss_t ss;
+    ss_h << "Min/Max, ";
+    ss << "min, ";
+    for (int i=0; i < proc_names.size(); ++i) {
+      ss_h << proc_names[i] << ", ";
+      ss   << proc_metrics_min[i] << ", ";
+    }
+    ss   << endl;
+
+    ss << "max, ";
+    for (int i=0; i < proc_names.size(); ++i) {
+      ss   << proc_metrics_max[i] << ", ";
+    }
+
+    out << ss_h.str() << endl << ss.str() << endl;
+  }
+
+  void get_proc_numeric_stats(const std::map<std::string, std::string>& proc_status_map,
+                              const std::vector<std::string>& proc_metrics,
+                              std::vector<int64_t>& proc_metrics_i)
+  {
+
+    for (auto& k : proc_metrics) {
+      const auto& it = proc_status_map.find(k);
+      if (it != proc_status_map.end()) {
+        proc_metrics_i.push_back(::extract_int(it->second));
+      }
+      else {
+        proc_metrics_i.push_back(-1);
+      }
+    }
+  }
 };
 
 
 template<class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
 void
-SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::track_memory_usage(proc_status_table_type& region_table,
+SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::track_memory_usage(std::vector<proc_status_table_type>& region_table,
                                                                                 Teuchos::FancyOStream& out)
 {
 
@@ -2145,85 +2241,52 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::track_memory_usage(
 
   ::get_proc_status(proc_status_map);
 
-  for(const auto& elem : proc_status_map)
-  {
-    region_table[elem.first].push_back(elem.second);
-  }
+  region_table.push_back(proc_status_map);
 
 
-  /*
-   *
-    VmPeak:   100956 kB
-    VmSize:   100956 kB
-    VmLck:         0 kB
-    VmHWM:       568 kB
-    VmRSS:       568 kB
-    VmData:      176 kB
-    VmStk:        92 kB
-    VmExe:        44 kB
-    VmLib:      1704 kB
-    VmPTE:        48 kB
-    VmSwap:        0 kB
-    Threads:  1
-    Cpus_allowed_list:  0-191
-    Mems_allowed_list:  0-1
-    voluntary_ctxt_switches:  0
-    nonvoluntary_ctxt_switches: 1
-   *
-   */
-  using ss_t = std::stringstream;
-  using std::endl;
-
-  std::vector<std::string> kb_metrics;
-  std::vector<std::string> str_metrics;
-
-  kb_metrics.push_back("VmPeak");
-  kb_metrics.push_back("VmSize");
-  kb_metrics.push_back("VmPin");
-  kb_metrics.push_back("VmHWM");
-  kb_metrics.push_back("VmRSS");
-  kb_metrics.push_back("VmData");
-  kb_metrics.push_back("VmStk");
-  kb_metrics.push_back("VmExe");
-//  kb_metrics.push_back("VmLib");
-  kb_metrics.push_back("VmPTE");
- // kb_metrics.push_back("VmSwap");
-  kb_metrics.push_back("RssAnon");
-  kb_metrics.push_back("RssFile");
-  kb_metrics.push_back("RssShmem");
-  kb_metrics.push_back("VmPMD");
-  kb_metrics.push_back("HugetlbPages");
-
-  str_metrics.push_back("Threads");
-//  str_metrics.push_back("Cpus_allowed_list");
-//  str_metrics.push_back("Mems_allowed_list");
-  str_metrics.push_back("voluntary_ctxt_switches");
-  str_metrics.push_back("nonvoluntary_ctxt_switches");
-
-  ss_t ss_h;
-  ss_t ss;
-  for (auto& k : kb_metrics) {
-    const auto& it = proc_status_map.find(k);
-    if (it != proc_status_map.end()) {
-      using std::setw;
-
-      const auto w = std::max(k.length(), it->second.length());
-      ss_h << setw(w) <<  k << ",";
-      ss   << setw(w) << ::extract_int(it->second) << ", ";
-    }
-  }
-  for (auto& k : str_metrics) {
-    const auto& it = proc_status_map.find(k);
-    if (it != proc_status_map.end()) {
-      using std::setw;
-
-      const auto w = std::max(k.length(), it->second.length());
-      ss_h << setw(w) << k << ",";
-      ss   << setw(w) << it->second << ", ";
-    }
-  }
-
-  out << ss_h.str() << endl << ss.str() << endl;
+  ::display_proc_stats(proc_status_map, out, proc_metrics_);
 }
+
+template<class Scalar, class LocalOrdinal, class GlobalOrdinal, class Node>
+void
+SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::report_memory_usage_global(
+  const proc_status_table_type& proc_status_map,
+  Teuchos::FancyOStream& out)
+{
+
+  std::vector<int64_t> proc_metrics;
+  std::vector<int64_t> global_metrics_min;
+  std::vector<int64_t> global_metrics_max;
+
+  global_metrics_min.reserve(proc_metrics.size());
+  global_metrics_min.resize(proc_metrics.size());
+
+  global_metrics_max.reserve(proc_metrics.size());
+  global_metrics_max.resize(proc_metrics.size());
+
+  ::get_proc_numeric_stats(proc_status_map,
+                         proc_metrics_,
+                         proc_metrics);
+
+  MPI_Reduce(proc_metrics.data(),
+             global_metrics_min.data(),
+             proc_metrics.size(),
+             MPI_INT64_T,
+             MPI_MIN,
+             0, MPI_COMM_WORLD);
+
+  MPI_Reduce(proc_metrics.data(),
+             global_metrics_max.data(),
+             proc_metrics.size(),
+             MPI_INT64_T,
+             MPI_MAX,
+             0, MPI_COMM_WORLD);
+
+  display_proc_stats(out,
+                     proc_metrics_,
+                     global_metrics_min,
+                     global_metrics_max);
+}
+
 
 

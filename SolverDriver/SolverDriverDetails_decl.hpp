@@ -160,8 +160,7 @@ class SolverDriverDetails
 
   typedef PerfUtils::cpu_map_type cpu_map_type;
 
-  typedef std::vector<std::string> proc_status_column_type;
-  typedef std::map< std::string, proc_status_column_type> proc_status_table_type;
+  typedef std::map<std::string, std::string> proc_status_table_type;
 
   #if defined (HAVE_MUELU_AMGX) and defined (HAVE_MUELU_TPETRA)
     typedef MueLu::AMGXOperator<SC,LO,GO,NO> amgx_op_type;
@@ -263,6 +262,8 @@ private:
   const Teuchos::EVerbosityLevel DESCRIBE_VERB_LEVEL = Teuchos::EVerbosityLevel::VERB_LOW;
 
 
+  std::vector<std::string> proc_metrics_;
+
   void createConfigParameterList (Teuchos::ParameterList& configPL);
 
   void gatherAffinityInfo ();
@@ -328,8 +329,11 @@ private:
   void
   reportBelosSolvers ();
 
-  void track_memory_usage(proc_status_table_type& region_table,
+  void track_memory_usage(std::vector<proc_status_table_type>& region_table,
                           Teuchos::FancyOStream& out);
+
+  void report_memory_usage_global(const proc_status_table_type& proc_status_map,
+                                  Teuchos::FancyOStream& out);
 };
 
 
