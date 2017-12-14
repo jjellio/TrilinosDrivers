@@ -1312,7 +1312,7 @@ def update_decomp_dataframe(decomp_dataframe,
   tmp_df = my_agg_times.merge(ht_group[keys], on='num_nodes', how='left')
   del tmp_df['ticks']
   del tmp_df['flat_mpi_numsteps']
-  del tmp_df['flat_mpi_min']
+  #del tmp_df['flat_mpi_min']
   del tmp_df['flat_mpi_min_count']
   del tmp_df['flat_mpi_max']
   del tmp_df['flat_mpi_max_count']
@@ -1346,6 +1346,9 @@ def update_decomp_dataframe(decomp_dataframe,
   tmp_df['procs_per_node'] = procs_per_node
   tmp_df['cores_per_proc'] = cores_per_proc
   tmp_df[HYPER_THREAD_LABEL] = ht_name
+
+  tmp_df['decomp_label'] = str(procs_per_node) + 'x' + str(cores_per_proc)
+  tmp_df.loc[ tmp_df['execspace_name'] == 'Serial', 'decomp_label'] = 'flat_mpi'
 
   tmp_df['MPI Procs'] = tmp_df['nodes'] * procs_per_node
 
@@ -1626,20 +1629,20 @@ def plot_composite_weak(composite_group,
         
         if PLOTS_TO_GENERATE['bl_perc_diff']:
           my_agg_times['bl_max_diff'] = ((my_agg_times['bl_max'] - my_agg_times[QUANTITY_OF_INTEREST_MAX])
-                                         /my_agg_times['bl_max'])*100
+                                         / my_agg_times['bl_max'])*100
           my_agg_times['bl_min_diff'] = ((my_agg_times['bl_min'] - my_agg_times[QUANTITY_OF_INTEREST_MIN])
-                                         /my_agg_times['bl_min'])*100
+                                         / my_agg_times['bl_min'])*100
 
         if PLOTS_TO_GENERATE['bl_speedup']:
           my_agg_times['bl_speedup_max'] = my_agg_times['bl_max'] / my_agg_times[QUANTITY_OF_INTEREST_MAX]
           my_agg_times['bl_speedup_min'] = my_agg_times['bl_min'] / my_agg_times[QUANTITY_OF_INTEREST_MIN]
 
       # this assumes that idx=0 is an SpMV aggregate figure, which appears to be worthless.
-      if write_latex_and_csv and plot_row == ht_name:
+      if write_latex_and_csv: # and plot_row == ht_name:
         total_df = update_decomp_dataframe(total_df,
                                            my_agg_times,
                                            ht_group,
-                                           ht_name,
+                                           plot_row, #ht_name,
                                            procs_per_node,
                                            cores_per_proc)
 
@@ -2098,6 +2101,48 @@ def plot_composite_weak(composite_group,
                  close_figure=False)
 
   close_figures(figures)
+
+  decomp_labels = total_df['decomp_label'].unique()
+  ind = np.arange(len(decomp_labels))
+  agg_groups = total_df.groupby('nodes')
+  for num_nodes, node_group in agg_groups:
+    node_group.loc[node_group['decomp_label'] == 'flat_mpi', 'maxT'] = 0.0
+    for ht_name, ht_group in node_group.groupby('HT'):
+
+      bl_data = ht_group['bl_max']
+      data = ht_group['maxT']
+      S_data = ht_group['bl_speedup_max']
+
+      fig, ax = plt.subplots()
+      ax.bar(ind, bl_data, 0.35)
+      data_rects = ax.bar(ind+0.35, data, 0.35)
+      """
+      Attach a text label above each bar displaying speedup
+      """
+      for i in range(len(decomp_labels)-1):
+        if ~np.isfinite(S_data[i]):
+          continue
+        print(S_data[i])
+        rect = data_rects[i]
+        height = rect.get_height()
+        ax.text(rect.get_x() + rect.get_width() / 2., 1.05 * height,
+                '{0:.1f}'.format(S_data[i]),
+                ha='center', va='bottom')
+
+      ax.set_ylabel('Time (s) (average)')
+      ax.set_title('{} nodes'.format(num_nodes))
+      ax.set_xticks(ind + 0.35 / 2)
+      ax.set_xticklabels(decomp_labels)
+      ax.legend(['Prior', 'LTG'])
+      fullpath = 'max_only/nodes/{}-{}-{}.{}'.format(simple_fname,
+                                                     num_nodes,
+                                                     ht_name,
+                                                     IMG_FORMAT)
+      fig.savefig(fullpath,
+                 format=IMG_FORMAT,
+                 dpi=IMG_DPI)
+      plt.close(fig)
+      print('wrote: ', fullpath)
 
   total_df['Timer name'] = my_tokens['Timer Name']
   return total_df
