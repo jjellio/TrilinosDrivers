@@ -30,6 +30,7 @@ Usage:
             [--quiet]
             [--img_format=FORMAT]
             [--img_dpi=NUM]
+            [--timer_name_remapping=TIMER_MAPPING_FILE]
 
 
   plotter.py (-h | --help)
@@ -65,6 +66,7 @@ Options:
   --quiet   Be quiet [default: False]
   --img_format=FORMAT  Format of the output images [default: pdf]
   --img_dpi=NUM     DPI of images [default: 150]
+  --timer_name_remapping=TIMER_MAPPING_FILE  List of timer names that should be considered the same
 
 Arguments:
 
@@ -99,6 +101,9 @@ Arguments:
                  none - do not average
 
       FORMAT: png, pdf, ...
+
+      TIMER_MAPPING_FILE: file with each line being a ';' (semicolon) delimited list of similar timer names
+
 
 """
 #import matplotlib as mpl
@@ -327,7 +332,7 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
   DIVIDE_BY_CALLCOUNTS = False
   DIVIDE_BY_NUMSTEPS = False
 
-  have_driver_timings = (driver_groups is not None) and (driver_groups.empty is False)
+  have_driver_timings = (driver_groups is not None)# and (driver_groups.empty is False)
 
   if AVERAGE_BY == 'ns':
     DIVIDE_BY_NUMSTEPS = True
@@ -1469,7 +1474,12 @@ def plot_composite_weak(composite_group,
   # for a specific group of data, compute the scaling terms, which are things like min/max
   # this also flattens the timer creating a 'fat_timer_name'
   # essentially, this function computes data that is relevant to a group, but not the whole
-  my_tokens = SFP.getTokensFromDataFrameGroupBy(composite_group)
+  try:
+    my_tokens = SFP.getTokensFromDataFrameGroupBy(composite_group)
+  except KeyError as k:
+    print(composite_group)
+    raise k
+
   simple_fname = SFP.getScalingFilename(my_tokens,
                                         weak=True,
                                         composite=True,
@@ -2914,6 +2924,7 @@ def load_dataset(dataset_filename,
                  max_num_nodes=1000000,
                  min_procs_per_node=1,
                  max_procs_per_node=1000000,
+                 timer_name_mappings={},
                  demangle_muelu=True):
   """
   Load a CSV datafile. This assumes the data was parsed from YAML using the parser in this directory
@@ -2943,6 +2954,11 @@ def load_dataset(dataset_filename,
 
   if VERBOSITY & 1:
     print('Read csv complete')
+
+  if timer_name_mappings:
+    if VERBOSITY & 1:
+      print('Applying timer label remapping')
+    dataset = adjust_timer_names(dataset, timer_name_mappings)
 
   # integral_columns = SFP.getIndexColumns(execspace_name='OpenMP')
   # non_integral_names = ['Timer Name',
@@ -2982,8 +2998,8 @@ def load_dataset(dataset_filename,
                                 max_procs_per_node=max_procs_per_node)
 
   dataset = dataset.query(restriction_query)
-  dataset = dataset[dataset['procs_per_node'].isin([64, 4])]
-  dataset = dataset[~dataset['num_nodes'].isin([4, 32, 768])]
+  #dataset = dataset[dataset['procs_per_node'].isin([64, 4])]
+  #dataset = dataset[~dataset['num_nodes'].isin([4, 32, 768])]
   if VERBOSITY & 1:
     print('Restricted dataset')
 
@@ -3401,6 +3417,8 @@ def plot_dataset(dataset,
   omp_groupby_columns.remove('execspace_name')
   omp_groupby_columns.remove('numsteps')
 
+  omp_groupby_columns.remove('prec_attributes')
+
   if ordered_timers:
     dataset = dataset[dataset['Timer Name'].isin(ordered_timers)]
 
@@ -3413,6 +3431,12 @@ def plot_dataset(dataset,
 
   annotated_df = pd.DataFrame()
   num_groups = len(composite_groups)
+
+  if num_groups == 0:
+    print("Zero groups!", omp_groupby_columns,ordered_timers)
+    dataset.to_csv('the_data.csv')
+    raise RuntimeError
+
   group_idx = 0
   printProgressBar(group_idx, num_groups, prefix='Progress:', suffix='Complete')
 
@@ -3697,11 +3721,25 @@ def main():
   if _arg_options['--restrict_timer_labels']:
     restrict_timer_labels = _arg_options['--restrict_timer_labels']
 
+  timer_mapping_file = False
+  if _arg_options['--timer_name_remapping']:
+    timer_mapping_file = _arg_options['--timer_name_remapping']
+
   print('study: {study}\nscaling_type: {scaling}\ndataset: {data}'.format(study=study_type,
                                                                           scaling=scaling_study_type,
                                                                           data=dataset_filename))
   print('Max Nodes: {max}\tMin Nodes: {min}'.format(max=max_num_nodes, min=min_num_nodes))
   print('Max PPN: {max}\tMin PPN: {min}'.format(max=max_procs_per_node, min=min_procs_per_node))
+
+  # TODO: Need to create a mapping that will glue timers labels together
+  timer_name_mappings = {}
+  if timer_mapping_file:
+    if VERBOSITY & 64:
+      print('Attempting to remap timer names using: ', timer_mapping_file)
+    timer_name_mappings = read_timer_name_mappings(timer_mapping_file)
+    if not timer_name_mappings:
+      print('Failed to read timer names from file.')
+
   DATASET_FILE = os.path.basename(dataset_filename)
 
   if scaling_study_type == 'weak':
@@ -3709,34 +3747,41 @@ def main():
                                            min_num_nodes=min_num_nodes,
                                            max_num_nodes=max_num_nodes,
                                            min_procs_per_node=min_procs_per_node,
-                                           max_procs_per_node=max_procs_per_node)
+                                           max_procs_per_node=max_procs_per_node,
+                                           timer_name_mappings=timer_name_mappings)
     if HAVE_BASELINE:
       BASELINE_DATASET_DF, BASELINE_DRIVER_DF = load_dataset(dataset_filename=baseline_df_file,
                                                              min_num_nodes=min_num_nodes,
                                                              max_num_nodes=max_num_nodes,
                                                              min_procs_per_node=min_procs_per_node,
-                                                             max_procs_per_node=max_procs_per_node)
+                                                             max_procs_per_node=max_procs_per_node,
+                                                             timer_name_mappings=timer_name_mappings)
   else:
     dataset, driver_dataset = load_dataset(dataset_filename=dataset_filename,
                                            min_num_nodes=0,
                                            max_num_nodes=64,
                                            min_procs_per_node=min_procs_per_node,
-                                           max_procs_per_node=max_procs_per_node)
+                                           max_procs_per_node=max_procs_per_node,
+                                           timer_name_mappings=timer_name_mappings)
 
     if HAVE_BASELINE:
       BASELINE_DATASET_DF, BASELINE_DRIVER_DF = load_dataset(dataset_filename=baseline_df_file,
                                                              min_num_nodes=min_num_nodes,
                                                              max_num_nodes=max_num_nodes,
                                                              min_procs_per_node=min_procs_per_node,
-                                                             max_procs_per_node=max_procs_per_node)
+                                                             max_procs_per_node=max_procs_per_node,
+                                                             timer_name_mappings=timer_name_mappings)
 
   ###########################################################################################################
   # restrict the labels if requested
+  # restriction currently assumes that the timer labels are the same in the baseline
   restricted_timers = dataset['Timer Name'].unique().tolist()
 
   if restrict_timer_labels:
     if restrict_timer_labels == 'muelu_levels':
       restricted_timers = get_muelu_level_timers(timer_names=restricted_timers)
+      if VERBOSITY & 64:
+        print('Restricting timer labels with: ', restrict_timer_labels)
     elif restrict_timer_labels == 'spmv':
       restrict_timer_labels = r'(.*Operation Op\*x.*)|(.*OPT::Apply.*)'
       if VERBOSITY & 64:
@@ -3756,6 +3801,7 @@ def main():
       exit(-1)
 
   dataset = dataset[ dataset['Timer Name'].isin(restricted_timers) ]
+
   if HAVE_BASELINE:
     BASELINE_DATASET_DF = BASELINE_DATASET_DF[ BASELINE_DATASET_DF['Timer Name'].isin(restricted_timers) ]
 
@@ -3765,8 +3811,7 @@ def main():
     total_time_key = '3 - Constructing Preconditioner'
     restriction_tokens = {'solver_name' : 'Constructor',
                           'solver_attributes' : '-Only',
-                          'prec_name' : 'MueLu',
-                          'prec_attributes' : '-repartition'}
+                          'prec_name' : 'MueLu'}
 
   elif study_type == 'linearAlg':
     total_time_key = '0 - Total Time'
@@ -3945,6 +3990,28 @@ def get_muelu_level_timers(timer_names=[],
   return level_timer_names
 
 
+def adjust_timer_names(df, timer_name_mappings):
+  for new_name, other_names in timer_name_mappings.items():
+    for other_name in other_names:
+      if other_name == new_name:
+        continue
+      print(new_name, other_name)
+      df.loc[ df['Timer Name'] == other_name, 'Timer Name'] = new_name
+  return df
+
+
+def read_timer_name_mappings(filename):
+  timer_name_mappings = {}
+  try:
+    with open(filename, 'r') as fin:
+      for line in fin:
+        line = line.strip()
+        timer_names = line.split(';')
+        timer_name_mappings[timer_names[0]] = timer_names
+  except:
+    return timer_name_mappings
+
+  return timer_name_mappings
 ###############################################################################
 if __name__ == '__main__':
   main()
