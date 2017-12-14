@@ -978,7 +978,7 @@ def save_figures(figures,
   except FileNotFoundError or RuntimeError:
     import pylab
     try:
-      figLegend = pylab.figure(figsize=(11, 4))
+      figLegend = pylab.figure(figsize=(12, 1))
       figLegend.legend(handles, labels,
                        title="Procs per Node x Cores per Proc",
                        ncol=ncols,
@@ -986,7 +986,7 @@ def save_figures(figures,
       figLegend.savefig(legend_path,
                         format=IMG_FORMAT,
                         dpi=IMG_DPI)
-
+      plt.close(figLegend)
       if VERBOSITY & 1024:
         print('Wrote: {}'.format(os.path.basename(legend_path)))
     except:
@@ -2108,41 +2108,45 @@ def plot_composite_weak(composite_group,
   for num_nodes, node_group in agg_groups:
     node_group.loc[node_group['decomp_label'] == 'flat_mpi', 'maxT'] = 0.0
     for ht_name, ht_group in node_group.groupby('HT'):
+      try:
+        bl_data = ht_group['bl_max']
+        data = ht_group['maxT']
+        S_data = ht_group['bl_speedup_max'].tolist()
 
-      bl_data = ht_group['bl_max']
-      data = ht_group['maxT']
-      S_data = ht_group['bl_speedup_max']
+        print(S_data)
+        fig, ax = plt.subplots()
+        ax.bar(ind, bl_data, 0.35)
+        data_rects = ax.bar(ind+0.35, data, 0.35)
+        """
+        Attach a text label above each bar displaying speedup
+        """
+        for i in range(len(decomp_labels)-1):
+          if ~np.isfinite(S_data[i]):
+            continue
+          print(S_data[i])
+          rect = data_rects[i]
+          height = rect.get_height()
+          ax.text(rect.get_x() + rect.get_width() / 2., 1.05 * height,
+                  '{0:.1f}'.format(S_data[i]),
+                  ha='center', va='bottom')
 
-      fig, ax = plt.subplots()
-      ax.bar(ind, bl_data, 0.35)
-      data_rects = ax.bar(ind+0.35, data, 0.35)
-      """
-      Attach a text label above each bar displaying speedup
-      """
-      for i in range(len(decomp_labels)-1):
-        if ~np.isfinite(S_data[i]):
-          continue
-        print(S_data[i])
-        rect = data_rects[i]
-        height = rect.get_height()
-        ax.text(rect.get_x() + rect.get_width() / 2., 1.05 * height,
-                '{0:.1f}'.format(S_data[i]),
-                ha='center', va='bottom')
-
-      ax.set_ylabel('Time (s) (average)')
-      ax.set_title('{} nodes'.format(num_nodes))
-      ax.set_xticks(ind + 0.35 / 2)
-      ax.set_xticklabels(decomp_labels)
-      ax.legend(['Prior', 'LTG'])
-      fullpath = 'max_only/nodes/{}-{}-{}.{}'.format(simple_fname,
-                                                     num_nodes,
-                                                     ht_name,
-                                                     IMG_FORMAT)
-      fig.savefig(fullpath,
-                 format=IMG_FORMAT,
-                 dpi=IMG_DPI)
-      plt.close(fig)
-      print('wrote: ', fullpath)
+        ax.set_ylabel('Time (s) (average)')
+        ax.set_title('{} nodes'.format(num_nodes))
+        ax.set_xticks(ind + 0.35 / 2)
+        ax.set_xticklabels(decomp_labels)
+        ax.legend(['Prior', 'LTG'])
+        fullpath = 'max_only/nodes/{}-{}-{}.{}'.format(simple_fname,
+                                                       num_nodes,
+                                                       ht_name,
+                                                       IMG_FORMAT)
+        fig.savefig(fullpath,
+                   format=IMG_FORMAT,
+                   dpi=IMG_DPI)
+        plt.close(fig)
+        print('wrote: ', fullpath)
+      except:
+        print('failed bar chart for nodes=', num_nodes, ' and HT=', ht_name)
+        pass
 
   total_df['Timer name'] = my_tokens['Timer Name']
   return total_df
@@ -3088,6 +3092,9 @@ def load_dataset(dataset_filename,
                                             verify_integrity=True)
   if VERBOSITY & 1:
     print('Rebuilt truncated index')
+
+  dataset = dataset.sort_index(by=index_columns)
+  driver_dataset = driver_dataset.sort_index(by=index_columns)
 
   return dataset, driver_dataset
 
