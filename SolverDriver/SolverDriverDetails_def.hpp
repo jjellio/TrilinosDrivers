@@ -1175,6 +1175,9 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performSolverExperi
   const bool haveSolver = (solverName != "None");
   std::string solver_smart_label;
 
+  typedef Teuchos::ScalarTraits<SC> STS;
+  const SC zero = STS::zero();
+  const SC one  = STS::one();
 
   out << std::string(80,'-')
       << endl
@@ -1223,13 +1226,14 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performSolverExperi
     // The original, and the one Muelu can repartition
     // This allows measuring repartitioning costs, without
     // paying for matrix assembly again.
-    RCP<Matrix> A = Teuchos::null;
-    RCP<MultiVector> coordinates = Teuchos::null;
-    RCP<MultiVector> nullspace= Teuchos::null;
-    RCP<MultiVector> X= Teuchos::null;
-    RCP<MultiVector> B= Teuchos::null;
-    RCP<MultiVector> R0 = Teuchos::null;
-    RCP<const Map>   map= Teuchos::null;
+
+    RCP<Matrix> A = rcp_const_cast<Matrix> (orig_A_);
+    RCP<MultiVector> coordinates = rcp_const_cast<MultiVector> (orig_coordinates_);
+    RCP<MultiVector> nullspace= rcp_const_cast<MultiVector> (orig_nullspace_);;
+    RCP<MultiVector> X= rcp_const_cast<MultiVector> (orig_X_);;
+    RCP<MultiVector> B= rcp_const_cast<MultiVector> (orig_B_);;
+    RCP<MultiVector> R0 = MultiVectorFactory::Build(orig_B_->getMap(), orig_B_->getNumVectors(), false);
+    RCP<const Map>   map= orig_map_;
     RCP<Map>        mapT= Teuchos::null;
 
     // destroy the objects created last pass, if needed
@@ -1255,35 +1259,37 @@ SolverDriverDetails<Scalar,LocalOrdinal,GlobalOrdinal,Node>::performSolverExperi
       // start the clock
       Teuchos::TimeMonitor tm (*copyTime_);
 
-      RCP<Node> dupeNode = rcp (new Node());
 
-      // copying does not set the fixed block size
-      A = MatrixFactory2::BuildCopy(orig_A_);
-
-      if (orig_A_->GetFixedBlockSize() > 1)
-        A->SetFixedBlockSize( orig_A_->GetFixedBlockSize() );
-
-      if (! orig_coordinates_.is_null() ) {
-        coordinates  = MultiVectorFactory::Build(orig_coordinates_->getMap(), orig_coordinates_->getNumVectors(), false);
-        *coordinates = *orig_coordinates_;
-      }
-
-      if (! orig_nullspace_.is_null() ) {
-        nullspace  = MultiVectorFactory::Build(orig_nullspace_->getMap(), orig_nullspace_->getNumVectors(), false);
-        *nullspace = *orig_nullspace_;
-      }
-
-      X   = MultiVectorFactory::Build(orig_X_->getMap(), orig_X_->getNumVectors(), true);
-      B   = MultiVectorFactory::Build(orig_B_->getMap(), orig_B_->getNumVectors(), false);
-      *B  = *orig_B_;
-
-      if (copy_R0) {
-        R0  = MultiVectorFactory::Build(orig_B_->getMap(), orig_B_->getNumVectors(), false);
-        *R0 = *orig_B_;
-      }
-
-      mapT= Xpetra::clone(*orig_map_,dupeNode);
-      map = mapT;;
+      X->putScalar(zero);
+//      RCP<Node> dupeNode = rcp (new Node());
+//
+//      // copying does not set the fixed block size
+//      A = MatrixFactory2::BuildCopy(orig_A_);
+//
+//      if (orig_A_->GetFixedBlockSize() > 1)
+//        A->SetFixedBlockSize( orig_A_->GetFixedBlockSize() );
+//
+//      if (! orig_coordinates_.is_null() ) {
+//        coordinates  = MultiVectorFactory::Build(orig_coordinates_->getMap(), orig_coordinates_->getNumVectors(), false);
+//        *coordinates = *orig_coordinates_;
+//      }
+//
+//      if (! orig_nullspace_.is_null() ) {
+//        nullspace  = MultiVectorFactory::Build(orig_nullspace_->getMap(), orig_nullspace_->getNumVectors(), false);
+//        *nullspace = *orig_nullspace_;
+//      }
+//
+//      X   = MultiVectorFactory::Build(orig_X_->getMap(), orig_X_->getNumVectors(), true);
+//      B   = MultiVectorFactory::Build(orig_B_->getMap(), orig_B_->getNumVectors(), false);
+//      *B  = *orig_B_;
+//
+//      if (copy_R0) {
+//        R0  = MultiVectorFactory::Build(orig_B_->getMap(), orig_B_->getNumVectors(), false);
+//        *R0 = *orig_B_;
+//      }
+//
+//      mapT= Xpetra::clone(*orig_map_,dupeNode);
+//      map = mapT;;
 /*
 
       A = Teuchos::rcp_const_cast<Matrix> (orig_A_);

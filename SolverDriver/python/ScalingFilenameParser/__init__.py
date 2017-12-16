@@ -387,6 +387,9 @@ class ScalingFileNameParser:
     return data_orig_filename_fmt.format(**my_tokens)
 
   def updateScalingTerms(self, my_tokens, scaling_dict_terms):
+    # if scaling_dict is empty, then we do not need to figure out min/max values
+    # if the dict contains items, then assume these lookups will work, and allow an error
+    # if the dict is missing the required items
     if not scaling_dict_terms:
       # extract scaling measures that are needed for filename construction
       scaling_dict_terms['min_num_mpi_procs'] = int(my_tokens['num_mpi_procs'])
@@ -412,6 +415,8 @@ class ScalingFileNameParser:
 
       scaling_dict_terms['min_problem_nz'] = int(my_tokens['problem_nx'])
       scaling_dict_terms['max_problem_nz'] = int(my_tokens['problem_nz'])
+      # add all other items from the tokens to the dict
+      scaling_dict_terms.update(my_tokens)
     else:
       # extract scaling measures that are needed for filename construction
       scaling_dict_terms['min_num_mpi_procs'] = min(scaling_dict_terms['min_num_mpi_procs'],
@@ -453,7 +458,6 @@ class ScalingFileNameParser:
                                                  int(my_tokens['problem_nx']))
       scaling_dict_terms['max_problem_nz'] = max(scaling_dict_terms['max_problem_nz'],
                                                  int(my_tokens['problem_nz']))
-      scaling_dict_terms.update(my_tokens)
     #
     # # construct a label for this data
     # xlabel_str = "{num_nodes}\n({num_mpi_procs})".format(**my_tokens)
@@ -483,7 +487,16 @@ class ScalingFileNameParser:
         except ValueError:
           continue
 
-    timer_name = scaling_dict_terms['Timer Name']
+    try:
+      timer_name = scaling_dict_terms['Timer Name']
+    except KeyError as k:
+      print("Failed to find 'Timer Name' in the parsed dataframe.")
+      print("What we obtained from our parsing of the dataframe:")
+      print(scaling_dict_terms)
+      print('The dataframe as a record:')
+      print(dataframe_group.to_dict(orient='records'))
+      raise k
+
     flat_timer_name = re.sub(r'[: &]', '-', timer_name)
     flat_timer_name = re.sub(r"[',%#@!^{}()/\\\"*?<>|]", '', flat_timer_name)
     flat_timer_name = re.sub('=+', '-', flat_timer_name)

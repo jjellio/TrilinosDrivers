@@ -30,6 +30,7 @@ Usage:
             [--quiet]
             [--img_format=FORMAT]
             [--img_dpi=NUM]
+            [--timer_name_remapping=TIMER_MAPPING_FILE]
 
 
   plotter.py (-h | --help)
@@ -65,6 +66,7 @@ Options:
   --quiet   Be quiet [default: False]
   --img_format=FORMAT  Format of the output images [default: pdf]
   --img_dpi=NUM     DPI of images [default: 150]
+  --timer_name_remapping=TIMER_MAPPING_FILE  List of timer names that should be considered the same
 
 Arguments:
 
@@ -99,6 +101,9 @@ Arguments:
                  none - do not average
 
       FORMAT: png, pdf, ...
+
+      TIMER_MAPPING_FILE: file with each line being a ';' (semicolon) delimited list of similar timer names
+
 
 """
 #import matplotlib as mpl
@@ -327,7 +332,7 @@ def get_plottable_dataframe(plottable_df, data_group, data_name, driver_groups, 
   DIVIDE_BY_CALLCOUNTS = False
   DIVIDE_BY_NUMSTEPS = False
 
-  have_driver_timings = (driver_groups is not None) and (driver_groups.empty is False)
+  have_driver_timings = (driver_groups is not None)# and (driver_groups.empty is False)
 
   if AVERAGE_BY == 'ns':
     DIVIDE_BY_NUMSTEPS = True
@@ -973,7 +978,7 @@ def save_figures(figures,
   except FileNotFoundError or RuntimeError:
     import pylab
     try:
-      figLegend = pylab.figure(figsize=(11, 4))
+      figLegend = pylab.figure(figsize=(12, 1))
       figLegend.legend(handles, labels,
                        title="Procs per Node x Cores per Proc",
                        ncol=ncols,
@@ -981,7 +986,7 @@ def save_figures(figures,
       figLegend.savefig(legend_path,
                         format=IMG_FORMAT,
                         dpi=IMG_DPI)
-
+      plt.close(figLegend)
       if VERBOSITY & 1024:
         print('Wrote: {}'.format(os.path.basename(legend_path)))
     except:
@@ -1307,7 +1312,7 @@ def update_decomp_dataframe(decomp_dataframe,
   tmp_df = my_agg_times.merge(ht_group[keys], on='num_nodes', how='left')
   del tmp_df['ticks']
   del tmp_df['flat_mpi_numsteps']
-  del tmp_df['flat_mpi_min']
+  #del tmp_df['flat_mpi_min']
   del tmp_df['flat_mpi_min_count']
   del tmp_df['flat_mpi_max']
   del tmp_df['flat_mpi_max_count']
@@ -1341,6 +1346,9 @@ def update_decomp_dataframe(decomp_dataframe,
   tmp_df['procs_per_node'] = procs_per_node
   tmp_df['cores_per_proc'] = cores_per_proc
   tmp_df[HYPER_THREAD_LABEL] = ht_name
+
+  tmp_df['decomp_label'] = str(procs_per_node) + 'x' + str(cores_per_proc)
+  tmp_df.loc[ tmp_df['execspace_name'] == 'Serial', 'decomp_label'] = 'flat_mpi'
 
   tmp_df['MPI Procs'] = tmp_df['nodes'] * procs_per_node
 
@@ -1469,7 +1477,12 @@ def plot_composite_weak(composite_group,
   # for a specific group of data, compute the scaling terms, which are things like min/max
   # this also flattens the timer creating a 'fat_timer_name'
   # essentially, this function computes data that is relevant to a group, but not the whole
-  my_tokens = SFP.getTokensFromDataFrameGroupBy(composite_group)
+  try:
+    my_tokens = SFP.getTokensFromDataFrameGroupBy(composite_group)
+  except KeyError as k:
+    print(composite_group)
+    raise k
+
   simple_fname = SFP.getScalingFilename(my_tokens,
                                         weak=True,
                                         composite=True,
@@ -1616,20 +1629,20 @@ def plot_composite_weak(composite_group,
         
         if PLOTS_TO_GENERATE['bl_perc_diff']:
           my_agg_times['bl_max_diff'] = ((my_agg_times['bl_max'] - my_agg_times[QUANTITY_OF_INTEREST_MAX])
-                                         /my_agg_times['bl_max'])*100
+                                         / my_agg_times['bl_max'])*100
           my_agg_times['bl_min_diff'] = ((my_agg_times['bl_min'] - my_agg_times[QUANTITY_OF_INTEREST_MIN])
-                                         /my_agg_times['bl_min'])*100
+                                         / my_agg_times['bl_min'])*100
 
         if PLOTS_TO_GENERATE['bl_speedup']:
           my_agg_times['bl_speedup_max'] = my_agg_times['bl_max'] / my_agg_times[QUANTITY_OF_INTEREST_MAX]
           my_agg_times['bl_speedup_min'] = my_agg_times['bl_min'] / my_agg_times[QUANTITY_OF_INTEREST_MIN]
 
       # this assumes that idx=0 is an SpMV aggregate figure, which appears to be worthless.
-      if write_latex_and_csv and plot_row == ht_name:
+      if write_latex_and_csv: # and plot_row == ht_name:
         total_df = update_decomp_dataframe(total_df,
                                            my_agg_times,
                                            ht_group,
-                                           ht_name,
+                                           plot_row, #ht_name,
                                            procs_per_node,
                                            cores_per_proc)
 
@@ -2088,6 +2101,52 @@ def plot_composite_weak(composite_group,
                  close_figure=False)
 
   close_figures(figures)
+
+  decomp_labels = total_df['decomp_label'].unique()
+  ind = np.arange(len(decomp_labels))
+  agg_groups = total_df.groupby('nodes')
+  for num_nodes, node_group in agg_groups:
+    node_group.loc[node_group['decomp_label'] == 'flat_mpi', 'maxT'] = 0.0
+    for ht_name, ht_group in node_group.groupby('HT'):
+      try:
+        bl_data = ht_group['bl_max']
+        data = ht_group['maxT']
+        S_data = ht_group['bl_speedup_max'].tolist()
+
+        print(S_data)
+        fig, ax = plt.subplots()
+        ax.bar(ind, bl_data, 0.35)
+        data_rects = ax.bar(ind+0.35, data, 0.35)
+        """
+        Attach a text label above each bar displaying speedup
+        """
+        for i in range(len(decomp_labels)-1):
+          if ~np.isfinite(S_data[i]):
+            continue
+          print(S_data[i])
+          rect = data_rects[i]
+          height = rect.get_height()
+          ax.text(rect.get_x() + rect.get_width() / 2., 1.05 * height,
+                  '{0:.1f}'.format(S_data[i]),
+                  ha='center', va='bottom')
+
+        ax.set_ylabel('Time (s) (average)')
+        ax.set_title('{} nodes'.format(num_nodes))
+        ax.set_xticks(ind + 0.35 / 2)
+        ax.set_xticklabels(decomp_labels)
+        ax.legend(['Prior', 'LTG'])
+        fullpath = 'max_only/nodes/{}-{}-{}.{}'.format(simple_fname,
+                                                       num_nodes,
+                                                       ht_name,
+                                                       IMG_FORMAT)
+        fig.savefig(fullpath,
+                   format=IMG_FORMAT,
+                   dpi=IMG_DPI)
+        plt.close(fig)
+        print('wrote: ', fullpath)
+      except:
+        print('failed bar chart for nodes=', num_nodes, ' and HT=', ht_name)
+        pass
 
   total_df['Timer name'] = my_tokens['Timer Name']
   return total_df
@@ -2914,6 +2973,7 @@ def load_dataset(dataset_filename,
                  max_num_nodes=1000000,
                  min_procs_per_node=1,
                  max_procs_per_node=1000000,
+                 timer_name_mappings={},
                  demangle_muelu=True):
   """
   Load a CSV datafile. This assumes the data was parsed from YAML using the parser in this directory
@@ -2943,6 +3003,11 @@ def load_dataset(dataset_filename,
 
   if VERBOSITY & 1:
     print('Read csv complete')
+
+  if timer_name_mappings:
+    if VERBOSITY & 1:
+      print('Applying timer label remapping')
+    dataset = adjust_timer_names(dataset, timer_name_mappings)
 
   # integral_columns = SFP.getIndexColumns(execspace_name='OpenMP')
   # non_integral_names = ['Timer Name',
@@ -2982,8 +3047,8 @@ def load_dataset(dataset_filename,
                                 max_procs_per_node=max_procs_per_node)
 
   dataset = dataset.query(restriction_query)
-  dataset = dataset[dataset['procs_per_node'].isin([64, 4])]
-  dataset = dataset[~dataset['num_nodes'].isin([4, 32, 768])]
+  #dataset = dataset[dataset['procs_per_node'].isin([64, 4])]
+  #dataset = dataset[~dataset['num_nodes'].isin([4, 32, 768])]
   if VERBOSITY & 1:
     print('Restricted dataset')
 
@@ -3027,6 +3092,9 @@ def load_dataset(dataset_filename,
                                             verify_integrity=True)
   if VERBOSITY & 1:
     print('Rebuilt truncated index')
+
+  dataset = dataset.sort_index(by=index_columns)
+  driver_dataset = driver_dataset.sort_index(by=index_columns)
 
   return dataset, driver_dataset
 
@@ -3401,6 +3469,8 @@ def plot_dataset(dataset,
   omp_groupby_columns.remove('execspace_name')
   omp_groupby_columns.remove('numsteps')
 
+  omp_groupby_columns.remove('prec_attributes')
+
   if ordered_timers:
     dataset = dataset[dataset['Timer Name'].isin(ordered_timers)]
 
@@ -3413,6 +3483,12 @@ def plot_dataset(dataset,
 
   annotated_df = pd.DataFrame()
   num_groups = len(composite_groups)
+
+  if num_groups == 0:
+    print("Zero groups!", omp_groupby_columns,ordered_timers)
+    dataset.to_csv('the_data.csv')
+    raise RuntimeError
+
   group_idx = 0
   printProgressBar(group_idx, num_groups, prefix='Progress:', suffix='Complete')
 
@@ -3697,11 +3773,25 @@ def main():
   if _arg_options['--restrict_timer_labels']:
     restrict_timer_labels = _arg_options['--restrict_timer_labels']
 
+  timer_mapping_file = False
+  if _arg_options['--timer_name_remapping']:
+    timer_mapping_file = _arg_options['--timer_name_remapping']
+
   print('study: {study}\nscaling_type: {scaling}\ndataset: {data}'.format(study=study_type,
                                                                           scaling=scaling_study_type,
                                                                           data=dataset_filename))
   print('Max Nodes: {max}\tMin Nodes: {min}'.format(max=max_num_nodes, min=min_num_nodes))
   print('Max PPN: {max}\tMin PPN: {min}'.format(max=max_procs_per_node, min=min_procs_per_node))
+
+  # TODO: Need to create a mapping that will glue timers labels together
+  timer_name_mappings = {}
+  if timer_mapping_file:
+    if VERBOSITY & 64:
+      print('Attempting to remap timer names using: ', timer_mapping_file)
+    timer_name_mappings = read_timer_name_mappings(timer_mapping_file)
+    if not timer_name_mappings:
+      print('Failed to read timer names from file.')
+
   DATASET_FILE = os.path.basename(dataset_filename)
 
   if scaling_study_type == 'weak':
@@ -3709,34 +3799,41 @@ def main():
                                            min_num_nodes=min_num_nodes,
                                            max_num_nodes=max_num_nodes,
                                            min_procs_per_node=min_procs_per_node,
-                                           max_procs_per_node=max_procs_per_node)
+                                           max_procs_per_node=max_procs_per_node,
+                                           timer_name_mappings=timer_name_mappings)
     if HAVE_BASELINE:
       BASELINE_DATASET_DF, BASELINE_DRIVER_DF = load_dataset(dataset_filename=baseline_df_file,
                                                              min_num_nodes=min_num_nodes,
                                                              max_num_nodes=max_num_nodes,
                                                              min_procs_per_node=min_procs_per_node,
-                                                             max_procs_per_node=max_procs_per_node)
+                                                             max_procs_per_node=max_procs_per_node,
+                                                             timer_name_mappings=timer_name_mappings)
   else:
     dataset, driver_dataset = load_dataset(dataset_filename=dataset_filename,
                                            min_num_nodes=0,
                                            max_num_nodes=64,
                                            min_procs_per_node=min_procs_per_node,
-                                           max_procs_per_node=max_procs_per_node)
+                                           max_procs_per_node=max_procs_per_node,
+                                           timer_name_mappings=timer_name_mappings)
 
     if HAVE_BASELINE:
       BASELINE_DATASET_DF, BASELINE_DRIVER_DF = load_dataset(dataset_filename=baseline_df_file,
                                                              min_num_nodes=min_num_nodes,
                                                              max_num_nodes=max_num_nodes,
                                                              min_procs_per_node=min_procs_per_node,
-                                                             max_procs_per_node=max_procs_per_node)
+                                                             max_procs_per_node=max_procs_per_node,
+                                                             timer_name_mappings=timer_name_mappings)
 
   ###########################################################################################################
   # restrict the labels if requested
+  # restriction currently assumes that the timer labels are the same in the baseline
   restricted_timers = dataset['Timer Name'].unique().tolist()
 
   if restrict_timer_labels:
     if restrict_timer_labels == 'muelu_levels':
       restricted_timers = get_muelu_level_timers(timer_names=restricted_timers)
+      if VERBOSITY & 64:
+        print('Restricting timer labels with: ', restrict_timer_labels)
     elif restrict_timer_labels == 'spmv':
       restrict_timer_labels = r'(.*Operation Op\*x.*)|(.*OPT::Apply.*)'
       if VERBOSITY & 64:
@@ -3756,6 +3853,7 @@ def main():
       exit(-1)
 
   dataset = dataset[ dataset['Timer Name'].isin(restricted_timers) ]
+
   if HAVE_BASELINE:
     BASELINE_DATASET_DF = BASELINE_DATASET_DF[ BASELINE_DATASET_DF['Timer Name'].isin(restricted_timers) ]
 
@@ -3765,8 +3863,7 @@ def main():
     total_time_key = '3 - Constructing Preconditioner'
     restriction_tokens = {'solver_name' : 'Constructor',
                           'solver_attributes' : '-Only',
-                          'prec_name' : 'MueLu',
-                          'prec_attributes' : '-repartition'}
+                          'prec_name' : 'MueLu'}
 
   elif study_type == 'linearAlg':
     total_time_key = '0 - Total Time'
@@ -3945,6 +4042,28 @@ def get_muelu_level_timers(timer_names=[],
   return level_timer_names
 
 
+def adjust_timer_names(df, timer_name_mappings):
+  for new_name, other_names in timer_name_mappings.items():
+    for other_name in other_names:
+      if other_name == new_name:
+        continue
+      print(new_name, other_name)
+      df.loc[ df['Timer Name'] == other_name, 'Timer Name'] = new_name
+  return df
+
+
+def read_timer_name_mappings(filename):
+  timer_name_mappings = {}
+  try:
+    with open(filename, 'r') as fin:
+      for line in fin:
+        line = line.strip()
+        timer_names = line.split(';')
+        timer_name_mappings[timer_names[0]] = timer_names
+  except:
+    return timer_name_mappings
+
+  return timer_name_mappings
 ###############################################################################
 if __name__ == '__main__':
   main()
