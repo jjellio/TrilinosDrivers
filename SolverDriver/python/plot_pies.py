@@ -107,7 +107,7 @@ Arguments:
 
 """
 import matplotlib as mpl
-mpl.use('MacOSX')
+#mpl.use('MacOSX')
 
 from docopt import docopt
 import matplotlib.pyplot as plt
@@ -778,21 +778,19 @@ def plot_dataset(dataset,
       # with c columns in each sub list.
       labels = []
       table_rows = []
-      for row_name in TABLE_ROW_NAMES:
-        table_row = []
-        tmp_df = ht_group.pivot(index='Timer Name', columns='decomp_label', values=row_name)
-        for decomp_label in decomp_labels:
-          for timer_name in ordered_timers:
-            text_label = ''
+      for decomp_label in decomp_labels:
+        for timer_name in ordered_timers:
+          text_label = ''
+          for row_name in TABLE_ROW_NAMES:
+            tmp_df = ht_group.pivot(index='Timer Name', columns='decomp_label', values=row_name)
             try:
-              table_row.append('{:.1%}'.format(tmp_df.loc[timer_name, decomp_label]))
               text_label += '{:.1%}\n'.format(tmp_df.loc[timer_name, decomp_label])
             except KeyError:
-              table_row.append(np.NaN)
               text_label += '\n'
-            labels.append(text_label)
+          print('-------', text_label)
+          labels.append(text_label)
 
-        table_rows.append(table_row)
+       # table_rows.append(table_row)
 
       # the_table = plt.table(cellText=table_rows,
       #                       rowLabels=TABLE_ROW_NAMES,
@@ -801,13 +799,10 @@ def plot_dataset(dataset,
       #
       # the_table.set_fontsize(14)
       rects = ax.patches
-
-      # Now make some labels
-      labels = []
-
       for rect, label in zip(rects, labels):
         height = rect.get_height()
-        ax.text(rect.get_x() + rect.get_width() / 2, height + 5, label, ha='center', va='bottom')
+        ax.text(rect.get_x() + rect.get_width() / 2, height + 5, label,
+                multialignment='center', ha='center', va='bottom')
 
       ax.set_ylim([y_min, y_max])
       ax.set_yscale('log', basey=2)
