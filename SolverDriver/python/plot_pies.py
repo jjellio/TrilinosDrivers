@@ -107,7 +107,7 @@ Arguments:
 
 """
 import matplotlib as mpl
-#mpl.use('MacOSX')
+mpl.use('MacOSX')
 
 from docopt import docopt
 import matplotlib.pyplot as plt
@@ -716,7 +716,7 @@ def plot_dataset(dataset,
   data_by_node_count_groups = dataset.groupby('num_nodes')
   for node_count, node_group in data_by_node_count_groups:
 
-    y_max = np.power(2, np.ceil(np.log2(node_group['normalized_minT'].max())))
+    y_max = np.power(2, 1 + np.ceil(np.log2(node_group['normalized_minT'].max())))
     y_min = np.power(2.0, -4)
     ht_groups = node_group.groupby('threads_per_core')
     for threads_per_core, ht_group in ht_groups:
@@ -734,6 +734,32 @@ def plot_dataset(dataset,
       df = df[decomp_labels]
 
       df = df.reindex(ordered_timers)
+
+      # add the percentages
+      # plt.table expects a list of lists corresponding to r lists (rows)
+      # with c columns in each sub list.
+      data_labels = []
+      table_rows = []
+      for timer_name in ordered_timers:
+        for decomp_label in decomp_labels:
+          text_label = ''
+          try:
+            if (df.loc[timer_name, decomp_label] > df.loc[timer_name, 'flat_mpi']) and (df.loc[timer_name, decomp_label] > 1.3):
+              for row_name in TABLE_ROW_NAMES:
+                tmp_df = ht_group.pivot(index='Timer Name', columns='decomp_label', values=row_name)
+                try:
+                  if tmp_df.loc[timer_name, decomp_label] > 0.005:
+                    text_label += '{:.0%}\n'.format(tmp_df.loc[timer_name, decomp_label])
+                except KeyError:
+                  text_label += '\n'
+            else:
+              print('skipping ', df.loc[timer_name, decomp_label])
+            print('-------', text_label)
+            data_labels.append(text_label)
+          except KeyError:
+            print('failed timer name lookup: ', timer_name)
+            data_labels.append(text_label)
+
       xcoords = []
       prior_coord = 0.0
       bar_width = 1.8
@@ -773,23 +799,6 @@ def plot_dataset(dataset,
       ax.set_title('MMM, A*P-1, (Nodes={nodes}, HT={ht})'.format(nodes=node_count,
                                                                  ht=threads_per_core))
 
-      # add the percentages
-      # plt.table expects a list of lists corresponding to r lists (rows)
-      # with c columns in each sub list.
-      labels = []
-      table_rows = []
-      for decomp_label in decomp_labels:
-        for timer_name in ordered_timers:
-          text_label = ''
-          for row_name in TABLE_ROW_NAMES:
-            tmp_df = ht_group.pivot(index='Timer Name', columns='decomp_label', values=row_name)
-            try:
-              text_label += '{:.1%}\n'.format(tmp_df.loc[timer_name, decomp_label])
-            except KeyError:
-              text_label += '\n'
-          print('-------', text_label)
-          labels.append(text_label)
-
        # table_rows.append(table_row)
 
       # the_table = plt.table(cellText=table_rows,
@@ -799,10 +808,12 @@ def plot_dataset(dataset,
       #
       # the_table.set_fontsize(14)
       rects = ax.patches
-      for rect, label in zip(rects, labels):
+      rects.sort(key=lambda x: x.get_x())
+      prior_height = 0
+      for rect, label in zip(rects, data_labels):
         height = rect.get_height()
         ax.text(rect.get_x() + rect.get_width() / 2, height + 5, label,
-                multialignment='center', ha='center', va='bottom')
+                multialignment='left', ha='center', va='bottom')
 
       ax.set_ylim([y_min, y_max])
       ax.set_yscale('log', basey=2)
@@ -814,9 +825,15 @@ def plot_dataset(dataset,
       h.savefig(fname, format=IMG_FORMAT, dpi=IMG_DPI)
       plt.show(block=True)
       plt.close(h)
+      #
+      # stat_df = pd.DataFrame()
+      # for stat in TABLE_ROW_NAMES:
+      #   df = ht_group.pivot(index='Timer Name', columns='decomp_label', values=stat)
+      #   stat_df = pd.concat([stat_df,df])
+      # stat_df.to_csv('test.csv', index=True)
 
       print('Wrote: ', fname)
-
+      exit(-1)
 
 ###############################################################################
 def main():
