@@ -280,7 +280,7 @@ def gather_timer_name_sets_from_logfile(logfile):
   import re
   from copy import deepcopy
 
-  PARSER_DEBUG = True
+  PARSER_DEBUG = False
 
   # we form N number of sets (lists technically)
   set_counter = 0
@@ -405,6 +405,7 @@ def gather_timer_name_sets_from_logfile(logfile):
         # Global time (num calls)
         if four_column_header_re.match(line):
           in_teuchos_four_timer_output_block = True
+          print('Expecting four region block')
           # start a region, so start a new set for these timer labels
           sets[set_counter] = deepcopy(yaml_four_data)
           sets[set_counter]['Number of processes'] = teuchos_num_procs
@@ -414,6 +415,7 @@ def gather_timer_name_sets_from_logfile(logfile):
           continue
         elif single_column_header_re.match(line):
           in_teuchos_single_timer_output_block = True
+          print('Expecting single region block')
           # start a region, so start a new set for these timer labels
           sets[set_counter] = deepcopy(yaml_single_data)
           sets[set_counter]['Number of processes'] = teuchos_num_procs
@@ -422,6 +424,7 @@ def gather_timer_name_sets_from_logfile(logfile):
           continue
         else:
           # abort, this is not a timer region
+          print('Line: ', line, ' Did not match anything')
           teuchos_num_procs = 0
           timer_region_line_counter = 0
           continue
@@ -504,6 +507,7 @@ def gather_timer_name_sets_from_logfile(logfile):
 
       raw_text_lines.append(line)
       timer_region_line_counter += 1
+
   return sets
 
 
